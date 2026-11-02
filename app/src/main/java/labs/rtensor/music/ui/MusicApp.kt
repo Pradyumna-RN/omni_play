@@ -12,6 +12,7 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -126,6 +127,11 @@ fun MusicTheme(theme: String = "light", content: @Composable () -> Unit) {
     )
 }
 
+private val LocalReducedMotion = staticCompositionLocalOf { false }
+
+@Composable
+private fun LazyItemScope.motionModifier(): Modifier = if (LocalReducedMotion.current) Modifier else Modifier.animateItem()
+
 private val rootPages = listOf("home", "explore", "saved")
 
 @Composable
@@ -176,69 +182,71 @@ fun MusicApp(
     // Keep the last track while the mini player animates away.
     var lastTrack by remember { mutableStateOf(state.current) }
     if (state.current != null) lastTrack = state.current
-    MusicTheme(state.theme) {
-        Scaffold(
-            topBar = {
-                AppHeader(page, onHome = { navigate("home") }, onSettings = { navigate("settings") }, onBack = {
-                    page = when (page) { "queue" -> "now"; "now" -> back; else -> root }
-                })
-            },
-            bottomBar = {
-                if (page in rootPages + "collection") {
-                    Column(Modifier.navigationBarsPadding()) {
-                        AnimatedVisibility(
-                            visible = state.current != null,
-                            enter = if (reduced) EnterTransition.None else slideInVertically(tween(360, easing = EmphasizedDecelerate)) { it } + fadeIn(tween(240)),
-                            exit = if (reduced) ExitTransition.None else slideOutVertically(tween(200, easing = EmphasizedAccelerate)) { it } + fadeOut(tween(160)),
-                        ) {
-                            lastTrack?.let { MiniPlayer(state.copy(current = it), { navigate("now") }, onToggle, onNext) }
+    CompositionLocalProvider(LocalReducedMotion provides reduced) {
+        MusicTheme(state.theme) {
+            Scaffold(
+                topBar = {
+                    AppHeader(page, onHome = { navigate("home") }, onSettings = { navigate("settings") }, onBack = {
+                        page = when (page) { "queue" -> "now"; "now" -> back; else -> root }
+                    })
+                },
+                bottomBar = {
+                    if (page in rootPages + "collection") {
+                        Column(Modifier.navigationBarsPadding()) {
+                            AnimatedVisibility(
+                                visible = state.current != null,
+                                enter = if (reduced) EnterTransition.None else slideInVertically(tween(360, easing = EmphasizedDecelerate)) { it } + fadeIn(tween(240)),
+                                exit = if (reduced) ExitTransition.None else slideOutVertically(tween(200, easing = EmphasizedAccelerate)) { it } + fadeOut(tween(160)),
+                            ) {
+                                lastTrack?.let { MiniPlayer(state.copy(current = it), { navigate("now") }, onToggle, onNext) }
+                            }
+                            AppNavigation(if (page == "collection") root else page, reduced, ::navigate)
                         }
-                        AppNavigation(if (page == "collection") root else page, reduced, ::navigate)
+                    } else Spacer(Modifier.navigationBarsPadding())
+                },
+                contentWindowInsets = WindowInsets(0, 0, 0, 0),
+                containerColor = MaterialTheme.colorScheme.background,
+            ) { inset ->
+                Column(Modifier.fillMaxSize().padding(inset)) {
+                    if (page in rootPages) SearchBar(state, onQuery, onSearch, searchFocus)
+                    var lastError by remember { mutableStateOf(state.error) }
+                    if (state.error != null) lastError = state.error
+                    AnimatedVisibility(
+                        visible = state.error != null,
+                        enter = if (reduced) EnterTransition.None else expandVertically(tween(260, easing = Standard)) + fadeIn(tween(200, 60)),
+                        exit = if (reduced) ExitTransition.None else shrinkVertically(tween(220, easing = Standard)) + fadeOut(tween(120)),
+                    ) {
+                        ErrorBanner(lastError.orEmpty(), onDismissError,
+                            if (state.searched && page in rootPages) onSearch else if (page == "collection") onRetryCollection else onRetry,
+                            state.errorDiagnostic, state.current?.id.orEmpty())
                     }
-                } else Spacer(Modifier.navigationBarsPadding())
-            },
-            contentWindowInsets = WindowInsets(0, 0, 0, 0),
-            containerColor = MaterialTheme.colorScheme.background,
-        ) { inset ->
-            Column(Modifier.fillMaxSize().padding(inset)) {
-                if (page in rootPages) SearchBar(state, onQuery, onSearch, searchFocus)
-                var lastError by remember { mutableStateOf(state.error) }
-                if (state.error != null) lastError = state.error
-                AnimatedVisibility(
-                    visible = state.error != null,
-                    enter = if (reduced) EnterTransition.None else expandVertically(tween(260, easing = Standard)) + fadeIn(tween(200, 60)),
-                    exit = if (reduced) ExitTransition.None else shrinkVertically(tween(220, easing = Standard)) + fadeOut(tween(120)),
-                ) {
-                    ErrorBanner(lastError.orEmpty(), onDismissError,
-                        if (state.searched && page in rootPages) onSearch else if (page == "collection") onRetryCollection else onRetry,
-                        state.errorDiagnostic, state.current?.id.orEmpty())
-                }
-                val showResults = page in rootPages && state.searched && state.query.isNotBlank()
-                AnimatedContent(
-                    targetState = if (showResults) "search" else page,
-                    transitionSpec = {
-                        if (reduced) EnterTransition.None togetherWith ExitTransition.None
-                        else {
-                            val forward = targetState in listOf("now", "queue", "settings", "collection", "search")
-                            val enter = fadeIn(tween(220, delayMillis = 70, easing = LinearOutSlowInEasing)) +
-                                slideInVertically(tween(340, easing = EmphasizedDecelerate)) { h -> if (forward) h / 18 else -h / 40 } +
-                                scaleIn(tween(340, easing = EmphasizedDecelerate), initialScale = if (forward) .985f else 1.01f)
-                            val exit = fadeOut(tween(90, easing = FastOutLinearInEasing))
-                            (enter togetherWith exit).using(SizeTransform(clip = false))
+                    val showResults = page in rootPages && state.searched && state.query.isNotBlank()
+                    AnimatedContent(
+                        targetState = if (showResults) "search" else page,
+                        transitionSpec = {
+                            if (reduced) (EnterTransition.None togetherWith ExitTransition.None).using(null)
+                            else {
+                                val forward = targetState in listOf("now", "queue", "settings", "collection", "search")
+                                val enter = fadeIn(tween(220, delayMillis = 70, easing = LinearOutSlowInEasing)) +
+                                    slideInVertically(tween(340, easing = EmphasizedDecelerate)) { h -> if (forward) h / 18 else -h / 40 } +
+                                    scaleIn(tween(340, easing = EmphasizedDecelerate), initialScale = if (forward) .985f else 1.01f)
+                                val exit = fadeOut(tween(90, easing = FastOutLinearInEasing))
+                                (enter togetherWith exit).using(SizeTransform(clip = false))
+                            }
+                        },
+                        label = "screen", modifier = Modifier.weight(1f),
+                    ) { target ->
+                        when (target) {
+                            "search" -> SearchResults(state, ::play, onSave)
+                            "explore" -> ProviderHome(state.copy(feed = state.explore, feedBusy = state.exploreBusy, feedError = state.exploreError, feedHasMore = false), ::openEntry, onRefreshExplore, {}, "Explore")
+                            "saved" -> SavedScreen(state, ::play, onSave, ::focusSearch)
+                            "now" -> NowScreen(state, onToggle, onPrevious, onNext, onSeek, onSave) { navigate("queue") }
+                            "queue" -> QueueScreen(state, ::play)
+                            "collection" -> CollectionScreen(state, ::play, onSave)
+                            "settings" -> SettingsScreen(state, onTheme, onReducedMotion, onOpenLocal, onClearHistory,
+                                onConnect, onDisconnect, onCancelConnect, onGoogleSignIn, onGoogleSignOut, onCancelGoogle, onCheckUpdates, onDownloadUpdate, onInstallUpdate)
+                            else -> HomeScreen(state, ::focusSearch, onOpenLocal, ::play, ::openEntry, onRefreshFeed, onMoreFeed, onConnect)
                         }
-                    },
-                    label = "screen", modifier = Modifier.weight(1f),
-                ) { target ->
-                    when (target) {
-                        "search" -> SearchResults(state, ::play, onSave)
-                        "explore" -> ProviderHome(state.copy(feed = state.explore, feedBusy = state.exploreBusy, feedError = state.exploreError, feedHasMore = false), ::openEntry, onRefreshExplore, {}, "Explore")
-                        "saved" -> SavedScreen(state, ::play, onSave, ::focusSearch)
-                        "now" -> NowScreen(state, onToggle, onPrevious, onNext, onSeek, onSave) { navigate("queue") }
-                        "queue" -> QueueScreen(state, ::play)
-                        "collection" -> CollectionScreen(state, ::play, onSave)
-                        "settings" -> SettingsScreen(state, onTheme, onReducedMotion, onOpenLocal, onClearHistory,
-                            onConnect, onDisconnect, onCancelConnect, onGoogleSignIn, onGoogleSignOut, onCancelGoogle, onCheckUpdates, onDownloadUpdate, onInstallUpdate)
-                        else -> HomeScreen(state, ::focusSearch, onOpenLocal, ::play, ::openEntry, onRefreshFeed, onMoreFeed, onConnect)
                     }
                 }
             }
@@ -260,7 +268,9 @@ private fun AppHeader(page: String, onHome: () -> Unit, onSettings: () -> Unit, 
                 Box(Modifier.width(22.dp).height(2.dp).background(MaterialTheme.colorScheme.primary, RoundedCornerShape(1.dp)))
             }
             IconButton(onClick = onSettings, modifier = Modifier.size(48.dp)) {
-                Icon(Icons.Outlined.Settings, "Open settings", Modifier.size(24.dp))
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.CenterEnd) {
+                    Icon(Icons.Outlined.Settings, "Open settings", Modifier.size(24.dp))
+                }
             }
         }
     }
@@ -310,10 +320,10 @@ private fun HomeScreen(state: MusicState, onSearch: () -> Unit, onLocal: () -> U
         }
         val google = state.googleProfile
         if (google != null && !state.account.connected && !state.account.connecting) item(key = "sync") {
-            SyncBanner(google.email, onConnect, Modifier.animateItem())
+            SyncBanner(google.email, onConnect, motionModifier())
         }
         if (state.feedError != null) item(key = "feed-error") {
-            Row(Modifier.fillMaxWidth().animateItem(), verticalAlignment = Alignment.CenterVertically) {
+            Row(motionModifier().fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(state.feedError, fontSize = 12.sp, lineHeight = 19.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
                 TextButton(onClick = onRefresh) { Text("Retry", fontSize = 12.sp) }
             }
@@ -360,7 +370,7 @@ private fun HomeScreen(state: MusicState, onSearch: () -> Unit, onLocal: () -> U
                 Spacer(Modifier.height(16.dp))
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     items(state.history.take(12), key = { it.id }) { track ->
-                        MediaCard(track.title, track.artist, track, 142.dp, Modifier.animateItem()) { onPlay(track, state.history) }
+                        MediaCard(track.title, track.artist, track, 142.dp, motionModifier()) { onPlay(track, state.history) }
                     }
                 }
             }
@@ -409,7 +419,7 @@ private fun LoadingLine(busy: Boolean, reduced: Boolean) {
 
 private fun LazyListScope.feedSections(sections: List<FeedSection>, onEntry: (FeedEntry) -> Unit) {
     itemsIndexed(sections, key = { i, section -> "feed:$i:${section.title}" }) { _, section ->
-        Column(Modifier.animateItem()) {
+        Column(motionModifier()) {
             SectionTitle(section.title)
             Spacer(Modifier.height(16.dp))
             LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -503,7 +513,7 @@ private fun SearchResults(state: MusicState, onPlay: (Track, List<Track>) -> Uni
                 Spacer(Modifier.height(10.dp))
                 LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 24.dp)) {
                     itemsIndexed(state.results, key = { index, track -> "$index:${track.id}" }) { _, track ->
-                        TrackRow(track, state.saved.any { it.id == track.id }, state.current?.id == track.id, { onPlay(track, state.results) }, { onSave(track) }, Modifier.animateItem())
+                        TrackRow(track, state.saved.any { it.id == track.id }, state.current?.id == track.id, { onPlay(track, state.results) }, { onSave(track) }, motionModifier())
                     }
                 }
             }
@@ -528,7 +538,7 @@ private fun SavedScreen(state: MusicState, onPlay: (Track, List<Track>) -> Unit,
             }
             Spacer(Modifier.height(14.dp))
             LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
-                items(state.saved, key = { it.id }) { track -> TrackRow(track, true, state.current?.id == track.id, { onPlay(track, state.saved) }, { onSave(track) }, Modifier.animateItem()) }
+                items(state.saved, key = { it.id }) { track -> TrackRow(track, true, state.current?.id == track.id, { onPlay(track, state.saved) }, { onSave(track) }, motionModifier()) }
             }
         }
     }
@@ -555,7 +565,7 @@ private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () ->
         AnimatedContent(
             targetState = track, contentKey = { it.id }, label = "now playing",
             transitionSpec = {
-                if (reduced) EnterTransition.None togetherWith ExitTransition.None
+                if (reduced) (EnterTransition.None togetherWith ExitTransition.None).using(null)
                 else (fadeIn(tween(260, 60)) + slideInHorizontally(tween(380, easing = EmphasizedDecelerate)) { it / 6 }) togetherWith
                     (fadeOut(tween(140)) + slideOutHorizontally(tween(220, easing = EmphasizedAccelerate)) { -it / 8 })
             },
@@ -578,7 +588,7 @@ private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () ->
             Button(onClick = onToggle, enabled = !loading, shape = RoundedCornerShape(14.dp), modifier = Modifier.width(116.dp).height(48.dp), contentPadding = PaddingValues(horizontal = 10.dp)) {
                 AnimatedContent(targetState = if (loading) 0 else if (playing) 1 else 2, label = "play button",
                     transitionSpec = {
-                        if (reduced) EnterTransition.None togetherWith ExitTransition.None
+                        if (reduced) (EnterTransition.None togetherWith ExitTransition.None).using(null)
                         else (fadeIn(tween(180)) + scaleIn(tween(220, easing = EmphasizedDecelerate), initialScale = .7f)) togetherWith (fadeOut(tween(90)) + scaleOut(tween(120), targetScale = .7f))
                     }) { mode ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -675,7 +685,7 @@ private fun QueueScreen(state: MusicState, onPlay: (Track, List<Track>) -> Unit)
         Spacer(Modifier.height(20.dp))
         if (state.queue.isEmpty()) EmptyState("A little quiet here", "Your play queue will appear when you choose a recording.", Glyph.Queue)
         else LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
-            itemsIndexed(state.queue, key = { index, track -> "$index:${track.id}" }) { index, track -> TrackRow(track, false, index == state.queueIndex, { onPlay(track, state.queue) }, null, Modifier.animateItem()) }
+            itemsIndexed(state.queue, key = { index, track -> "$index:${track.id}" }) { index, track -> TrackRow(track, false, index == state.queueIndex, { onPlay(track, state.queue) }, null, motionModifier()) }
         }
     }
 }
@@ -758,7 +768,7 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onReduc
                 Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     if (state.update.message.isNotBlank()) Text(state.update.message, fontSize = 14.sp, lineHeight = 21.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     if (state.update.downloading) {
-                        val progress by animateFloatAsState(state.update.progress / 100f, tween(300), label = "update progress")
+                        val progress by animateFloatAsState(state.update.progress / 100f, tween(if (state.reducedMotion) 0 else 300), label = "update progress")
                         LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth(), strokeCap = StrokeCap.Round)
                         Text("${state.update.progress}%", fontSize = 14.sp)
                     }
@@ -809,7 +819,7 @@ private fun AccountCard(state: MusicState, onGoogleSignIn: () -> Unit, onGoogleS
     val google = state.googleProfile
     val youtube = state.account
     val displayName = google?.name?.ifBlank { google.email } ?: youtube.name.takeIf { youtube.connected && it.isNotBlank() } ?: "Not signed in"
-    val detail = google?.email ?: if (youtube.connected) "YouTube Music account" else "Sign in once to sync Google and YouTube Music."
+    val detail = google?.email ?: if (youtube.connected) "YouTube Music account" else "Choose an account, then connect YouTube Music."
     SettingsCard {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(48.dp).background(if (google != null || youtube.connected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant, CircleShape), contentAlignment = Alignment.Center) {
@@ -829,7 +839,9 @@ private fun AccountCard(state: MusicState, onGoogleSignIn: () -> Unit, onGoogleS
             youtube.connecting -> "Finishing sign-in…"
             else -> "Not connected"
         })
-        AnimatedVisibility(state.googleBusy || youtube.connecting, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+        AnimatedVisibility(state.googleBusy || youtube.connecting,
+            enter = if (state.reducedMotion) EnterTransition.None else expandVertically() + fadeIn(),
+            exit = if (state.reducedMotion) ExitTransition.None else shrinkVertically() + fadeOut()) {
             LoadingLine(true, state.reducedMotion)
         }
         Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -843,7 +855,7 @@ private fun AccountCard(state: MusicState, onGoogleSignIn: () -> Unit, onGoogleS
                 }
                 google == null && !youtube.connected -> {
                     Button(onClick = onGoogleSignIn, modifier = wide, shape = RoundedCornerShape(14.dp)) { Text("Sign in with Google", fontSize = 15.sp) }
-                    Text("Choose an account on this phone. YouTube Music opens next with it preselected, so both stay in sync.",
+                    Text("Choose an account on this phone. YouTube Music opens next with it preselected, then confirm its YouTube connection.",
                         fontSize = 13.sp, lineHeight = 19.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     TextButton(onClick = onConnect) { Text("Sign in to YouTube", fontSize = 15.sp) }
                 }
@@ -872,7 +884,7 @@ private fun AccountCard(state: MusicState, onGoogleSignIn: () -> Unit, onGoogleS
 @Composable
 private fun StatusLine(label: String, ok: Boolean, detail: String) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-        val tint by animateColorAsState(if (ok) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline, label = "status")
+        val tint by animateColorAsState(if (ok) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline, tween(if (LocalReducedMotion.current) 0 else 180), label = "status")
         Icon(if (ok) Icons.Outlined.CheckCircle else Icons.Outlined.Info, null, Modifier.size(18.dp), tint = tint)
         Spacer(Modifier.width(12.dp))
         Text(label, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
@@ -907,7 +919,7 @@ private fun SettingsGroupHeader(section: SettingsSection, modifier: Modifier = M
 @Composable
 private fun SettingsCard(content: @Composable ColumnScope.() -> Unit) {
     Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surface, border = BorderStroke(.5.dp, MaterialTheme.colorScheme.outline), modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(vertical = 4.dp).animateContentSize(), content = content)
+        Column(Modifier.padding(vertical = 4.dp).animateContentSize(animationSpec = if (LocalReducedMotion.current) snap() else spring()), content = content)
     }
 }
 
@@ -960,7 +972,7 @@ private fun MiniPlayer(state: MusicState, onOpen: () -> Unit, onToggle: () -> Un
                 AnimatedContent(
                     targetState = track, contentKey = { it.id }, label = "mini track", modifier = Modifier.weight(1f),
                     transitionSpec = {
-                        if (reduced) EnterTransition.None togetherWith ExitTransition.None
+                        if (reduced) (EnterTransition.None togetherWith ExitTransition.None).using(null)
                         else (fadeIn(tween(220, 60)) + slideInVertically(tween(300, easing = EmphasizedDecelerate)) { it / 2 }) togetherWith
                             (fadeOut(tween(120)) + slideOutVertically(tween(200, easing = EmphasizedAccelerate)) { -it / 2 })
                     },
@@ -991,7 +1003,7 @@ private fun MiniPlayer(state: MusicState, onOpen: () -> Unit, onToggle: () -> Un
 private fun PlayPauseCircle(playing: Boolean, loading: Boolean, reduced: Boolean, enabled: Boolean, onClick: () -> Unit) {
     val source = remember { MutableInteractionSource() }
     val pressed by source.collectIsPressedAsState()
-    val scale by animateFloatAsState(if (pressed && !reduced) .88f else 1f, spring(dampingRatio = .5f, stiffness = Spring.StiffnessMedium), label = "play press")
+    val scale by animateFloatAsState(if (pressed && !reduced) .88f else 1f, if (reduced) snap<Float>() else spring(dampingRatio = .5f, stiffness = Spring.StiffnessMedium), label = "play press")
     Box(
         Modifier.size(44.dp).graphicsLayer { scaleX = scale; scaleY = scale }.clip(CircleShape).background(MaterialTheme.colorScheme.primary)
             .clickable(interactionSource = source, indication = LocalIndication.current, enabled = enabled, onClick = onClick)
@@ -1000,7 +1012,7 @@ private fun PlayPauseCircle(playing: Boolean, loading: Boolean, reduced: Boolean
     ) {
         AnimatedContent(targetState = if (loading) 0 else if (playing) 1 else 2, label = "mini play",
             transitionSpec = {
-                if (reduced) EnterTransition.None togetherWith ExitTransition.None
+                if (reduced) (EnterTransition.None togetherWith ExitTransition.None).using(null)
                 else (fadeIn(tween(160)) + scaleIn(tween(220, easing = EmphasizedDecelerate), initialScale = .6f)) togetherWith (fadeOut(tween(90)) + scaleOut(tween(120), targetScale = .6f))
             }) { mode ->
             when (mode) {
@@ -1019,9 +1031,10 @@ private fun PlayPauseCircle(playing: Boolean, loading: Boolean, reduced: Boolean
 
 /** Clickable with a soft spring "press-in", used for cards and primary tap targets. */
 private fun Modifier.pressable(onClick: () -> Unit): Modifier = composed {
+    val reduced = LocalReducedMotion.current
     val source = remember { MutableInteractionSource() }
     val pressed by source.collectIsPressedAsState()
-    val scale by animateFloatAsState(if (pressed) .96f else 1f, spring(dampingRatio = .6f, stiffness = Spring.StiffnessMediumLow), label = "press")
+    val scale by animateFloatAsState(if (pressed && !reduced) .96f else 1f, if (reduced) snap<Float>() else spring(dampingRatio = .6f, stiffness = Spring.StiffnessMediumLow), label = "press")
     graphicsLayer { scaleX = scale; scaleY = scale }.clickable(interactionSource = source, indication = LocalIndication.current, onClick = onClick)
 }
 
@@ -1034,14 +1047,14 @@ private fun TrackRow(track: Track, saved: Boolean, current: Boolean, onPlay: () 
                 Artwork(track, Modifier.size(48.dp).clip(RoundedCornerShape(8.dp)))
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
-                    val titleColor by animateColorAsState(if (current) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface, label = "row title")
+                    val titleColor by animateColorAsState(if (current) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface, tween(if (LocalReducedMotion.current) 0 else 180), label = "row title")
                     Text(track.title, fontSize = 14.sp, lineHeight = 19.sp, fontWeight = FontWeight.Medium, color = titleColor, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     Text(track.artist, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 3.dp))
                 }
                 if (track.durationMs > 0) Text(clock(track.durationMs), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 8.dp))
             }
             if (onSave != null) IconButton(onClick = onSave) {
-                Crossfade(saved, label = "save icon") { isSaved ->
+                Crossfade(saved, animationSpec = tween(if (LocalReducedMotion.current) 0 else 180), label = "save icon") { isSaved ->
                     Icon(if (isSaved) Icons.Outlined.Favorite else Icons.Outlined.FavoriteBorder, if (isSaved) "Unsave ${track.title}" else "Save ${track.title}", Modifier.size(20.dp), tint = if (isSaved) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
@@ -1054,8 +1067,9 @@ private fun Artwork(track: Track?, modifier: Modifier = Modifier) {
     val source = track?.artwork?.takeIf { it.isNotBlank() }
     var useFallback by remember(source) { mutableStateOf(false) }
     val context = LocalContext.current
-    val request = remember(source, useFallback) {
-        ImageRequest.Builder(context).data(if (useFallback) source else source?.let(ArtworkUrl::original)).crossfade(220).build()
+    val reduced = LocalReducedMotion.current
+    val request = remember(context, source, useFallback, reduced) {
+        ImageRequest.Builder(context).data(if (useFallback) source else source?.let(ArtworkUrl::original)).crossfade(if (reduced) 0 else 220).build()
     }
     AsyncImage(
         model = request, contentDescription = null,
@@ -1070,7 +1084,7 @@ private fun Artwork(track: Track?, modifier: Modifier = Modifier) {
 private fun LabelledControl(label: String, image: ImageVector, onClick: () -> Unit, enabled: Boolean = true, highlighted: Boolean = false) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         OutlinedIconButton(onClick = onClick, enabled = enabled, shape = RoundedCornerShape(14.dp), border = BorderStroke(.5.dp, MaterialTheme.colorScheme.outline), modifier = Modifier.size(48.dp)) {
-            val tint by animateColorAsState(if (highlighted) MaterialTheme.colorScheme.primary else if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .35f), label = "control tint")
+            val tint by animateColorAsState(if (highlighted) MaterialTheme.colorScheme.primary else if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .35f), tween(if (LocalReducedMotion.current) 0 else 180), label = "control tint")
             Icon(image, label, Modifier.size(21.dp), tint = tint)
         }
         Text(label, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp))

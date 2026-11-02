@@ -1,10 +1,12 @@
-# v0.3.3 verification
+# v0.3.4 verification
 
 - Native Android build and bundled-engine/source/proof digest checks: passed.
-- Android/JVM suite: **49 tests**, no failures or skips.
-  - 13 Compose checks: Home/Explore/Saved, persistent search submission and clearing,
+- Android/JVM suite: **53 tests**, no failures or skips.
+  - 17 Compose checks: Home/Explore/Saved, persistent search submission and clearing,
     provider cards, albums, original queue identity, one Save action, compact/dark
-    player, ordinary sign-in action, copyable errors and verified-update installer.
+    player, ordinary sign-in action, copyable errors and verified-update installer,
+    incomplete YouTube connection banner, combined account-card sign-out, floating
+    mini-player controls and Settings jump-bar navigation.
   - 10 account/update checks: encrypted session reload/tamper rejection, old TV-blob
     rejection, login-origin constraints, account-cookie isolation from media/proofs,
     network boundaries, version ordering, package/signature/downgrade checks and
@@ -23,6 +25,13 @@
     expiry/audience/issuer/nonce/presenter checks, supported algorithms and keys,
     separate encrypted profile storage, and safe Google login-hint encoding.
   - 3 catalogue-link and 2 saved-library checks.
+
+## Unchanged engine checks
+
+The engine, proof bundle, auth implementation and media transport are unchanged from
+v0.3.3. These JavaScript/Chromium results were recorded for v0.3.3 and were not rerun
+for this UI update; the current Gradle build rechecks engine/source/proof digests.
+
 - JavaScript mapping/configuration suite: **12 tests passed**.
 - Real Chromium using the exact engine bundle: **25 checks passed** with synthetic
   provider HTTP: actual upstream search parsing/artist data, largest artwork, current
@@ -39,10 +48,16 @@
 - Exact proof bundle in a separate Chromium page: **6 checks passed** using a fixture
   VM/integrity response: BgUtils protocol, minter caching, client/account binding outputs,
   isolation from account access and rejection without fabricated success.
-- Native Home, Explore, search, sign-in and error/player screenshots inspected;
+
+## APK and UI review
+
+- Native Home, Explore, search, sign-in, Settings, mini-player and error/player screenshots inspected;
   Settings text is larger with stronger contrast; its icon is 8 dp from the right.
   Larger provider artwork URLs have an original-image fallback. No grayscale filter.
-- APK package `labs.rtensor.music`, version `0.3.3`, versionCode `6`.
+- Reduce motion disables the new list, card, artwork, size and screen transitions,
+  as well as frame-driven progress interpolation. Account copy distinguishes choosing
+  a Google identity from connecting the YouTube Music session.
+- APK package `labs.rtensor.music`, version `0.3.4`, versionCode `7`.
 - APK signature must match prior releases; verified SHA-256:
   `43dffb7aa7b922220c9063c0f2ee9126a30c7d663e1971c8f214bdd2ac7b571f`.
 - Packaged engine/proof assets checked against the source assets. No Python runtime,

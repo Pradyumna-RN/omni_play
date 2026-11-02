@@ -198,4 +198,12 @@ class NativeUiTest {
         compose.onNodeWithContentDescription("Next recording").assertIsEnabled()
         capture("mini-player")
     }
+
+    @Test fun settingsJumpBarNavigatesToUpdates() {
+        compose.setContent { MusicApp(MusicState(reducedMotion = true, theme = "light"), initialPage = "settings") }
+        compose.onNodeWithText("Updates").performScrollTo().performClick()
+        compose.onNodeWithText("Check updates").assertIsDisplayed()
+        capture("settings-updates-jump")
+    }
+
 }

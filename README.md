@@ -19,9 +19,14 @@ Margin visual direction: warm paper, DM Sans, original provider artwork and rasp
   loading state.
 - **Motion.** Emphasized-easing screen transitions, frame-synced progress (no more
   200 ms steps), a springy navigation indicator, press feedback on cards, artwork
-  cross-fades and animated list changes. *Reduce motion* turns them off.
+  cross-fades and animated list changes. *Reduce motion* disables these transitions.
+  The Settings icon stays 8 dp from the right edge with a full touch target.
 - **Ad-free by design.** Music requests only the audio-only stream and never asks
   for ads (no ad placements, no ad video), and playback continues in the background.
+
+This release changes the UI; native sign-in and live YouTube playback still need
+real-device verification. It does not establish a fix for the reported HTTP 403.
+See [verification details](VERIFICATION.md).
 
 ## Version 0.3.3 — native Google account selection
 
