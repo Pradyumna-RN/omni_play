@@ -16,6 +16,40 @@ internal object Glyph {
             path(fill = null, stroke = SolidColor(Color.Black), strokeLineWidth = 1.7f, strokeLineCap = StrokeCap.Round, strokeLineJoin = StrokeJoin.Round, pathBuilder = draw)
         }.build()
 
+    private fun solid(name: String, draw: PathBuilder.() -> Unit): ImageVector =
+        ImageVector.Builder(name, 24.dp, 24.dp, 24f, 24f).apply {
+            path(fill = SolidColor(Color.Black), stroke = SolidColor(Color.Black), strokeLineWidth = 1.7f, strokeLineCap = StrokeCap.Round, strokeLineJoin = StrokeJoin.Round, pathBuilder = draw)
+        }.build()
+
+    /** Filled compass: the disc is solid and the needle is cut out with even-odd filling. */
+    val CompassFilled = ImageVector.Builder("Explore selected", 24.dp, 24.dp, 24f, 24f).apply {
+        path(fill = SolidColor(Color.Black), pathFillType = androidx.compose.ui.graphics.PathFillType.EvenOdd) {
+            moveTo(22f, 12f); curveTo(22f, 17.52f, 17.52f, 22f, 12f, 22f); curveTo(6.48f, 22f, 2f, 17.52f, 2f, 12f)
+            curveTo(2f, 6.48f, 6.48f, 2f, 12f, 2f); curveTo(17.52f, 2f, 22f, 6.48f, 22f, 12f); close()
+            moveTo(16f, 8f); lineTo(13.5f, 13.5f); lineTo(8f, 16f); lineTo(10.5f, 10.5f); close()
+        }
+    }.build()
+    /** Library: a stack of records leaning on a shelf. */
+    val Library = outline("Library") {
+        moveTo(4f, 4f); lineTo(4f, 20f); moveTo(8.5f, 4f); lineTo(8.5f, 20f)
+        moveTo(13f, 5f); lineTo(17.5f, 19.5f); moveTo(3f, 20.5f); lineTo(21f, 20.5f)
+    }
+    val LibraryFilled = solid("Library selected") {
+        moveTo(3f, 4f); lineTo(5.5f, 4f); lineTo(5.5f, 19f); lineTo(3f, 19f); close()
+        moveTo(7.5f, 4f); lineTo(10f, 4f); lineTo(10f, 19f); lineTo(7.5f, 19f); close()
+        moveTo(12f, 5.5f); lineTo(14.4f, 4.8f); lineTo(18.6f, 18.4f); lineTo(16.2f, 19.1f); close()
+        moveTo(3f, 20.5f); lineTo(21f, 20.5f)
+    }
+    val History = outline("History") {
+        moveTo(3.5f, 12f); curveTo(3.5f, 7.3f, 7.3f, 3.5f, 12f, 3.5f); curveTo(16.7f, 3.5f, 20.5f, 7.3f, 20.5f, 12f)
+        curveTo(20.5f, 16.7f, 16.7f, 20.5f, 12f, 20.5f); curveTo(9.2f, 20.5f, 6.8f, 19.2f, 5.2f, 17.1f)
+        moveTo(3.5f, 12f); lineTo(1.8f, 10.2f); moveTo(3.5f, 12f); lineTo(5.3f, 10.3f)
+        moveTo(12f, 7.5f); lineTo(12f, 12f); lineTo(15f, 14f)
+    }
+    val Sparkle = outline("For you") {
+        moveTo(12f, 3f); curveTo(12.6f, 8.2f, 15.8f, 11.4f, 21f, 12f); curveTo(15.8f, 12.6f, 12.6f, 15.8f, 12f, 21f)
+        curveTo(11.4f, 15.8f, 8.2f, 12.6f, 3f, 12f); curveTo(8.2f, 11.4f, 11.4f, 8.2f, 12f, 3f); close()
+    }
     val Compass = outline("Explore") {
         moveTo(22f, 12f); curveTo(22f, 17.52f, 17.52f, 22f, 12f, 22f); curveTo(6.48f, 22f, 2f, 17.52f, 2f, 12f)
         curveTo(2f, 6.48f, 6.48f, 2f, 12f, 2f); curveTo(17.52f, 2f, 22f, 6.48f, 22f, 12f); close()

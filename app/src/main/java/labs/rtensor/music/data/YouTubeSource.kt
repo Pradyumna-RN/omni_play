@@ -13,13 +13,20 @@ class YouTubeSource(context: Context) {
     suspend fun home(more: Boolean = false): HomeFeed {
         return feed(runtime.call("home", JSONObject().put("more", more)))
     }
+    /** YouTube Music's radio for a song: the same up-next mix its own player continues with. */
+    suspend fun radio(track: Track, exclude: Collection<String> = emptyList()): List<Track> {
+        if (track.source != Source.YOUTUBE) return emptyList()
+        val videoId = track.id.removePrefix("yt:").takeIf { it.matches(Regex("[A-Za-z0-9_-]{11}")) } ?: return emptyList()
+        val skip = exclude.toSet() + track.id
+        return tracks(runtime.call("radio", JSONObject().put("videoId", videoId))).filter { it.id !in skip }
+    }
     suspend fun explore(): HomeFeed = feed(runtime.call("explore"))
     private fun feed(data: JSONObject): HomeFeed {
         val sections = data.getJSONArray("sections")
         return HomeFeed((0 until sections.length()).map { i ->
             val s = sections.getJSONObject(i); val items = s.getJSONArray("items")
             FeedSection(s.getString("title"), (0 until items.length()).map { FeedEntry.parse(items.getJSONObject(it)) })
-        }, data.optBoolean("hasMore"))
+        }, data.optBoolean("hasMore"), data.optBoolean("signedIn"), data.optBoolean("personalized"))
     }
 
     suspend fun resolve(track: Track, forceProof: Boolean = false, background: Boolean = false): ResolvedAudio {

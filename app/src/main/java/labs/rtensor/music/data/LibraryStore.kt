@@ -23,4 +23,12 @@ class LibraryStore(context: Context) {
     var reducedMotion: Boolean
         get() = prefs.getBoolean("reduced_motion", false)
         set(value) { prefs.edit().putBoolean("reduced_motion", value).apply() }
+    /** Keep playing YouTube Music radio after the queue ends. */
+    var autoplay: Boolean
+        get() = prefs.getBoolean("autoplay", true)
+        set(value) { prefs.edit().putBoolean("autoplay", value).apply() }
+    /** Record listening history on this device. */
+    var trackHistory: Boolean
+        get() = prefs.getBoolean("track_history", true)
+        set(value) { prefs.edit().putBoolean("track_history", value).apply() }
 }

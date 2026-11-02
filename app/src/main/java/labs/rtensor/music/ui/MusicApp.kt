@@ -14,6 +14,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
@@ -22,6 +27,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.ArrowForward
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
@@ -31,7 +37,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.graphics.painter.ColorPainter
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.CornerRadius
@@ -65,6 +76,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import coil.compose.AsyncImage
+import coil.imageLoader
 import coil.request.ImageRequest
 import kotlinx.coroutines.launch
 import labs.rtensor.music.MusicState
@@ -73,6 +85,8 @@ import labs.rtensor.music.data.ArtworkUrl
 import labs.rtensor.music.data.Track
 import labs.rtensor.music.data.FeedEntry
 import labs.rtensor.music.data.FeedSection
+import labs.rtensor.music.data.ListeningHistory
+import labs.rtensor.music.data.PlayEvent
 import labs.rtensor.music.BuildConfig
 import java.util.Locale
 import kotlin.math.abs
@@ -97,6 +111,10 @@ private val Dark = darkColorScheme(
 private val EmphasizedDecelerate = CubicBezierEasing(0.05f, 0.7f, 0.1f, 1f)
 private val EmphasizedAccelerate = CubicBezierEasing(0.3f, 0f, 0.8f, 0.15f)
 private val Standard = CubicBezierEasing(0.2f, 0f, 0f, 1f)
+/** Springs settle naturally and can be interrupted mid-flight without a jump. */
+private val PageSpring = spring<IntOffset>(dampingRatio = .88f, stiffness = 420f)
+private val SheetSpring = spring<IntOffset>(dampingRatio = .9f, stiffness = 330f)
+private val FadeSpring = spring<Float>(stiffness = 520f)
 
 @Composable
 fun MusicTheme(theme: String = "light", content: @Composable () -> Unit) {
@@ -132,7 +150,7 @@ private val LocalReducedMotion = staticCompositionLocalOf { false }
 @Composable
 private fun LazyItemScope.motionModifier(): Modifier = if (LocalReducedMotion.current) Modifier else Modifier.animateItem()
 
-private val rootPages = listOf("home", "explore", "saved")
+private val rootPages = listOf("home", "explore", "library")
 
 @Composable
 fun MusicApp(
@@ -150,10 +168,12 @@ fun MusicApp(
     onConnect: () -> Unit = {}, onWebSignIn: () -> Unit = {}, onDisconnect: () -> Unit = {}, onCancelConnect: () -> Unit = {}, onRefreshExplore: () -> Unit = {},
     onGoogleSignIn: () -> Unit = {}, onGoogleSignOut: () -> Unit = {}, onCancelGoogle: () -> Unit = {},
     onCheckUpdates: () -> Unit = {}, onDownloadUpdate: () -> Unit = {}, onInstallUpdate: () -> Unit = {},
+    onAutoplay: (Boolean) -> Unit = {}, onTrackHistory: (Boolean) -> Unit = {}, onRemovePlay: (PlayEvent) -> Unit = {}, onRefreshForYou: () -> Unit = {},
 ) {
-    var page by rememberSaveable { mutableStateOf(initialPage) }
+    val startPage = if (initialPage == "saved") "library" else initialPage
+    var page by rememberSaveable { mutableStateOf(startPage) }
     var back by rememberSaveable { mutableStateOf("home") }
-    var root by rememberSaveable { mutableStateOf(initialPage.takeIf { it in rootPages } ?: "home") }
+    var root by rememberSaveable { mutableStateOf(startPage.takeIf { it in rootPages } ?: "home") }
     val searchFocus = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
     val reduced = state.reducedMotion
@@ -198,7 +218,7 @@ fun MusicApp(
                                 enter = if (reduced) EnterTransition.None else slideInVertically(tween(360, easing = EmphasizedDecelerate)) { it } + fadeIn(tween(240)),
                                 exit = if (reduced) ExitTransition.None else slideOutVertically(tween(200, easing = EmphasizedAccelerate)) { it } + fadeOut(tween(160)),
                             ) {
-                                lastTrack?.let { MiniPlayer(state.copy(current = it), { navigate("now") }, onToggle, onNext) }
+                                lastTrack?.let { MiniPlayer(state.copy(current = it), { navigate("now") }, onToggle, onNext, onPrevious) }
                             }
                             AppNavigation(if (page == "collection") root else page, reduced, ::navigate)
                         }
@@ -225,27 +245,21 @@ fun MusicApp(
                         targetState = if (showResults) "search" else page,
                         transitionSpec = {
                             if (reduced) (EnterTransition.None togetherWith ExitTransition.None).using(null)
-                            else {
-                                val forward = targetState in listOf("now", "queue", "settings", "collection", "search")
-                                val enter = fadeIn(tween(220, delayMillis = 70, easing = LinearOutSlowInEasing)) +
-                                    slideInVertically(tween(340, easing = EmphasizedDecelerate)) { h -> if (forward) h / 18 else -h / 40 } +
-                                    scaleIn(tween(340, easing = EmphasizedDecelerate), initialScale = if (forward) .985f else 1.01f)
-                                val exit = fadeOut(tween(90, easing = FastOutLinearInEasing))
-                                (enter togetherWith exit).using(SizeTransform(clip = false))
-                            }
+                            else screenTransition(initialState, targetState)
                         },
                         label = "screen", modifier = Modifier.weight(1f),
                     ) { target ->
                         when (target) {
                             "search" -> SearchResults(state, ::play, onSave)
                             "explore" -> ProviderHome(state.copy(feed = state.explore, feedBusy = state.exploreBusy, feedError = state.exploreError, feedHasMore = false), ::openEntry, onRefreshExplore, {}, "Explore")
-                            "saved" -> SavedScreen(state, ::play, onSave, ::focusSearch)
+                            "library" -> LibraryScreen(state, ::play, onSave, ::focusSearch, onRemovePlay)
                             "now" -> NowScreen(state, onToggle, onPrevious, onNext, onSeek, onSave) { navigate("queue") }
                             "queue" -> QueueScreen(state, ::play)
                             "collection" -> CollectionScreen(state, ::play, onSave)
                             "settings" -> SettingsScreen(state, onTheme, onReducedMotion, onOpenLocal, onClearHistory,
-                                onConnect, onWebSignIn, onDisconnect, onCancelConnect, onGoogleSignIn, onGoogleSignOut, onCancelGoogle, onCheckUpdates, onDownloadUpdate, onInstallUpdate)
-                            else -> HomeScreen(state, ::focusSearch, ::play, ::openEntry, onRefreshFeed, onMoreFeed, onConnect)
+                                onConnect, onWebSignIn, onDisconnect, onCancelConnect, onGoogleSignIn, onGoogleSignOut, onCancelGoogle, onCheckUpdates, onDownloadUpdate, onInstallUpdate,
+                                onAutoplay, onTrackHistory)
+                            else -> HomeScreen(state, ::focusSearch, ::play, ::openEntry, { onRefreshFeed(); onRefreshForYou() }, onMoreFeed, onConnect)
                         }
                     }
                 }
@@ -276,28 +290,82 @@ private fun AppHeader(page: String, onHome: () -> Unit, onSettings: () -> Unit, 
     }
 }
 
+/**
+ * How screens hand over. Tabs slide sideways in the direction of the tab bar, the player
+ * rises from the mini player and sinks back into it, and detail pages lift in from below.
+ */
+private fun AnimatedContentTransitionScope<String>.screenTransition(from: String, to: String): ContentTransform {
+    val tabs = rootPages
+    return when {
+        to == "now" && from != "queue" -> (slideInVertically(SheetSpring) { it } + fadeIn(tween(160)) togetherWith
+            fadeOut(tween(260)) + scaleOut(tween(320, easing = EmphasizedDecelerate), targetScale = .96f)).using(SizeTransform(clip = false))
+        from == "now" && to != "queue" -> (fadeIn(tween(220)) + scaleIn(tween(320, easing = EmphasizedDecelerate), initialScale = .96f) togetherWith
+            slideOutVertically(SheetSpring) { it } + fadeOut(tween(220, 80))).apply { targetContentZIndex = -1f }.using(SizeTransform(clip = false))
+        from in tabs && to in tabs -> {
+            val dir = if (tabs.indexOf(to) > tabs.indexOf(from)) 1 else -1
+            (slideInHorizontally(PageSpring) { w -> dir * w / 5 } + fadeIn(tween(200, 40)) togetherWith
+                slideOutHorizontally(PageSpring) { w -> -dir * w / 7 } + fadeOut(tween(120))).using(SizeTransform(clip = false))
+        }
+        else -> {
+            val forward = to in listOf("queue", "settings", "collection", "search")
+            (fadeIn(tween(220, delayMillis = 50, easing = LinearOutSlowInEasing)) +
+                slideInVertically(PageSpring) { h -> if (forward) h / 14 else -h / 30 } +
+                scaleIn(tween(340, easing = EmphasizedDecelerate), initialScale = if (forward) .98f else 1.01f) togetherWith
+                fadeOut(tween(110, easing = FastOutLinearInEasing))).using(SizeTransform(clip = false))
+        }
+    }
+}
+
+private data class NavTab(val id: String, val label: String, val icon: ImageVector, val selectedIcon: ImageVector)
+private val navTabs = listOf(
+    NavTab("home", "Home", Icons.Outlined.Home, Icons.Filled.Home),
+    NavTab("explore", "Explore", Glyph.Compass, Glyph.CompassFilled),
+    NavTab("library", "Library", Glyph.Library, Glyph.LibraryFilled),
+)
+
+/**
+ * A floating bar: one highlight that slides between tabs on a spring, the chosen icon
+ * switches to its filled form with a small bounce, and the label fades in beside it.
+ */
 @Composable
 private fun AppNavigation(page: String, reduced: Boolean, onSelect: (String) -> Unit) {
-    HorizontalDivider(color = MaterialTheme.colorScheme.outline, thickness = .5.dp)
-    Row(Modifier.fillMaxWidth().height(68.dp).padding(horizontal = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-        listOf(Triple("home", "Home", Icons.Outlined.Home), Triple("explore", "Explore", Glyph.Compass), Triple("saved", "Saved", Glyph.Bookmark)).forEach { (id, name, icon) ->
-            val selected = page == id
-            val color by animateColorAsState(if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                tween(if (reduced) 0 else 220), label = "nav colour")
-            val pill by animateFloatAsState(if (selected) 1f else 0f,
-                if (reduced) snap<Float>() else spring<Float>(dampingRatio = .75f, stiffness = Spring.StiffnessMediumLow), label = "nav pill")
-            val source = remember { MutableInteractionSource() }
-            Column(
-                Modifier.weight(1f).fillMaxHeight().clickable(interactionSource = source, indication = null) { onSelect(id) },
-                horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
-            ) {
-                Box(Modifier.size(width = 60.dp, height = 32.dp), contentAlignment = Alignment.Center) {
-                    Box(Modifier.matchParentSize().graphicsLayer { scaleX = .45f + .55f * pill; alpha = pill }
-                        .background(MaterialTheme.colorScheme.secondaryContainer, RoundedCornerShape(16.dp)))
-                    Icon(icon, name, Modifier.size(22.dp), tint = color)
+    val selectedIndex = navTabs.indexOfFirst { it.id == page }.coerceAtLeast(0)
+    val scheme = MaterialTheme.colorScheme
+    Surface(
+        shape = RoundedCornerShape(28.dp), color = scheme.surface, shadowElevation = 10.dp, tonalElevation = 2.dp,
+        border = BorderStroke(.5.dp, scheme.outline.copy(alpha = .7f)),
+        modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 10.dp).height(64.dp),
+    ) {
+        BoxWithConstraints(Modifier.fillMaxSize().padding(6.dp)) {
+            val slot = maxWidth / navTabs.size
+            val offset by animateDpAsState(slot * selectedIndex,
+                if (reduced) snap<Dp>() else spring<Dp>(dampingRatio = .78f, stiffness = 500f), label = "nav indicator")
+            Box(Modifier.offset(x = offset).width(slot).fillMaxHeight().padding(horizontal = 2.dp)
+                .background(scheme.secondaryContainer, RoundedCornerShape(22.dp)))
+            Row(Modifier.fillMaxSize()) {
+                navTabs.forEachIndexed { index, tab ->
+                    val selected = index == selectedIndex
+                    val color by animateColorAsState(if (selected) scheme.primary else scheme.onSurfaceVariant, tween(if (reduced) 0 else 200), label = "nav colour")
+                    val bounce = remember { Animatable(1f) }
+                    LaunchedEffect(selected) {
+                        if (selected && !reduced) { bounce.snapTo(.82f); bounce.animateTo(1f, spring(dampingRatio = .42f, stiffness = 600f)) }
+                    }
+                    val source = remember { MutableInteractionSource() }
+                    Row(
+                        Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(22.dp))
+                            .clickable(interactionSource = source, indication = LocalIndication.current) { onSelect(tab.id) }
+                            .semantics { contentDescription = tab.label },
+                        horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(if (selected) tab.selectedIcon else tab.icon, null, tint = color,
+                            modifier = Modifier.size(22.dp).graphicsLayer { scaleX = bounce.value; scaleY = bounce.value })
+                        AnimatedVisibility(selected,
+                            enter = if (reduced) EnterTransition.None else expandHorizontally(spring(stiffness = 500f)) + fadeIn(tween(180, 60)),
+                            exit = if (reduced) ExitTransition.None else shrinkHorizontally(spring(stiffness = 600f)) + fadeOut(tween(90))) {
+                            Text(tab.label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = color, maxLines = 1, modifier = Modifier.padding(start = 8.dp))
+                        }
+                    }
                 }
-                Spacer(Modifier.height(4.dp))
-                Text(name, fontSize = 11.sp, color = color, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
             }
         }
     }
@@ -310,6 +378,7 @@ private fun HomeScreen(state: MusicState, onSearch: () -> Unit, onPlay: (Track, 
     val hasFeed = state.feed.isNotEmpty()
     // The "Back to your music" hero stays at the top of Home, also after the provider feed has loaded.
     val showHero = recent != null || !hasFeed
+    PrefetchArtwork(state.feed.flatMap { it.items.take(10).map(FeedEntry::artwork) } + state.forYou.take(12).map(Track::artwork), 156.dp)
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 10.dp, bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(22.dp)) {
         item(key = "title") {
             Column {
@@ -321,6 +390,10 @@ private fun HomeScreen(state: MusicState, onSearch: () -> Unit, onPlay: (Track, 
         val google = state.googleProfile
         if (google != null && !state.account.connected && !state.account.connecting) item(key = "sync") {
             SyncBanner(google.email, onConnect, motionModifier())
+        }
+        if (state.account.connected && !state.feedPersonalized && hasFeed) item(key = "generic-feed") {
+            NoticeBanner("Your YouTube Music feed isn’t coming through",
+                "YouTube answered as signed out, so this is the general feed. Reconnecting your account usually fixes it.", "Reconnect", onConnect, motionModifier())
         }
         if (state.feedError != null) item(key = "feed-error") {
             Row(motionModifier().fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -346,7 +419,7 @@ private fun HomeScreen(state: MusicState, onSearch: () -> Unit, onPlay: (Track, 
                         Text(if (recent == null) "Find music" else "Play", fontSize = 14.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Medium)
                     }
                 }
-                Artwork(recent, Modifier.weight(.54f).height(270.dp).clip(RoundedCornerShape(14.dp)))
+                Artwork(recent, Modifier.weight(.54f).height(270.dp).clip(RoundedCornerShape(14.dp)), size = 270.dp)
             }
         }
         if (state.history.isNotEmpty()) item(key = "recent") {
@@ -356,6 +429,26 @@ private fun HomeScreen(state: MusicState, onSearch: () -> Unit, onPlay: (Track, 
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     items(state.history.take(12), key = { it.id }) { track ->
                         MediaCard(track.title, track.artist, track, 142.dp, motionModifier()) { onPlay(track, state.history) }
+                    }
+                }
+            }
+        }
+        if (state.forYou.isNotEmpty() || state.forYouBusy) item(key = "for-you") {
+            Column(motionModifier()) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        SectionTitle("Mixed for you")
+                        Text("From what you play most on this phone", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp))
+                    }
+                    if (state.forYou.isNotEmpty()) FilledTonalButton(onClick = { onPlay(state.forYou.first(), state.forYou) }, shape = RoundedCornerShape(14.dp)) {
+                        Icon(Icons.Outlined.PlayArrow, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Play mix", fontSize = 12.sp)
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
+                if (state.forYou.isEmpty()) LoadingLine(true, state.reducedMotion)
+                else LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    itemsIndexed(state.forYou, key = { i, t -> "$i:${t.id}" }) { _, track ->
+                        MediaCard(track.title, track.artist, track, 142.dp) { onPlay(track, state.forYou) }
                     }
                 }
             }
@@ -376,16 +469,35 @@ private fun HomeScreen(state: MusicState, onSearch: () -> Unit, onPlay: (Track, 
 }
 
 @Composable
-private fun SyncBanner(email: String, onConnect: () -> Unit, modifier: Modifier = Modifier) {
+private fun SyncBanner(email: String, onConnect: () -> Unit, modifier: Modifier = Modifier) =
+    NoticeBanner("Finish syncing YouTube Music", "$email is chosen. Connect it to YouTube Music to bring your feed here.", "Connect", onConnect, modifier)
+
+@Composable
+private fun NoticeBanner(title: String, detail: String, action: String, onAction: () -> Unit, modifier: Modifier = Modifier) {
     Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = RoundedCornerShape(16.dp), modifier = modifier.fillMaxWidth()) {
         Row(Modifier.padding(start = 16.dp, end = 12.dp, top = 14.dp, bottom = 14.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("Finish syncing YouTube Music", fontSize = 15.sp, fontWeight = FontWeight.Medium)
-                Text("$email is chosen. Connect it to YouTube Music to bring your feed here.", fontSize = 12.sp, lineHeight = 18.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp))
+                Text(title, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                Text(detail, fontSize = 12.sp, lineHeight = 18.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp))
             }
             Spacer(Modifier.width(12.dp))
-            Button(onClick = onConnect, shape = RoundedCornerShape(12.dp), contentPadding = PaddingValues(horizontal = 16.dp)) { Text("Connect", fontSize = 13.sp) }
+            Button(onClick = onAction, shape = RoundedCornerShape(12.dp), contentPadding = PaddingValues(horizontal = 16.dp)) { Text(action, fontSize = 13.sp) }
+        }
+    }
+}
+
+/**
+ * Warm the image cache for what is about to scroll into view, so cards are already filled in
+ * when they appear instead of loading one by one during a fast fling.
+ */
+@Composable
+private fun PrefetchArtwork(urls: List<String>, size: Dp) {
+    val context = LocalContext.current
+    val px = with(LocalDensity.current) { size.roundToPx() }
+    LaunchedEffect(urls) {
+        val loader = context.imageLoader
+        urls.asSequence().filter { it.isNotBlank() }.distinct().take(80).forEach { url ->
+            loader.enqueue(ImageRequest.Builder(context).data(ArtworkUrl.sized(url, px)).size(px).build())
         }
     }
 }
@@ -409,7 +521,7 @@ private fun LazyListScope.feedSections(sections: List<FeedSection>, onEntry: (Fe
             Spacer(Modifier.height(16.dp))
             LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 itemsIndexed(section.items, key = { i, entry -> "$i:${entry.id}" }) { _, entry ->
-                    MediaCard(entry.title, entry.subtitle, Track(entry.id, entry.title, entry.subtitle, "", entry.artwork), 156.dp) { onEntry(entry) }
+                    MediaCard(entry.title, entry.subtitle, remember(entry) { Track(entry.id, entry.title, entry.subtitle, "", entry.artwork) }, 156.dp) { onEntry(entry) }
                 }
             }
         }
@@ -419,7 +531,7 @@ private fun LazyListScope.feedSections(sections: List<FeedSection>, onEntry: (Fe
 @Composable
 private fun MediaCard(title: String, subtitle: String, art: Track, size: Dp, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Column(modifier.width(size).clip(RoundedCornerShape(12.dp)).pressable(onClick = onClick)) {
-        Artwork(art, Modifier.size(size).clip(RoundedCornerShape(12.dp)))
+        Artwork(art, Modifier.size(size).clip(RoundedCornerShape(12.dp)), size = size)
         Text(title, fontSize = 13.sp, lineHeight = 18.sp, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 10.dp))
         if (subtitle.isNotBlank()) Text(subtitle, fontSize = 11.sp, lineHeight = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 3.dp, bottom = 4.dp))
     }
@@ -427,6 +539,7 @@ private fun MediaCard(title: String, subtitle: String, art: Track, size: Dp, mod
 
 @Composable
 private fun ProviderHome(state: MusicState, onEntry: (FeedEntry) -> Unit, onRefresh: () -> Unit, onMore: () -> Unit, title: String = "For your ears") {
+    PrefetchArtwork(state.feed.flatMap { it.items.take(10).map(FeedEntry::artwork) }, 156.dp)
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 10.dp, bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(22.dp)) {
         item(key = "title") {
             Column {
@@ -508,11 +621,55 @@ private fun SearchResults(state: MusicState, onPlay: (Track, List<Track>) -> Uni
     }
 }
 
+/** Saved and History side by side; swipe or tap the tabs, the highlight follows your finger. */
 @Composable
-private fun SavedScreen(state: MusicState, onPlay: (Track, List<Track>) -> Unit, onSave: (Track) -> Unit, onSearch: () -> Unit) {
-    Column(Modifier.fillMaxSize().padding(horizontal = 24.dp)) {
-        Spacer(Modifier.height(10.dp)); PageTitle("Worth keeping")
-        Text("The songs you always come back to.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 13.dp, bottom = 25.dp))
+private fun LibraryScreen(state: MusicState, onPlay: (Track, List<Track>) -> Unit, onSave: (Track) -> Unit, onSearch: () -> Unit, onRemovePlay: (PlayEvent) -> Unit) {
+    val pager = rememberPagerState { 2 }
+    val scope = rememberCoroutineScope()
+    val reduced = state.reducedMotion
+    Column(Modifier.fillMaxSize()) {
+        Column(Modifier.padding(horizontal = 24.dp)) {
+            Spacer(Modifier.height(10.dp)); PageTitle("Library")
+            Spacer(Modifier.height(18.dp))
+            SegmentedTabs(listOf("Saved", "History"), pager.currentPage + pager.currentPageOffsetFraction) { index ->
+                scope.launch { if (reduced) pager.scrollToPage(index) else pager.animateScrollToPage(index, animationSpec = spring(dampingRatio = .9f, stiffness = 400f)) }
+            }
+            Spacer(Modifier.height(16.dp))
+        }
+        HorizontalPager(pager, Modifier.weight(1f), beyondViewportPageCount = 1, key = { it }) { index ->
+            Box(Modifier.fillMaxSize().padding(horizontal = 24.dp)) {
+                if (index == 0) SavedList(state, onPlay, onSave, onSearch) else HistoryList(state, onPlay, onRemovePlay)
+            }
+        }
+    }
+}
+
+/** A pill track with a thumb that slides continuously, including mid-swipe between pages. */
+@Composable
+private fun SegmentedTabs(labels: List<String>, position: Float, onSelect: (Int) -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    BoxWithConstraints(Modifier.fillMaxWidth().height(44.dp).background(scheme.surfaceVariant, RoundedCornerShape(22.dp)).padding(4.dp)) {
+        val slot = maxWidth / labels.size
+        Box(Modifier.offset(x = slot * position.coerceIn(0f, labels.lastIndex.toFloat())).width(slot).fillMaxHeight()
+            .graphicsLayer { shadowElevation = 3.dp.toPx(); shape = RoundedCornerShape(18.dp); clip = true }
+            .background(scheme.surface, RoundedCornerShape(18.dp)))
+        Row(Modifier.fillMaxSize()) {
+            labels.forEachIndexed { index, label ->
+                val closeness = (1f - abs(position - index)).coerceIn(0f, 1f)
+                val color = androidx.compose.ui.graphics.lerp(scheme.onSurfaceVariant, scheme.primary, closeness)
+                Box(Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(18.dp)).clickable { onSelect(index) }
+                    .semantics { contentDescription = "$label tab" }, contentAlignment = Alignment.Center) {
+                    Text(label, fontSize = 14.sp, fontWeight = if (closeness > .5f) FontWeight.SemiBold else FontWeight.Medium, color = color)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SavedList(state: MusicState, onPlay: (Track, List<Track>) -> Unit, onSave: (Track) -> Unit, onSearch: () -> Unit) {
+    Column(Modifier.fillMaxSize()) {
+        Text("Worth keeping.", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 12.dp))
         if (state.saved.isEmpty()) {
             EmptyState("Keep a good thing close", "Tap the heart on a recording to save it here.", Icons.Outlined.FavoriteBorder)
             TextButton(onClick = onSearch, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Find music") }
@@ -521,11 +678,70 @@ private fun SavedScreen(state: MusicState, onPlay: (Track, List<Track>) -> Unit,
                 Caption("${state.saved.size} SAVED")
                 Button(onClick = { onPlay(state.saved.first(), state.saved) }, shape = RoundedCornerShape(12.dp)) { Icon(Icons.Outlined.PlayArrow, null, Modifier.size(18.dp)); Spacer(Modifier.width(7.dp)); Text("Play all", fontSize = 12.sp) }
             }
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(10.dp))
             LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
                 items(state.saved, key = { it.id }) { track -> TrackRow(track, true, state.current?.id == track.id, { onPlay(track, state.saved) }, { onSave(track) }, motionModifier()) }
             }
         }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun HistoryList(state: MusicState, onPlay: (Track, List<Track>) -> Unit, onRemove: (PlayEvent) -> Unit) {
+    val events = state.playEvents
+    if (events.isEmpty()) {
+        EmptyState(if (state.trackHistory) "Your listening, day by day" else "History is off",
+            if (state.trackHistory) "Songs you listen to for more than a few seconds show up here, with how long you listened." else "Turn on listening history in Settings › Privacy.", Glyph.History)
+        return
+    }
+    val days = remember(events) { ListeningHistory.days(events) }
+    val stats = remember(events) { ListeningHistory.stats(events) }
+    val timeFormat = remember { java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT) }
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+        item(key = "stats") {
+            Row(Modifier.fillMaxWidth().padding(bottom = 14.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                StatTile("${stats.minutesThisWeek}", "minutes this week", Modifier.weight(1f))
+                StatTile("${stats.playsThisWeek}", "plays this week", Modifier.weight(1f))
+                StatTile(stats.topArtist ?: "—", "top artist", Modifier.weight(1.3f), small = true)
+            }
+        }
+        days.forEach { day ->
+            stickyHeader(key = "day:${day.label}") {
+                Text(day.label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background).padding(top = 12.dp, bottom = 6.dp))
+            }
+            items(day.events, key = { "play:${it.startedAt}" }) { event ->
+                val queue = day.events.map { it.track }.distinctBy { it.id }
+                HistoryRow(event, timeFormat.format(java.util.Date(event.startedAt)), state.current?.id == event.track.id,
+                    { onPlay(event.track, queue) }, { onRemove(event) }, motionModifier())
+            }
+        }
+    }
+}
+
+@Composable
+private fun StatTile(value: String, label: String, modifier: Modifier = Modifier, small: Boolean = false) {
+    Column(modifier.background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(16.dp)).padding(horizontal = 12.dp, vertical = 12.dp)) {
+        Text(value, fontSize = if (small) 15.sp else 22.sp, lineHeight = if (small) 22.sp else 26.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(label, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 2.dp), maxLines = 1)
+    }
+}
+
+@Composable
+private fun HistoryRow(event: PlayEvent, time: String, current: Boolean, onPlay: () -> Unit, onRemove: () -> Unit, modifier: Modifier = Modifier) {
+    val track = event.track
+    Row(modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick = onPlay).padding(vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+        Artwork(track, Modifier.size(48.dp).clip(RoundedCornerShape(8.dp)), size = 48.dp)
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(track.title, fontSize = 14.sp, lineHeight = 19.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                color = if (current) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+            val listened = clock(event.listenedMs)
+            Text(listOf(track.artist, "$time · $listened" + if (event.skipped) " · skipped" else "").filter { it.isNotBlank() }.joinToString(" · "),
+                fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 3.dp))
+        }
+        IconButton(onClick = onRemove) { Icon(Icons.Outlined.Close, "Remove ${track.title} from history", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) }
     }
 }
 
@@ -543,58 +759,135 @@ private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () ->
     val duration = if (pending) 0 else state.durationMs
     val position = if (pending) 0 else state.positionMs
     val queueIndex = state.queueIndex
+    val hasNext = queueIndex >= 0 && queueIndex < state.queue.lastIndex
+    val canSkip = !pending && !loading
     // Artwork settles back slightly while paused, then springs forward on play.
-    val artScale by animateFloatAsState(if (playing || reduced) 1f else .93f,
-        if (reduced) snap<Float>() else spring<Float>(dampingRatio = .7f, stiffness = Spring.StiffnessLow), label = "artwork scale")
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 24.dp, end = 24.dp, top = 10.dp, bottom = 24.dp)) {
-        AnimatedContent(
-            targetState = track, contentKey = { it.id }, label = "now playing",
-            transitionSpec = {
-                if (reduced) (EnterTransition.None togetherWith ExitTransition.None).using(null)
-                else (fadeIn(tween(260, 60)) + slideInHorizontally(tween(380, easing = EmphasizedDecelerate)) { it / 6 }) togetherWith
-                    (fadeOut(tween(140)) + slideOutHorizontally(tween(220, easing = EmphasizedAccelerate)) { -it / 8 })
-            },
-        ) { shown ->
-            Column {
-                Artwork(shown, Modifier.fillMaxWidth().aspectRatio(1.02f).graphicsLayer { scaleX = artScale; scaleY = artScale }.clip(RoundedCornerShape(16.dp)))
-                Spacer(Modifier.height(16.dp))
-                ProgressLine(position, duration, playing, reduced, onSeek)
-                Spacer(Modifier.height(22.dp))
-                Text(shown.title, fontFamily = font, fontSize = 36.sp, lineHeight = 40.sp, letterSpacing = (-1.4).sp, fontWeight = FontWeight.Medium, maxLines = 3, overflow = TextOverflow.Ellipsis)
-                Text(shown.artist, fontSize = 18.sp, lineHeight = 26.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 9.dp), maxLines = 2, overflow = TextOverflow.Ellipsis)
+    val artScale by animateFloatAsState(if (playing || reduced) 1f else .92f,
+        if (reduced) snap<Float>() else spring<Float>(dampingRatio = .62f, stiffness = 260f), label = "artwork scale")
+    val scheme = MaterialTheme.colorScheme
+    Box(Modifier.fillMaxSize()) {
+        // A soft, blurred wash of the cover behind everything; crossfades with the track.
+        Crossfade(track, Modifier.matchParentSize(), animationSpec = tween(if (reduced) 0 else 600), label = "backdrop") { shown ->
+            Box(Modifier.fillMaxSize()) {
+                Artwork(shown, Modifier.fillMaxWidth().fillMaxHeight(.62f).graphicsLayer { alpha = .38f }.blur(60.dp), size = 120.dp)
+                Box(Modifier.matchParentSize().background(Brush.verticalGradient(listOf(scheme.background.copy(alpha = .35f), scheme.background.copy(alpha = .85f), scheme.background), endY = 1600f)))
             }
         }
-        AnimatedVisibility(loading, enter = fadeIn(tween(if (reduced) 0 else 200)), exit = fadeOut(tween(if (reduced) 0 else 200))) {
-            Text(if (state.resolving) "Finding audio…" else "Buffering…", color = MaterialTheme.colorScheme.primary, fontSize = 11.sp, modifier = Modifier.padding(top = 8.dp))
-        }
-        Spacer(Modifier.height(25.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
-            LabelledControl("Previous", Glyph.Previous, onPrevious, enabled = !pending && !loading)
-            Button(onClick = onToggle, enabled = !loading, shape = RoundedCornerShape(14.dp), modifier = Modifier.width(116.dp).height(48.dp), contentPadding = PaddingValues(horizontal = 10.dp)) {
-                AnimatedContent(targetState = if (loading) 0 else if (playing) 1 else 2, label = "play button",
-                    transitionSpec = {
-                        if (reduced) (EnterTransition.None togetherWith ExitTransition.None).using(null)
-                        else (fadeIn(tween(180)) + scaleIn(tween(220, easing = EmphasizedDecelerate), initialScale = .7f)) togetherWith (fadeOut(tween(90)) + scaleOut(tween(120), targetScale = .7f))
-                    }) { mode ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        when (mode) {
-                            0 -> CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 1.5.dp, color = LocalContentColor.current)
-                            1 -> Icon(Glyph.Pause, null, Modifier.size(20.dp))
-                            else -> Icon(Icons.Outlined.PlayArrow, null, Modifier.size(20.dp))
-                        }
-                        Spacer(Modifier.width(6.dp))
-                        Text(when (mode) { 0 -> "Loading"; 1 -> "Pause"; else -> "Play" }, fontSize = 12.sp)
-                    }
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 24.dp, end = 24.dp, top = 10.dp, bottom = 24.dp)) {
+            SwipeableCover(track, queueIndex, artScale, reduced, canPrevious = canSkip, canNext = canSkip && hasNext, onPrevious = onPrevious, onNext = onNext)
+            Spacer(Modifier.height(16.dp))
+            ProgressLine(position, duration, playing, reduced, onSeek)
+            Spacer(Modifier.height(18.dp))
+            AnimatedContent(
+                targetState = track to queueIndex, contentKey = { it.first.id }, label = "now title",
+                transitionSpec = {
+                    val forward = targetState.second >= initialState.second
+                    if (reduced) (EnterTransition.None togetherWith ExitTransition.None).using(null)
+                    else ((fadeIn(FadeSpring) + slideInHorizontally(PageSpring) { if (forward) it / 4 else -it / 4 }) togetherWith
+                        (fadeOut(tween(120)) + slideOutHorizontally(PageSpring) { if (forward) -it / 4 else it / 4 })).using(SizeTransform(clip = false))
+                },
+            ) { (shown, _) ->
+                Column(Modifier.fillMaxWidth()) {
+                    Text(shown.title, fontFamily = font, fontSize = 32.sp, lineHeight = 37.sp, letterSpacing = (-1.2).sp, fontWeight = FontWeight.Medium, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                    Text(shown.artist, fontSize = 17.sp, lineHeight = 24.sp, color = scheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp), maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
             }
-            LabelledControl("Next", Glyph.Next, onNext, enabled = !pending && !loading && queueIndex >= 0 && queueIndex < state.queue.lastIndex)
-            val saved = state.saved.any { it.id == track.id }
-            LabelledControl(if (saved) "Saved" else "Save", if (saved) Icons.Outlined.Favorite else Icons.Outlined.FavoriteBorder, { onSave(track) }, highlighted = saved)
+            AnimatedVisibility(loading, enter = fadeIn(tween(if (reduced) 0 else 200)), exit = fadeOut(tween(if (reduced) 0 else 200))) {
+                Text(if (state.resolving) "Finding audio…" else "Buffering…", color = scheme.primary, fontSize = 11.sp, modifier = Modifier.padding(top = 8.dp))
+            }
+            Spacer(Modifier.height(25.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
+                LabelledControl("Previous", Glyph.Previous, onPrevious, enabled = canSkip)
+                Button(onClick = onToggle, enabled = !loading, shape = RoundedCornerShape(14.dp), modifier = Modifier.width(116.dp).height(48.dp), contentPadding = PaddingValues(horizontal = 10.dp)) {
+                    AnimatedContent(targetState = if (loading) 0 else if (playing) 1 else 2, label = "play button",
+                        transitionSpec = {
+                            if (reduced) (EnterTransition.None togetherWith ExitTransition.None).using(null)
+                            else (fadeIn(FadeSpring) + scaleIn(spring(dampingRatio = .55f, stiffness = 500f), initialScale = .6f)) togetherWith (fadeOut(tween(90)) + scaleOut(tween(120), targetScale = .7f))
+                        }) { mode ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            when (mode) {
+                                0 -> CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 1.5.dp, color = LocalContentColor.current)
+                                1 -> Icon(Glyph.Pause, null, Modifier.size(20.dp))
+                                else -> Icon(Icons.Outlined.PlayArrow, null, Modifier.size(20.dp))
+                            }
+                            Spacer(Modifier.width(6.dp))
+                            Text(when (mode) { 0 -> "Loading"; 1 -> "Pause"; else -> "Play" }, fontSize = 12.sp)
+                        }
+                    }
+                }
+                LabelledControl("Next", Glyph.Next, onNext, enabled = canSkip && hasNext)
+                val saved = state.saved.any { it.id == track.id }
+                LabelledControl(if (saved) "Saved" else "Save", if (saved) Icons.Outlined.Favorite else Icons.Outlined.FavoriteBorder, { onSave(track) }, highlighted = saved)
+            }
+            Spacer(Modifier.height(26.dp))
+            HorizontalDivider(color = scheme.outline, thickness = .5.dp)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                val upNext = state.queue.getOrNull(queueIndex + 1)
+                Text(upNext?.let { "Next: ${it.title}" } ?: if (state.autoplay) "Radio will continue from here" else "End of queue",
+                    fontSize = 12.sp, color = scheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                TextButton(onClick = onQueue) { Text("Up next", fontSize = 11.sp); Spacer(Modifier.width(8.dp)); Icon(Glyph.Queue, null, Modifier.size(18.dp)) }
+            }
         }
-        Spacer(Modifier.height(26.dp))
-        HorizontalDivider(color = MaterialTheme.colorScheme.outline, thickness = .5.dp)
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            TextButton(onClick = onQueue) { Text("Up next", fontSize = 11.sp); Spacer(Modifier.width(8.dp)); Icon(Glyph.Queue, null, Modifier.size(18.dp)) }
+    }
+}
+
+/**
+ * The cover follows your finger sideways. Let go past about a quarter of its width and it
+ * flies off and the next (or previous) recording springs in from the other side; otherwise
+ * it springs back. The direction of the change also decides which way the new cover enters.
+ */
+@Composable
+private fun SwipeableCover(track: Track, queueIndex: Int, artScale: Float, reduced: Boolean,
+    canPrevious: Boolean, canNext: Boolean, onPrevious: () -> Unit, onNext: () -> Unit) {
+    val offset = remember { Animatable(0f) }
+    val scope = rememberCoroutineScope()
+    val next by rememberUpdatedState(onNext)
+    val previous by rememberUpdatedState(onPrevious)
+    val allowNext by rememberUpdatedState(canNext)
+    val allowPrevious by rememberUpdatedState(canPrevious)
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val width = with(LocalDensity.current) { maxWidth.toPx() }
+        AnimatedContent(
+            targetState = track to queueIndex, contentKey = { it.first.id }, label = "now cover",
+            transitionSpec = {
+                val forward = targetState.second >= initialState.second
+                if (reduced) (EnterTransition.None togetherWith ExitTransition.None).using(null)
+                else ((fadeIn(FadeSpring) + slideInHorizontally(PageSpring) { if (forward) it / 3 else -it / 3 } + scaleIn(spring(dampingRatio = .8f, stiffness = 380f), initialScale = .9f)) togetherWith
+                    (fadeOut(tween(140)) + scaleOut(tween(200), targetScale = .9f))).using(SizeTransform(clip = false))
+            },
+        ) { (shown, _) ->
+            Artwork(shown, Modifier.fillMaxWidth().aspectRatio(1f)
+                .graphicsLayer {
+                    val drag = offset.value
+                    translationX = drag
+                    rotationZ = drag / width * 6f
+                    val s = artScale * (1f - abs(drag) / width * .08f)
+                    scaleX = s; scaleY = s
+                    shadowElevation = 18.dp.toPx(); shape = RoundedCornerShape(18.dp); clip = true
+                }
+                .pointerInput(Unit) {
+                    detectHorizontalDragGestures(
+                        onDragEnd = {
+                            val value = offset.value
+                            val threshold = width * .25f
+                            scope.launch {
+                                when {
+                                    value < -threshold && allowNext -> { offset.animateTo(-width, tween(160)); next(); offset.snapTo(0f) }
+                                    value > threshold && allowPrevious -> { offset.animateTo(width, tween(160)); previous(); offset.snapTo(0f) }
+                                    else -> offset.animateTo(0f, spring(dampingRatio = .6f, stiffness = 420f))
+                                }
+                            }
+                        },
+                        onDragCancel = { scope.launch { offset.animateTo(0f, spring(dampingRatio = .6f, stiffness = 420f)) } },
+                    ) { change, delta ->
+                        change.consume()
+                        // Resist past the edge when there is nothing to swipe to.
+                        val blocked = (offset.value + delta < 0 && !allowNext) || (offset.value + delta > 0 && !allowPrevious)
+                        scope.launch { offset.snapTo(offset.value + if (blocked) delta * .25f else delta) }
+                    }
+                }
+                .semantics { contentDescription = "Cover for ${shown.title}. Swipe left for next, right for previous." },
+                size = 400.dp)
         }
     }
 }
@@ -692,7 +985,8 @@ private val settingsSections = listOf(
 private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onReduced: (Boolean) -> Unit, onLocal: () -> Unit, onClearHistory: () -> Unit,
     onConnect: () -> Unit, onWebSignIn: () -> Unit, onDisconnect: () -> Unit, onCancelConnect: () -> Unit,
     onGoogleSignIn: () -> Unit, onGoogleSignOut: () -> Unit, onCancelGoogle: () -> Unit,
-    onCheckUpdates: () -> Unit, onDownloadUpdate: () -> Unit, onInstallUpdate: () -> Unit) {
+    onCheckUpdates: () -> Unit, onDownloadUpdate: () -> Unit, onInstallUpdate: () -> Unit,
+    onAutoplay: (Boolean) -> Unit, onTrackHistory: (Boolean) -> Unit) {
     var confirmClear by remember { mutableStateOf(false) }
     var showLicences by remember { mutableStateOf(false) }
     val context = LocalContext.current
@@ -727,7 +1021,11 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onReduc
                 CardDivider()
                 SettingItem("Background play", "Keeps playing with the screen off or in another app", Icons.Outlined.PlayArrow)
                 CardDivider()
-                SettingItem("Recommendations", "Automatic · the provider’s order is preserved", Icons.Outlined.Star)
+                SettingItem("Recommendations", "Your YouTube Music feed, plus “Mixed for you”: radio from your most-played songs, re-ranked on this device by what you finish and skip", Icons.Outlined.Star)
+                CardDivider()
+                SettingItem("Autoplay radio", "When the queue ends, keep playing similar songs", Glyph.Sparkle, onClick = { onAutoplay(!state.autoplay) }) {
+                    Switch(checked = state.autoplay, onCheckedChange = onAutoplay, modifier = Modifier.semantics { contentDescription = "Autoplay radio" })
+                }
                 CardDivider()
                 SettingItem("Audio processing", "Off · original audio", Glyph.MusicNote)
                 CardDivider()
@@ -771,8 +1069,13 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onReduc
                 Text("Saved recordings, history and your encrypted YouTube session stay on this device. YouTube receives your provider requests; GitHub receives update checks.",
                     fontSize = 14.sp, lineHeight = 21.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp))
                 CardDivider(start = 16.dp)
-                SettingItem("Clear listening history", if (state.history.isEmpty()) "Nothing to clear" else "${state.history.size} recent recordings", Icons.Outlined.Delete,
-                    onClick = if (state.history.isNotEmpty()) ({ confirmClear = true }) else null)
+                SettingItem("Keep listening history", "Powers the History tab and “Mixed for you”. Stays on this device.", Glyph.History, onClick = { onTrackHistory(!state.trackHistory) }) {
+                    Switch(checked = state.trackHistory, onCheckedChange = onTrackHistory, modifier = Modifier.semantics { contentDescription = "Keep listening history" })
+                }
+                CardDivider()
+                val hasHistory = state.history.isNotEmpty() || state.playEvents.isNotEmpty()
+                SettingItem("Clear listening history", if (!hasHistory) "Nothing to clear" else "${state.playEvents.size} plays · ${state.history.size} recent recordings", Icons.Outlined.Delete,
+                    onClick = if (hasHistory) ({ confirmClear = true }) else null)
                 CardDivider()
                 SettingItem("Open-source licences", "Libraries and fonts used by Music", Icons.Outlined.Info, onClick = { showLicences = true })
             }
@@ -941,30 +1244,70 @@ private fun IconTile(icon: ImageVector) {
 // Mini player
 // ---------------------------------------------------------------------------------------
 
+/** Tap or swipe up to open the player; swipe sideways to skip. The card tilts and springs back. */
 @Composable
-private fun MiniPlayer(state: MusicState, onOpen: () -> Unit, onToggle: () -> Unit, onNext: () -> Unit) {
+private fun MiniPlayer(state: MusicState, onOpen: () -> Unit, onToggle: () -> Unit, onNext: () -> Unit, onPrevious: () -> Unit) {
     val track = state.current ?: return
     val reduced = state.reducedMotion
     val loading = state.resolving || state.buffering
     val position = rememberSmoothPosition(state.positionMs, state.durationMs, state.playing && !reduced)
     val fraction = if (state.durationMs > 0) (position.toFloat() / state.durationMs).coerceIn(0f, 1f) else 0f
+    val i = state.queueIndex
+    val hasNext = i >= 0 && i < state.queue.lastIndex
+    val offsetX = remember { Animatable(0f) }
+    val offsetY = remember { Animatable(0f) }
+    val scope = rememberCoroutineScope()
+    val open by rememberUpdatedState(onOpen)
+    val next by rememberUpdatedState(onNext)
+    val previous by rememberUpdatedState(onPrevious)
+    val allowNext by rememberUpdatedState(hasNext)
+    val density = LocalDensity.current
+    val back = spring<Float>(dampingRatio = .6f, stiffness = 500f)
     Surface(
-        onClick = onOpen, shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surface,
-        border = BorderStroke(.5.dp, MaterialTheme.colorScheme.outline), shadowElevation = 6.dp,
-        modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 8.dp),
+        onClick = onOpen, shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(.5.dp, MaterialTheme.colorScheme.outline), shadowElevation = 8.dp,
+        modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 8.dp)
+            .graphicsLayer {
+                translationX = offsetX.value * .35f
+                translationY = offsetY.value.coerceAtMost(0f) * .5f
+                val lift = (-offsetY.value / 600f).coerceIn(0f, .06f)
+                scaleX = 1f + lift; scaleY = 1f + lift
+            }
+            .pointerInput(Unit) {
+                val trigger = with(density) { 56.dp.toPx() }
+                detectDragGestures(
+                    onDragEnd = {
+                        val x = offsetX.value; val y = offsetY.value
+                        scope.launch {
+                            when {
+                                -y > trigger && -y > abs(x) -> { open(); launch { offsetX.snapTo(0f) }; offsetY.animateTo(0f, back) }
+                                x < -trigger && allowNext -> { next(); launch { offsetY.snapTo(0f) }; offsetX.animateTo(0f, back) }
+                                x > trigger -> { previous(); launch { offsetY.snapTo(0f) }; offsetX.animateTo(0f, back) }
+                                else -> { launch { offsetY.animateTo(0f, back) }; offsetX.animateTo(0f, back) }
+                            }
+                        }
+                    },
+                    onDragCancel = { scope.launch { launch { offsetY.animateTo(0f, back) }; offsetX.animateTo(0f, back) } },
+                ) { change, drag ->
+                    change.consume()
+                    scope.launch { offsetX.snapTo(offsetX.value + drag.x) }
+                    scope.launch { offsetY.snapTo(offsetY.value + drag.y) }
+                }
+            },
     ) {
         Column {
             Row(Modifier.fillMaxWidth().height(64.dp).padding(start = 10.dp, end = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                 AnimatedContent(
-                    targetState = track, contentKey = { it.id }, label = "mini track", modifier = Modifier.weight(1f),
+                    targetState = track to i, contentKey = { it.first.id }, label = "mini track", modifier = Modifier.weight(1f),
                     transitionSpec = {
+                        val forward = targetState.second >= initialState.second
                         if (reduced) (EnterTransition.None togetherWith ExitTransition.None).using(null)
-                        else (fadeIn(tween(220, 60)) + slideInVertically(tween(300, easing = EmphasizedDecelerate)) { it / 2 }) togetherWith
-                            (fadeOut(tween(120)) + slideOutVertically(tween(200, easing = EmphasizedAccelerate)) { -it / 2 })
+                        else (fadeIn(FadeSpring) + slideInHorizontally(PageSpring) { if (forward) it / 3 else -it / 3 }) togetherWith
+                            (fadeOut(tween(110)) + slideOutHorizontally(PageSpring) { if (forward) -it / 3 else it / 3 })
                     },
-                ) { shown ->
+                ) { (shown, _) ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Artwork(shown, Modifier.size(44.dp).clip(RoundedCornerShape(10.dp)))
+                        Artwork(shown, Modifier.size(44.dp).clip(RoundedCornerShape(10.dp)), size = 44.dp)
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
                             Text(shown.title, fontSize = 14.sp, lineHeight = 18.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -974,8 +1317,7 @@ private fun MiniPlayer(state: MusicState, onOpen: () -> Unit, onToggle: () -> Un
                 }
                 Spacer(Modifier.width(8.dp))
                 PlayPauseCircle(state.playing, loading, reduced, enabled = !state.resolving, onClick = onToggle)
-                val i = state.queueIndex
-                IconButton(onClick = onNext, enabled = i >= 0 && i < state.queue.lastIndex, modifier = Modifier.size(44.dp)) { Icon(Glyph.Next, "Next recording", Modifier.size(20.dp)) }
+                IconButton(onClick = onNext, enabled = hasNext, modifier = Modifier.size(44.dp)) { Icon(Glyph.Next, "Next recording", Modifier.size(20.dp)) }
             }
             // Progress runs along the bottom edge of the card.
             Box(Modifier.fillMaxWidth().height(3.dp).background(MaterialTheme.colorScheme.outline.copy(alpha = .6f))) {
@@ -1030,7 +1372,7 @@ private fun TrackRow(track: Track, saved: Boolean, current: Boolean, onPlay: () 
         HorizontalDivider(color = MaterialTheme.colorScheme.outline, thickness = .5.dp)
         Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Row(Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).clickable(onClick = onPlay).padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                Artwork(track, Modifier.size(48.dp).clip(RoundedCornerShape(8.dp)))
+                Artwork(track, Modifier.size(48.dp).clip(RoundedCornerShape(8.dp)), size = 48.dp)
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
                     val titleColor by animateColorAsState(if (current) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface, tween(if (LocalReducedMotion.current) 0 else 180), label = "row title")
@@ -1048,21 +1390,31 @@ private fun TrackRow(track: Track, saved: Boolean, current: Boolean, onPlay: () 
     }
 }
 
+/**
+ * Requests a rendition sized for the slot (a 48dp row downloads a ~120px image, not a
+ * 1200px cover), shares it through the memory and disk caches, and falls back to a rendition
+ * every upload has. A flat colour stands in while loading, so fast scrolling never flashes art.
+ */
 @Composable
-private fun Artwork(track: Track?, modifier: Modifier = Modifier) {
+private fun Artwork(track: Track?, modifier: Modifier = Modifier, size: Dp = 56.dp) {
     val source = track?.artwork?.takeIf { it.isNotBlank() }
-    var useFallback by remember(source) { mutableStateOf(false) }
+    val px = with(LocalDensity.current) { size.roundToPx() }.coerceAtLeast(1)
+    var attempt by remember(source) { mutableIntStateOf(0) }
     val context = LocalContext.current
     val reduced = LocalReducedMotion.current
-    val request = remember(context, source, useFallback, reduced) {
-        ImageRequest.Builder(context).data(if (useFallback) source else source?.let(ArtworkUrl::original)).crossfade(if (reduced) 0 else 220).build()
+    val url = source?.let { when (attempt) { 0 -> ArtworkUrl.sized(it, px); 1 -> ArtworkUrl.safe(it); else -> it } }
+    val request = remember(context, url, px, reduced) {
+        ImageRequest.Builder(context).data(url).size(px.coerceAtMost(1200)).crossfade(if (reduced) 0 else 160)
+            .memoryCacheKey(url).diskCacheKey(url).build()
     }
+    val tone = MaterialTheme.colorScheme.surfaceVariant
+    val placeholder = remember(tone) { ColorPainter(tone) }
     AsyncImage(
         model = request, contentDescription = null,
         modifier = modifier.background(MaterialTheme.colorScheme.surfaceVariant),
         contentScale = ContentScale.Crop,
-        onError = { useFallback = true },
-        placeholder = painterResource(R.drawable.art_main), error = painterResource(R.drawable.art_main), fallback = painterResource(R.drawable.art_main),
+        onError = { if (attempt < 2) attempt++ },
+        placeholder = placeholder, error = placeholder, fallback = placeholder,
     )
 }
 

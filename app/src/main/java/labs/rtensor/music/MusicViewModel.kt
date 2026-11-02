@@ -27,6 +27,9 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import labs.rtensor.music.data.LibraryStore
+import labs.rtensor.music.data.ListeningHistory
+import labs.rtensor.music.data.PlayEvent
+import labs.rtensor.music.data.Recommender
 import labs.rtensor.music.data.Source
 import labs.rtensor.music.data.SourceException
 import labs.rtensor.music.data.YouTubeMetadata
@@ -72,6 +75,13 @@ data class MusicState(
     val feedBusy: Boolean = false,
     val feedHasMore: Boolean = false,
     val feedError: String? = null,
+    /** False when an account is connected but YouTube answered the feed as signed out. */
+    val feedPersonalized: Boolean = true,
+    val playEvents: List<PlayEvent> = emptyList(),
+    val forYou: List<Track> = emptyList(),
+    val forYouBusy: Boolean = false,
+    val autoplay: Boolean = true,
+    val trackHistory: Boolean = true,
     val explore: List<FeedSection> = emptyList(),
     val exploreBusy: Boolean = false,
     val exploreError: String? = null,
@@ -84,12 +94,14 @@ data class MusicState(
 @UnstableApi
 class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val library = LibraryStore(application)
+    private val listening = ListeningHistory(application)
     private val googleProfiles = GoogleProfileStore(application)
     private val youtube = YouTubeSource(application)
     private val updater = GitHubUpdater(application)
     private val mutable = MutableStateFlow(MusicState(
         saved = library.tracks("saved"), history = library.tracks("history"), googleProfile = googleProfiles.load(),
-        theme = library.theme, reducedMotion = library.reducedMotion,
+        theme = library.theme, reducedMotion = library.reducedMotion, playEvents = listening.events,
+        autoplay = library.autoplay, trackHistory = library.trackHistory,
     ))
     val state = mutable.asStateFlow()
     private val metadata = mutableMapOf<String, YouTubeMetadata>()
@@ -99,6 +111,12 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private var feedJob: Job? = null
     private var collectionJob: Job? = null
     private var exploreJob: Job? = null
+    private var radioJob: Job? = null
+    private var forYouJob: Job? = null
+    private val radioSeeds = mutableSetOf<String>()
+    /** The listen in progress: which song, when it started, and how long it has actually played. */
+    private var listen: Triple<Track, Long, Long>? = null
+    private var lastTick = 0L
     private val controllerFuture = MediaController.Builder(
         application, SessionToken(application, ComponentName(application, MusicPlaybackService::class.java))
     ).buildAsync()
@@ -114,6 +132,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         }
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             syncPlayer(includeQueue = true)
+            continueWithRadio()
             mutable.update { it.copy(error = null, errorDiagnostic = "") }
         }
         override fun onPlayerError(error: PlaybackException) {
@@ -173,6 +192,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         refreshFeed()
+        refreshForYou()
         checkUpdates()
     }
 
@@ -183,7 +203,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             mutable.update { it.copy(feedBusy = true, feedError = null) }
             try {
                 val feed = youtube.home(more)
-                mutable.update { it.copy(feedBusy = false, feed = if (more) it.feed + feed.sections else feed.sections, feedHasMore = feed.hasMore) }
+                mutable.update { it.copy(feedBusy = false, feed = if (more) it.feed + feed.sections else feed.sections, feedHasMore = feed.hasMore,
+                    feedPersonalized = !it.account.connected || feed.personalized) }
+                if (!more && mutable.value.forYou.isEmpty()) refreshForYou()
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { mutable.update { it.copy(feedBusy = false, feedError = sourceMessage(e)) } }
         }
@@ -258,6 +280,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun syncPlayer(includeQueue: Boolean = false) {
         val c = controller ?: return
+        trackListening(c)
         val restored = runCatching {
             c.currentMediaItem?.mediaMetadata?.extras?.getString("catalogue_track")?.let { Track.fromJson(org.json.JSONObject(it)) }
         }.getOrNull()
@@ -303,18 +326,81 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         val ordered = queue.take(100).let { if (it.any { t -> t.id == track.id }) it else listOf(track) + it }
         val selectedIndex = ordered.indexOfFirst { it === track }.takeIf { it >= 0 }
             ?: ordered.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
-        val items = ordered.map { item ->
-            val extras = Bundle().apply { putString("catalogue_track", item.json().toString()) }
-            val metadata = MediaMetadata.Builder().setTitle(item.title).setArtist(item.artist)
-                .setArtworkUri(item.artwork.takeIf(String::isNotBlank)?.let(Uri::parse)).setExtras(extras).build()
-            MediaItem.Builder().setMediaId(item.id).setUri(item.url)
-                .setCustomCacheKey(java.util.UUID.randomUUID().toString())
-                .setMediaMetadata(metadata).build()
-        }
+        val items = ordered.map(::mediaItem)
         mutable.update { it.copy(current = track, loadingTrack = null, error = null, errorDiagnostic = "", queue = ordered, queueIndex = selectedIndex, positionMs = 0, durationMs = 0) }
+        radioJob?.cancel(); radioSeeds.clear()
         c.setMediaItems(items, selectedIndex, 0)
         c.prepare()
         c.play()
+        // A single song starts its YouTube Music radio, like tapping a song in YouTube Music.
+        if (ordered.size == 1) continueWithRadio(force = true)
+    }
+
+    private fun mediaItem(item: Track): MediaItem {
+        val extras = Bundle().apply { putString("catalogue_track", item.json().toString()) }
+        val metadata = MediaMetadata.Builder().setTitle(item.title).setArtist(item.artist)
+            .setArtworkUri(item.artwork.takeIf(String::isNotBlank)?.let(Uri::parse)).setExtras(extras).build()
+        return MediaItem.Builder().setMediaId(item.id).setUri(item.url)
+            .setCustomCacheKey(java.util.UUID.randomUUID().toString())
+            .setMediaMetadata(metadata).build()
+    }
+
+    /** Append radio for the playing song when the queue is about to run out. */
+    private fun continueWithRadio(force: Boolean = false) {
+        val c = controller ?: return
+        if (!mutable.value.autoplay || radioJob?.isActive == true) return
+        if (!force && c.currentMediaItemIndex < c.mediaItemCount - 2) return
+        val seed = mutable.value.queue.getOrNull(c.currentMediaItemIndex) ?: mutable.value.current ?: return
+        if (seed.source != Source.YOUTUBE || !radioSeeds.add(seed.id)) return
+        radioJob = viewModelScope.launch {
+            try {
+                val have = (0 until c.mediaItemCount).map { c.getMediaItemAt(it).mediaId }.toSet()
+                val recent = mutable.value.playEvents.take(30).map { it.track.id }.toSet()
+                val radio = youtube.radio(seed, have)
+                // Prefer songs not heard in the last few plays; fall back to the full radio if that empties it.
+                val tracks = radio.filter { it.id !in recent }.ifEmpty { radio }.take((100 - c.mediaItemCount).coerceAtLeast(0))
+                if (tracks.isNotEmpty() && c.mediaItemCount > 0) c.addMediaItems(tracks.map(::mediaItem))
+                syncPlayer(includeQueue = true)
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) { radioSeeds.remove(seed.id) /* Radio is optional; the queue simply ends. */ }
+        }
+    }
+
+    /** Measure real listening time so history and recommendations reflect what was heard, not just tapped. */
+    private fun trackListening(c: MediaController) {
+        val now = android.os.SystemClock.elapsedRealtime()
+        val tick = if (lastTick == 0L) 0L else (now - lastTick).coerceIn(0, 2_000); lastTick = now
+        val playing = runCatching { c.currentMediaItem?.mediaMetadata?.extras?.getString("catalogue_track")?.let { Track.fromJson(org.json.JSONObject(it)) } }.getOrNull()
+        val open = listen
+        if (open != null && open.first.id != playing?.id) finishListen()
+        if (playing == null) return
+        val active = listen ?: Triple(playing, System.currentTimeMillis(), 0L).also { listen = it }
+        if (c.isPlaying) listen = active.copy(third = active.third + tick)
+    }
+
+    private fun finishListen(final: Boolean = false) {
+        val (track, startedAt, listened) = listen ?: return
+        listen = null
+        if (!mutable.value.trackHistory || listened < 5_000) return
+        val duration = track.durationMs.takeIf { it > 0 } ?: mutable.value.durationMs
+        val event = PlayEvent(enrich(track), startedAt, listened, skipped = !ListeningHistory.counts(listened, duration))
+        mutable.update { it.copy(playEvents = (listOf(event) + it.playEvents).take(ListeningHistory.MAX_EVENTS)) }
+        if (final) listening.add(event) else viewModelScope.launch(Dispatchers.IO) { listening.add(event) }
+    }
+
+    /** Build "Mixed for you": radio from your most-played songs, re-ranked on this device. */
+    fun refreshForYou() {
+        val seeds = Recommender.seeds(mutable.value.playEvents, mutable.value.saved)
+        if (seeds.isEmpty() || forYouJob?.isActive == true) return
+        forYouJob = viewModelScope.launch {
+            mutable.update { it.copy(forYouBusy = true) }
+            try {
+                val pools = seeds.map { seed -> runCatching { youtube.radio(seed) }.getOrElse { e -> if (e is CancellationException) throw e; emptyList() } }
+                val mix = withContext(Dispatchers.Default) { Recommender.mix(pools, mutable.value.playEvents) }
+                mutable.update { it.copy(forYou = mix, forYouBusy = false) }
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) { mutable.update { it.copy(forYouBusy = false) } }
+        }
     }
 
     fun toggle() {
@@ -387,12 +473,29 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun reducedMotion(value: Boolean) { library.reducedMotion = value; mutable.update { it.copy(reducedMotion = value) } }
     fun clearError() { mutable.update { it.copy(error = null, errorDiagnostic = "") } }
-    fun clearHistory() { library.writeTracks("history", emptyList()); mutable.update { it.copy(history = emptyList()) } }
+    fun clearHistory() {
+        listen = null
+        library.writeTracks("history", emptyList()); mutable.update { it.copy(history = emptyList(), playEvents = emptyList(), forYou = emptyList()) }
+        viewModelScope.launch(Dispatchers.IO) { listening.clear() }
+    }
+    fun removePlay(event: PlayEvent) {
+        mutable.update { it.copy(playEvents = it.playEvents.filterNot { e -> e.startedAt == event.startedAt }) }
+        viewModelScope.launch(Dispatchers.IO) { listening.remove(event.startedAt) }
+    }
+    fun autoplay(value: Boolean) { library.autoplay = value; mutable.update { it.copy(autoplay = value) } }
+    fun trackHistory(value: Boolean) { library.trackHistory = value; if (!value) listen = null; mutable.update { it.copy(trackHistory = value) } }
+    /** Queue a song to play after the current one. */
+    fun playNext(track: Track) {
+        val c = controller ?: return
+        if (c.mediaItemCount == 0) { play(track); return }
+        c.addMediaItem(c.currentMediaItemIndex + 1, mediaItem(track)); syncPlayer(includeQueue = true)
+    }
 
     private fun sourceMessage(e: Exception): String =
         if (e is SourceException) e.message.orEmpty() else "Could not load this recording. Check your connection and retry."
 
     override fun onCleared() {
+        finishListen(final = true)
         controller?.removeListener(listener)
         MediaController.releaseFuture(controllerFuture)
         super.onCleared()

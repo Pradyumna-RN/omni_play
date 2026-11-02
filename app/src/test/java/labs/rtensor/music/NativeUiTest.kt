@@ -77,8 +77,10 @@ class NativeUiTest {
         compose.setContent { MusicApp(state.value, onQuery = { state.value = state.value.copy(query = it, searched = it.isNotEmpty()) }) }
         compose.onNodeWithText("Afterimage").assertIsDisplayed()
         capture("search")
-        compose.onNodeWithContentDescription("Saved").performClick()
+        compose.onNodeWithContentDescription("Library").performClick()
         compose.onNodeWithText("Worth keeping.").assertIsDisplayed()
+        compose.onNodeWithContentDescription("History tab").performClick()
+        compose.onNodeWithText("Your listening, day by day").assertIsDisplayed()
         capture("saved")
     }
 

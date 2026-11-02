@@ -99,6 +99,8 @@ class MainActivity : ComponentActivity() {
                 onRefreshExplore = model::refreshExplore,
                 onCheckUpdates = model::checkUpdates, onDownloadUpdate = model::downloadUpdate,
                 onInstallUpdate = { state.update.apkPath?.let(::requestInstall) },
+                onAutoplay = model::autoplay, onTrackHistory = model::trackHistory,
+                onRemovePlay = model::removePlay, onRefreshForYou = model::refreshForYou,
             )
         }
     }
