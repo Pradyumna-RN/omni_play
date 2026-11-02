@@ -19,15 +19,16 @@ class YouTubeSource(context: Context) {
         }, data.optBoolean("hasMore"))
     }
 
-    suspend fun resolve(track: Track): ResolvedAudio {
+    suspend fun resolve(track: Track, forceProof: Boolean = false): ResolvedAudio {
         if (track.source == Source.LOCAL) return ResolvedAudio(track.url, null, emptyMap())
         val canonical = YouTubeLink.normalize(track.url)?.takeIf { it.contains("/watch?v=") } ?: throw SourceException("LINK", "Choose a valid YouTube recording.")
-        val json = runtime.call("resolve", JSONObject().put("videoId", canonical.substringAfter("?v=")))
+        val json = runtime.call("resolve", JSONObject().put("videoId", canonical.substringAfter("?v=")).put("forceProof", forceProof))
         val headers = json.optJSONObject("headers") ?: JSONObject()
         return ResolvedAudio(
             json.getString("url"),
             json.optString("mimeType").takeIf { it.isNotBlank() && it != "null" },
             headers.keys().asSequence().associateWith { headers.getString(it) },
+            json.optLong("contentLength", 0),
         )
     }
 

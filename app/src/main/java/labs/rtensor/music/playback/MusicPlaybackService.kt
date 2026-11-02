@@ -30,6 +30,7 @@ import java.io.IOException
 @UnstableApi
 class MusicPlaybackService : MediaSessionService() {
     private var session: MediaSession? = null
+    private val verifiedRetries = java.util.Collections.synchronizedSet(mutableSetOf<String>())
     private data class CachedAudio(val audio: ResolvedAudio, val createdAt: Long)
     private val resolvedStreams = java.util.Collections.synchronizedMap(
         object : LinkedHashMap<String, CachedAudio>(32, .75f, true) {
@@ -41,7 +42,7 @@ class MusicPlaybackService : MediaSessionService() {
         super.onCreate()
         val youtube = YouTubeSource(this)
         val http = PlaybackDataSource.httpFactory()
-        val resolving = ResolvingDataSource.Factory(DefaultDataSource.Factory(this, http)) { spec ->
+        val resolving = ResolvingDataSource.Factory(DefaultDataSource.Factory(this, DataSource.Factory { GoogleVideoDataSource(http.createDataSource()) })) { spec ->
             val catalogueUrl = YouTubeLink.normalize(spec.uri.toString())
             if (catalogueUrl == null) spec else {
                 // Media3 calls this on its loading thread, never the UI/audio-render thread.
@@ -50,15 +51,20 @@ class MusicPlaybackService : MediaSessionService() {
                 val now = android.os.SystemClock.elapsedRealtime()
                 val cached = resolvedStreams[cacheKey]?.takeIf { now - it.createdAt < 180_000 }
                 val audio = cached?.audio ?: try {
-                    runBlocking { youtube.resolve(Track(catalogueUrl, "", "", catalogueUrl)) }.also {
+                    runBlocking { youtube.resolve(Track(catalogueUrl, "", "", catalogueUrl), forceProof = cacheKey in verifiedRetries) }.also {
                         resolvedStreams[cacheKey] = CachedAudio(it, now)
                     }
                 } catch (e: Exception) { throw IOException("YouTube audio resolution failed", e) }
-                spec.withUri(Uri.parse(audio.url)).withAdditionalHeaders(audio.headers)
+                spec.withUri(Uri.parse(audio.url)).withAdditionalHeaders(audio.headers).buildUpon().setCustomData(audio).build()
             }
         }
         val data = DataSource.Factory {
-            PlaybackDataSource(resolving.createDataSource()) { spec, status ->
+            PlaybackDataSource(resolving.createDataSource(), retryDenied = { spec ->
+                val canonical = YouTubeLink.normalize(spec.uri.toString())
+                val key = spec.key ?: canonical.orEmpty()
+                if (canonical == null || !canonical.contains("/watch?v=") || !verifiedRetries.add(key)) false
+                else { resolvedStreams.remove(key); true }
+            }) { spec, status ->
                 val catalogueUrl = YouTubeLink.normalize(spec.uri.toString())
                 if (catalogueUrl?.contains("/watch?v=") == true) {
                     resolvedStreams.remove(spec.key ?: catalogueUrl)
@@ -109,7 +115,7 @@ class MusicPlaybackService : MediaSessionService() {
     override fun onDestroy() {
         session?.run { player.release(); release() }
         session = null
-        resolvedStreams.clear()
+        resolvedStreams.clear(); verifiedRetries.clear()
         super.onDestroy()
     }
 }

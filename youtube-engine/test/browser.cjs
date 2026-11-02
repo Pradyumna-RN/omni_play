@@ -83,7 +83,7 @@ const config = { VISITOR_DATA: 'fixture-visitor', INNERTUBE_CLIENT_VERSION: '1.2
     assert(calls.some(c => c.path.endsWith('/search') && c.body.context.client.clientName === 'WEB_REMIX' && c.body.context.client.clientVersion === config.INNERTUBE_CLIENT_VERSION));
     const audio = await rpc('resolve', { videoId: 'jNQXAC9IVRw' });
     assert.equal(audio.mimeType, 'audio/mp4', JSON.stringify(audio)); assert(audio.url.startsWith('https://r1-synthetic.googlevideo.com/'));
-    assert(calls.some(c => c.path === '/videoplayback' && c.headers.range === 'bytes=0-1'));
+    assert(calls.some(c => c.path === '/videoplayback' && c.query.includes('range=0-1048575')));
     assert(calls.some(c => c.path.endsWith('/player') && c.body.playbackContext.contentPlaybackContext.signatureTimestamp === 12345));
     playerMode = 'cipher';
     const ciphered = await rpc('resolve', { videoId: 'jNQXAC9IVRw' });
@@ -143,7 +143,13 @@ const config = { VISITOR_DATA: 'fixture-visitor', INNERTUBE_CLIENT_VERSION: '1.2
     const redirectedGuest = await rpc('search', { query: 'test' });
     assert.equal(redirectedGuest.error?.code, 'WEB_SIGN_IN_REQUIRED');
     assert(!redirectedGuest.tracks);
+    bootstrapMode = 'normal'; rejectAccounts = false; mediaStatus = 206; playerMode = 'direct'; proofFailure = false;
+    await page.reload(); await page.waitForFunction(() => window.__events.some(e => e.type === 'ready'));
+    const retryStart = calls.length;
+    const verifiedRetry = await rpc('resolve', { videoId: 'i1o1p_DD6TU', forceProof: true });
+    assert(verifiedRetry.url, JSON.stringify(verifiedRetry));
+    assert(calls.slice(retryStart).filter(c => c.path.endsWith('/player')).every(c => !!c.body.serviceIntegrityDimensions?.poToken));
     assert.deepEqual(errors, []);
-    console.log(JSON.stringify({ passed: ['bundled engine startup', 'upstream search parser and real artist', 'largest artwork selection', 'current WEB_REMIX bootstrap version', 'range-probed audio resolution', 'signature timestamp on player request', 'actual upstream signature/n extraction in isolated Worker', 'provider feed and duplicate order', 'Explore provider browse', 'normal WEB cookie account verification', 'captured session confirms despite homepage302', 'actual Android login capture keeps selected metadata and ignores optional untrusted scripts', 'invalid account still fails confirmation', 'guest browser redirect is actionable', 'SAPISIDHASH authenticated feed', 'safe HTTP diagnostics', 'real provider rejection preserved', 'SABR-only transport diagnosed', 'CDN 403 never becomes playback success', 'client-specific guest proof binding', 'full authenticated DataSyncID proof binding', 'current WEB att/get challenge without old Create discovery', 'no TV or OAuth calls', 'worker has no account bridge'], requests: calls.length, liveProvider: false }, null, 2));
+    console.log(JSON.stringify({ passed: ['bundled engine startup', 'upstream search parser and real artist', 'largest artwork selection', 'current WEB_REMIX bootstrap version', 'playback-sized query range validation', 'signature timestamp on player request', 'actual upstream signature/n extraction in isolated Worker', 'provider feed and duplicate order', 'Explore provider browse', 'normal WEB cookie account verification', 'captured session confirms despite homepage302', 'actual Android login capture keeps selected metadata and ignores optional untrusted scripts', 'invalid account still fails confirmation', 'guest browser redirect is actionable', 'SAPISIDHASH authenticated feed', 'safe HTTP diagnostics', 'real provider rejection preserved', 'SABR-only transport diagnosed', 'CDN 403 never becomes playback success', 'client-specific guest proof binding', 'full authenticated DataSyncID proof binding', 'current WEB att/get challenge without old Create discovery', 'forced retry skips unverified player attempts', 'no TV or OAuth calls', 'worker has no account bridge'], requests: calls.length, liveProvider: false }, null, 2));
   } finally { await browser.close(); await new Promise(r => server.close(r)); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

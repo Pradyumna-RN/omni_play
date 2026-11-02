@@ -113,3 +113,22 @@ Another test covers a rewritten CDN request returning HTTP 403 while retaining
 the original catalogue ID and cache key for diagnostics/invalidation. Actual media
 HTTP status is recorded before MediaController serialization, without signed URLs,
 headers or response bodies in the copyable diagnostic.
+
+## v0.3.2 transport revision
+
+The phone still reported a real Media3 HTTP 403 after the v0.3.1 header change.
+A two-byte successful header probe did not establish that the unbounded playback
+request was accepted. The pinned MIT YouTube.js downloader itself uses bounded
+`range` query parameters for audio, rather than a Range header. Music now sends
+one-MiB query ranges on its actual media path and carries the declared file length
+into that datasource. It joins consecutive ranges, preserves signed query bytes,
+and maps seeks to absolute ranges without skipping bytes twice. Validation requests
+the same initial range and reads only a bounded prefix. New tests cover complete
+multi-range reads, seeks and truncated responses; these remain local fixtures.
+
+A 403 during initial open permits one fresh resolution requiring actual proofs;
+there is no second unverified attempt on that retry. Repeated rejection is reported,
+and a later-range HTTP failure retains catalogue identity in Copy details. This
+change is not verified against the live provider. Native account sign-in is a
+separate OAuth integration, documented in GOOGLE_SIGN_IN.md, and is not offered as
+a way to copy another app's private session or repair media authorization.

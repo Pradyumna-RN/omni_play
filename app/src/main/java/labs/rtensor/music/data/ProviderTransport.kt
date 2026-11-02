@@ -40,7 +40,7 @@ internal class ProviderTransport(private val proofOnly: Boolean = false, client:
         val media = isMediaUrl(url)
         require(if (proofOnly) isProofUrl(url) else isYouTubeUrl(url) || media)
         require(method in setOf("GET", "POST", "HEAD"))
-        if (media) require(method == "GET" && headers.optString("range") == "bytes=0-1")
+        if (media) require(method == "GET" && (headers.optString("range") == "bytes=0-1" || URI(url).rawQuery.orEmpty().split('&').contains("range=0-1048575")))
         val body = if (method == "POST") o.optString("body").toRequestBody(headers.optString("content-type", "application/json").toMediaTypeOrNull()) else null
         val request = Request.Builder().url(url).method(method, body).header("User-Agent", userAgent)
         headers.keys().forEach { key ->
@@ -88,12 +88,12 @@ internal class ProviderTransport(private val proofOnly: Boolean = false, client:
     private fun serialize(response: Response, media: Boolean, redirects: Int): JSONObject {
         val bytes = ByteArrayOutputStream()
         response.body?.byteStream()?.use { input ->
-            val buffer = ByteArray(if (media) 2 else 8192)
+            val buffer = ByteArray(8192)
             while (true) {
                 val n = input.read(buffer); if (n < 0) break
                 require(bytes.size() + n <= MAX_RESPONSE)
                 bytes.write(buffer, 0, n)
-                if (media) break // Never buffer a whole recording for a range probe.
+                if (media && bytes.size() >= 65536) break // Read only a prefix of the actual first playback range.
             }
         }
         val responseHeaders = JSONObject()

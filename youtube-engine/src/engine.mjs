@@ -187,25 +187,26 @@ async function streamFromInfo(api, id, client, info, tokens) {
       if (tokens) target.searchParams.set('pot', tokens.streamToken);
       if (info.cpn) target.searchParams.set('cpn', info.cpn);
       const headers = { 'User-Agent': api.session.context.client.userAgent, 'Origin': 'https://www.youtube.com', 'Referer': 'https://www.youtube.com/' };
-      const probe = await nativeFetch(target, { headers: { ...headers, Range: 'bytes=0-1' } });
+      const probeTarget = new URL(target); probeTarget.searchParams.set('range', '0-1048575');
+      const probe = await nativeFetch(probeTarget, { headers });
       if (!probe.ok) throw failure(`MEDIA_HTTP_${probe.status}`, `YouTube rejected the audio stream (HTTP ${probe.status}). Retry to request a fresh stream.`, `${client}: media probe HTTP ${probe.status}`);
       const type = (probe.headers.get('content-type') || '').split(';')[0];
       if (!['audio/mp4', 'audio/webm', 'audio/mpeg', 'video/mp4', 'video/webm', 'application/octet-stream'].includes(type) || !(await probe.arrayBuffer()).byteLength) throw failure('MEDIA_RESPONSE', 'YouTube returned a page instead of playable audio.', `${client}: media probe invalid content`);
-      return { url: target.href, mimeType: format.mime_type?.split(';')[0] || null, headers };
+      return { url: target.href, contentLength: Number(format.content_length) || 0, mimeType: format.mime_type?.split(';')[0] || null, headers };
     } catch (error) { lastError = error; }
   }
   throw lastError;
 }
-async function resolve(api, id) {
+async function resolve(api, id, forceProof = false) {
   if (!/^[A-Za-z0-9_-]{11}$/.test(id)) throw failure('LINK', 'Choose a valid YouTube recording.');
   // STS must accompany the player request. Direct formats can still work if the player script is unavailable.
   await ensurePlayer(api).catch(() => {});
   const errors = []; let tokens;
-  for (const verified of [false, true]) {
+  for (const verified of (forceProof ? [true] : [false, true])) {
     if (verified) {
       const requiresAccount = errors.some(e => e.code === 'AUTH_REQUIRED');
       const restricted = errors.some(e => /private|copyright|not available in your country|age.restrict|premium members|members.only/i.test(e.message));
-      if (requiresAccount || restricted || errors.every(e => e.code === 'SABR_UNSUPPORTED')) break;
+      if (requiresAccount || restricted || (errors.length > 0 && errors.every(e => e.code === 'SABR_UNSUPPORTED'))) break;
     }
     // Ordinary web clients only. Same recording, same session and same account.
     for (const client of ['YTMUSIC', 'WEB']) {
@@ -227,7 +228,7 @@ globalThis.musicCall = async (id, method, args) => {
     const api = await tube(); let result;
     switch (method) {
       case 'search': result = { tracks: await search(api, args.query) }; break;
-      case 'resolve': result = await resolve(api, args.videoId); break;
+      case 'resolve': result = await resolve(api, args.videoId, !!args.forceProof); break;
       case 'verify-session': result = await accountProfile(api); break;
       case 'home': {
         const request = ++feedRequest;

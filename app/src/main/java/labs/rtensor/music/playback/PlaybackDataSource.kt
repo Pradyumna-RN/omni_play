@@ -10,14 +10,30 @@ import androidx.media3.datasource.HttpDataSource
 @UnstableApi
 internal class PlaybackDataSource(
     private val upstream: DataSource,
+    private val retryDenied: (DataSpec) -> Boolean = { false },
     private val onHttpFailure: (DataSpec, Int) -> Unit,
 ) : DataSource by upstream {
-    override fun open(dataSpec: DataSpec): Long = try {
-        upstream.open(dataSpec)
+    private var originalRequest: DataSpec? = null
+    override fun open(dataSpec: DataSpec): Long {
+        originalRequest = dataSpec
+        try { return upstream.open(dataSpec) }
+        catch (error: HttpDataSource.InvalidResponseCodeException) {
+            if (error.responseCode == 403 && retryDenied(dataSpec)) {
+                upstream.close()
+                try { return upstream.open(dataSpec) }
+                catch (retry: HttpDataSource.InvalidResponseCodeException) { onHttpFailure(dataSpec, retry.responseCode); throw retry }
+            }
+            onHttpFailure(dataSpec, error.responseCode); throw error
+        }
+    }
+
+    override fun read(buffer: ByteArray, offset: Int, length: Int): Int = try {
+        upstream.read(buffer, offset, length)
     } catch (error: HttpDataSource.InvalidResponseCodeException) {
-        onHttpFailure(dataSpec, error.responseCode)
+        originalRequest?.let { onHttpFailure(it, error.responseCode) }
         throw error
     }
+    override fun close() { try { upstream.close() } finally { originalRequest = null } }
 
     companion object {
         fun httpFactory(): DefaultHttpDataSource.Factory = DefaultHttpDataSource.Factory()

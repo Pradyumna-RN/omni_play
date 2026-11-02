@@ -3,6 +3,25 @@
 Temporary name: **Music**. Native Android player from RTensorLabs with the approved
 Margin visual direction: warm paper, DM Sans, original provider artwork and raspberry controls.
 
+## Version 0.3.2 — playback transport candidate
+
+- Uses bounded one-MiB GVS query ranges across playback and seeks. The resolver's
+  validation requests the same initial range and reads a bounded prefix, replacing
+  the misleading two-byte header probe.
+- A playback-open 403 gets at most one fresh resolution requiring valid runtime
+  proofs. A repeated rejection remains an error; another recording is never substituted.
+- Requests larger provider artwork renditions, including old saved/history URLs,
+  with original-image fallback when a larger rendition is unavailable.
+- Increases Settings text size/contrast, wraps actions, and places its icon 8 dp
+  from the right edge with a full touch target.
+- Automatically confirms an authenticated YouTube Music page, with cancellation
+  available during verification. Native device-account login needs separate Google
+  OAuth registration and cannot import the YouTube app's private session. See
+  [GOOGLE_SIGN_IN.md](GOOGLE_SIGN_IN.md).
+
+Live YouTube playback remains unverified from this workspace. This is a transport
+candidate, not a claim that the reported live 403 has been resolved.
+
 ## Version 0.3.1
 
 - Restores original artwork colours across the app.

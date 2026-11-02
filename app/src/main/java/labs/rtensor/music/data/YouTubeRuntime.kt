@@ -49,7 +49,7 @@ class YouTubeRuntime private constructor(context: Context) {
         val result = CompletableDeferred<JSONObject>(); pending[id] = result
         try {
             withContext(Dispatchers.Main.immediate) { webView?.evaluateJavascript("musicCall(${JSONObject.quote(id)},${JSONObject.quote(method)},$args)", null) }
-            val data = withTimeout(if (method == "resolve") 150_000 else 90_000) { result.await() }
+            val data = withTimeout(when (method) { "resolve" -> 150_000; "verify-session" -> 25_000; else -> 90_000 }) { result.await() }
             data.optJSONObject("error")?.let {
                 val error = SourceException(it.optString("code"), it.optString("message"), it.optString("diagnostic"))
                 if (method == "resolve") mutableProblem.value = PlaybackProblem(args.optString("videoId"), error.message.orEmpty(), error.code, error.diagnostic)
@@ -68,7 +68,7 @@ class YouTubeRuntime private constructor(context: Context) {
         if (!videoId.matches(Regex("[A-Za-z0-9_-]{11}")) || status !in 100..599) return
         mutableProblem.value = PlaybackProblem(videoId,
             "YouTube rejected the audio request (HTTP $status). Tap Retry to request a fresh stream.",
-            "MEDIA_HTTP_$status", "Media3 audio open: HTTP $status")
+            "MEDIA_HTTP_$status", "Media3 audio request: HTTP $status")
     }
 
     fun beginSignIn() { mutableAccount.value = mutableAccount.value.copy(connecting = true, error = null) }

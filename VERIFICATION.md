@@ -1,7 +1,7 @@
-# v0.3.1 verification
+# v0.3.2 verification
 
 - Native Android build and bundled-engine/source/proof digest checks: passed.
-- Android/JVM suite: **34 tests**, no failures or skips.
+- Android/JVM suite: **41 tests**, no failures or skips.
   - 11 Compose checks: Home/Explore/Saved, persistent search submission and clearing,
     provider cards, albums, original queue identity, one Save action, compact/dark
     player, ordinary sign-in action, copyable errors and verified-update installer.
@@ -15,25 +15,31 @@
     cancellation across a chain.
   - 2 actual loopback Media3 HTTP tests: negotiated headers/signed query retention
     and rewritten-media HTTP failure reporting with the original catalogue key.
+  - 4 GVS/artwork checks: full multi-range reads, absolute seek ranges, truncated
+    audio rejection and provider rendition URLs.
+  - 3 retry checks: one forced reopen, repeated rejection remains an error, and
+    later range failures preserve catalogue identity.
   - 3 catalogue-link and 2 saved-library checks.
 - JavaScript mapping/configuration suite: **12 tests passed**.
-- Real Chromium using the exact engine bundle: **24 checks passed** with synthetic
+- Real Chromium using the exact engine bundle: **25 checks passed** with synthetic
   provider HTTP: actual upstream search parsing/artist data, largest artwork, current
-  bootstrap versions, range-probed streams, signature timestamp, upstream signature/n
+  bootstrap versions, playback-sized query-range validation, signature timestamp, upstream signature/n
   extraction and Worker evaluation, provider order, Explore, WEB accounts, SAPISIDHASH
   requests, actual rejection messages, SABR-only errors, failed CDN probes, client/account-specific
   proof bindings and current WEB attestation challenge, no TV/OAuth requests, and isolation from the account bridge.
   Additional regressions confirm a captured account despite homepage HTTP 302,
   reject invalid accounts, report guest browser redirects without fake success, and
   execute the exact Android login-capture expression against representative page metadata.
+  A forced retry must send runtime proofs on its first player attempt.
 - Loopback HTTP tests enable the JDK-only restricted-header flag so Robolectric
   models Android HttpURLConnection accepting Origin; this test setting is not in the APK.
 - Exact proof bundle in a separate Chromium page: **6 checks passed** using a fixture
   VM/integrity response: BgUtils protocol, minter caching, client/account binding outputs,
   isolation from account access and rejection without fabricated success.
 - Native Home, Explore, search, sign-in and error/player screenshots inspected;
-  Settings volume slider removed; the forced grayscale artwork filter is removed.
-- APK package `labs.rtensor.music`, version `0.3.1`, versionCode `4`.
+  Settings text is larger with stronger contrast; its icon is 8 dp from the right.
+  Larger provider artwork URLs have an original-image fallback. No grayscale filter.
+- APK package `labs.rtensor.music`, version `0.3.2`, versionCode `5`.
 - APK signature must match v0.1/v0.2; verified SHA-256:
   `43dffb7aa7b922220c9063c0f2ee9126a30c7d663e1971c8f214bdd2ac7b571f`.
 - Packaged engine/proof assets checked against the source assets. No Python runtime,
@@ -41,7 +47,9 @@
 
 ## Not verified live
 
-A YouTube probe was rejected by this workspace's outbound proxy:
+**The phone-reported live playback HTTP 403 is not claimed resolved.**
+
+A fresh YouTube probe was rejected by this workspace's outbound proxy:
 `Tunnel connection failed: 403 Forbidden`. No network-policy bypass was used. The
 browser tests use synthetic responses and a fixture VM; they do not establish live
 provider compatibility, successful Google sign-in or accepted live attestation.

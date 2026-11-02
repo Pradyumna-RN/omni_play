@@ -55,6 +55,7 @@ import androidx.core.view.WindowCompat
 import coil.compose.AsyncImage
 import labs.rtensor.music.MusicState
 import labs.rtensor.music.R
+import labs.rtensor.music.data.ArtworkUrl
 import labs.rtensor.music.data.Track
 import labs.rtensor.music.data.FeedEntry
 import labs.rtensor.music.BuildConfig
@@ -65,7 +66,7 @@ private val Light = lightColorScheme(
     primary = Color(0xFFD72F62), onPrimary = Color.White,
     background = Color(0xFFF9F8F2), onBackground = Color(0xFF161921),
     surface = Color(0xFFFFFEFA), onSurface = Color(0xFF161921),
-    surfaceVariant = Color(0xFFF1EEE7), onSurfaceVariant = Color(0xFF77767B),
+    surfaceVariant = Color(0xFFF1EEE7), onSurfaceVariant = Color(0xFF555860),
     outline = Color(0xFFDFDDD6), secondaryContainer = Color(0xFFF9E5EB),
 )
 private val Dark = darkColorScheme(
@@ -191,7 +192,7 @@ fun MusicApp(
 
 @Composable
 private fun AppHeader(page: String, onHome: () -> Unit, onSettings: () -> Unit, onBack: () -> Unit) {
-    Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 18.dp, vertical = 8.dp).height(52.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+    Row(Modifier.fillMaxWidth().statusBarsPadding().padding(start = 18.dp, end = 8.dp, top = 8.dp, bottom = 8.dp).height(52.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
         if (page in listOf("now", "queue", "settings", "collection")) {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") }
             Caption(when (page) { "now" -> "NOW PLAYING"; "queue" -> "UP NEXT"; "collection" -> "COLLECTION"; else -> "SETTINGS" })
@@ -202,7 +203,9 @@ private fun AppHeader(page: String, onHome: () -> Unit, onSettings: () -> Unit, 
                 Spacer(Modifier.height(7.dp))
                 Box(Modifier.width(22.dp).height(2.dp).background(MaterialTheme.colorScheme.primary))
             }
-            IconButton(onClick = onSettings) { Icon(Icons.Outlined.Settings, "Open settings", Modifier.size(22.dp)) }
+            Box(Modifier.size(48.dp).clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onSettings), contentAlignment = Alignment.CenterEnd) {
+                Icon(Icons.Outlined.Settings, "Open settings", Modifier.size(24.dp))
+            }
         }
     }
 }
@@ -502,60 +505,60 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onReduc
     var showLicences by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val notices = remember { context.resources.openRawResource(R.raw.third_party_notices).bufferedReader().use { it.readText() } }
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
-        PageTitle("Make yourself at home")
-        Caption("LISTENING")
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
+        PageTitle("Settings")
+        SettingsSectionTitle("LISTENING")
         SettingRow("Music source", "YouTube Music · search, links and provider feed")
         SettingRow("Recommendations", "Automatic · the provider’s order is preserved")
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("Your YouTube account", fontSize = 14.sp)
+            Text("Your YouTube account", fontSize = 15.sp)
             if (state.account.connected) {
-                Text("${state.account.name.ifBlank { "YouTube" }} · your feed is personalised by YouTube", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                TextButton(onClick = onDisconnect) { Text("Sign out", fontSize = 12.sp) }
-                TextButton(onClick = onConnect) { Text("Change account", fontSize = 12.sp) }
+                Text("${state.account.name.ifBlank { "YouTube" }} · your feed is personalised by YouTube", fontSize = 15.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                TextButton(onClick = onDisconnect) { Text("Sign out", fontSize = 15.sp) }
+                TextButton(onClick = onConnect) { Text("Change account", fontSize = 15.sp) }
             } else if (state.account.connecting) {
                 LinearProgressIndicator(Modifier.fillMaxWidth())
-                Text("Finish sign-in on YouTube’s page.", fontSize = 12.sp)
-                TextButton(onClick = onCancelConnect) { Text("Cancel sign-in", fontSize = 12.sp) }
+                Text("Finish sign-in on YouTube’s page.", fontSize = 15.sp)
+                TextButton(onClick = onCancelConnect) { Text("Cancel sign-in", fontSize = 15.sp) }
             } else {
-                Text("Sign in on Google’s own page to bring your YouTube recommendations here.", fontSize = 12.sp, lineHeight = 19.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Button(onClick = onConnect, shape = RoundedCornerShape(12.dp)) { Text("Sign in to YouTube", fontSize = 12.sp) }
+                Text("Sign in to YouTube to bring your recommendations here. You’ll return automatically after connecting.", fontSize = 15.sp, lineHeight = 22.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Button(onClick = onConnect, shape = RoundedCornerShape(12.dp)) { Text("Sign in to YouTube", fontSize = 15.sp) }
             }
-            state.account.error?.let { Text(it, fontSize = 12.sp, color = MaterialTheme.colorScheme.primary, lineHeight = 18.sp) }
+            state.account.error?.let { Text(it, fontSize = 15.sp, color = MaterialTheme.colorScheme.primary, lineHeight = 22.sp) }
         }
         SettingRow("Audio processing", "Off · original audio")
-        OutlinedButton(onClick = onLocal, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Icon(Glyph.AudioFile, null, Modifier.size(18.dp)); Spacer(Modifier.width(10.dp)); Text("Open audio from device", fontSize = 12.sp) }
+        OutlinedButton(onClick = onLocal, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Icon(Glyph.AudioFile, null, Modifier.size(18.dp)); Spacer(Modifier.width(10.dp)); Text("Open audio from device", fontSize = 15.sp) }
         HorizontalDivider(color = MaterialTheme.colorScheme.outline, thickness = .5.dp)
-        Caption("LOOK & FEEL")
-        Text("Appearance", fontSize = 14.sp)
+        SettingsSectionTitle("LOOK & FEEL")
+        Text("Appearance", fontSize = 15.sp)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf("system" to "Device", "light" to "Light", "dark" to "Dark").forEach { (id, name) ->
-                FilterChip(selected = state.theme == id, onClick = { onTheme(id) }, label = { Text(name, fontSize = 12.sp) })
+                FilterChip(selected = state.theme == id, onClick = { onTheme(id) }, label = { Text(name, fontSize = 15.sp) })
             }
         }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) { Text("Reduce motion", fontSize = 14.sp); Text("A quieter player animation", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp)) }
+            Column(Modifier.weight(1f)) { Text("Reduce motion", fontSize = 15.sp); Text("A quieter player animation", fontSize = 15.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp)) }
             Switch(checked = state.reducedMotion, onCheckedChange = onReduced, modifier = Modifier.semantics { contentDescription = "Reduce motion" })
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outline, thickness = .5.dp)
-        Caption("APP UPDATES")
+        SettingsSectionTitle("APP UPDATES")
         SettingRow("Music ${BuildConfig.VERSION_NAME}", "Preview channel · GitHub Releases")
-        if (state.update.message.isNotBlank()) Text(state.update.message, fontSize = 12.sp, lineHeight = 19.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (state.update.message.isNotBlank()) Text(state.update.message, fontSize = 15.sp, lineHeight = 22.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (state.update.downloading) {
             LinearProgressIndicator(progress = { state.update.progress / 100f }, modifier = Modifier.fillMaxWidth())
-            Text("${state.update.progress}%", fontSize = 11.sp)
+            Text("${state.update.progress}%", fontSize = 15.sp)
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = onCheckUpdates, enabled = !state.update.checking && !state.update.downloading) { Text("Check updates", fontSize = 12.sp) }
-            if (state.update.apkPath != null) Button(onClick = onInstallUpdate) { Text("Install update", fontSize = 12.sp) }
-            else if (state.update.release != null) Button(onClick = onDownloadUpdate, enabled = !state.update.downloading && !state.update.checking) { Text("Download", fontSize = 12.sp) }
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = onCheckUpdates, enabled = !state.update.checking && !state.update.downloading) { Text("Check updates", fontSize = 15.sp) }
+            if (state.update.apkPath != null) Button(onClick = onInstallUpdate) { Text("Install update", fontSize = 15.sp) }
+            else if (state.update.release != null) Button(onClick = onDownloadUpdate, enabled = !state.update.downloading && !state.update.checking) { Text("Download", fontSize = 15.sp) }
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outline, thickness = .5.dp)
-        Caption("ON THIS DEVICE")
-        Text("Saved recordings, history and your encrypted YouTube session stay on this device. YouTube receives your provider requests; GitHub receives update checks.", fontSize = 12.sp, lineHeight = 19.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        TextButton(onClick = { confirmClear = true }, enabled = state.history.isNotEmpty()) { Text("Clear listening history", fontSize = 12.sp) }
-        TextButton(onClick = { showLicences = true }) { Text("Open-source licences", fontSize = 12.sp) }
-        Text("Music · RTensorLabs\nEarly build ${BuildConfig.VERSION_NAME}", fontSize = 11.sp, lineHeight = 20.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        SettingsSectionTitle("ON THIS DEVICE")
+        Text("Saved recordings, history and your encrypted YouTube session stay on this device. YouTube receives your provider requests; GitHub receives update checks.", fontSize = 15.sp, lineHeight = 22.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        TextButton(onClick = { confirmClear = true }, enabled = state.history.isNotEmpty()) { Text("Clear listening history", fontSize = 15.sp) }
+        TextButton(onClick = { showLicences = true }) { Text("Open-source licences", fontSize = 15.sp) }
+        Text("Music · RTensorLabs\nEarly build ${BuildConfig.VERSION_NAME}", fontSize = 15.sp, lineHeight = 20.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(20.dp))
     }
     if (confirmClear) AlertDialog(
@@ -568,7 +571,7 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onReduc
     if (showLicences) AlertDialog(
         onDismissRequest = { showLicences = false },
         title = { Text("Open-source licences") },
-        text = { Text(notices, fontSize = 11.sp, lineHeight = 17.sp, modifier = Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState())) },
+        text = { Text(notices, fontSize = 15.sp, lineHeight = 17.sp, modifier = Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState())) },
         confirmButton = { TextButton(onClick = { showLicences = false }) { Text("Close") } },
     )
 }
@@ -614,10 +617,13 @@ private fun TrackRow(track: Track, saved: Boolean, current: Boolean, onPlay: () 
 
 @Composable
 private fun Artwork(track: Track?, modifier: Modifier = Modifier) {
+    val source = track?.artwork?.takeIf { it.isNotBlank() }
+    var useFallback by remember(source) { mutableStateOf(false) }
     AsyncImage(
-        model = track?.artwork?.takeIf { it.isNotBlank() }, contentDescription = null,
+        model = if (useFallback) source else source?.let(ArtworkUrl::original), contentDescription = null,
         modifier = modifier.background(MaterialTheme.colorScheme.surfaceVariant),
         contentScale = ContentScale.Crop,
+        onError = { useFallback = true },
         placeholder = painterResource(R.drawable.art_main), error = painterResource(R.drawable.art_main), fallback = painterResource(R.drawable.art_main),
     )
 }
@@ -645,8 +651,13 @@ private fun SectionTitle(text: String) { Text(text, fontSize = 22.sp, fontWeight
 private fun Caption(text: String) { Text(text, fontSize = 9.sp, lineHeight = 14.sp, letterSpacing = 1.4.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
 
 @Composable
+private fun SettingsSectionTitle(text: String) {
+    Text(text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp, color = MaterialTheme.colorScheme.primary)
+}
+
+@Composable
 private fun SettingRow(title: String, detail: String) {
-    Column { Text(title, fontSize = 14.sp); Text(detail, fontSize = 11.sp, lineHeight = 18.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 5.dp)) }
+    Column { Text(title, fontSize = 16.sp, fontWeight = FontWeight.Medium); Text(detail, fontSize = 14.sp, lineHeight = 22.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 5.dp)) }
 }
 
 @Composable
