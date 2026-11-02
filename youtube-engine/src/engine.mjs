@@ -3,6 +3,7 @@ import { track, sections, safeError, largestArtwork } from './mapping.mjs';
 import { evaluatePlayer } from './evaluator.mjs';
 import { nativeTransport } from './transport.mjs';
 import { readYtConfig, playerFailure } from './web-config.mjs';
+import { sidAuthorization } from './music-auth.mjs';
 import { proofBindings, delegatedAccount, contentBoundGvs as readsContentBinding } from './proof-bindings.mjs';
 
 Log.setLevel(Log.Level.NONE);
@@ -10,7 +11,38 @@ Platform.shim.server = true;
 Platform.shim.eval = evaluatePlayer;
 for (const method of ['log', 'info', 'debug', 'warn', 'error']) console[method] = () => {};
 const native = globalThis.MusicNative;
-const nativeFetch = nativeTransport(native, 'musicHttpResult');
+const transportFetch = nativeTransport(native, 'musicHttpResult');
+// What YouTube said about the last music browse: a saved session that comes back
+// "loggedOut" means the feed is generic, not the account's own.
+let lastMusicLoggedOut = null;
+const MUSIC_ORIGIN = 'https://music.youtube.com';
+const MUSIC_PATHS = /^\/youtubei\/v1\/(browse|next|search|music\/get_search_suggestions)$/;
+/**
+ * YouTube Music's own web client talks to music.youtube.com. Sending its requests to
+ * www.youtube.com with a www-signed SAPISIDHASH can come back as a signed-out,
+ * generic feed, so music requests go to the music origin, signed for that origin.
+ */
+const nativeFetch = async (input, init = {}) => {
+  const req = input instanceof Request ? input : new Request(input, init);
+  const url = new URL(req.url);
+  const body = typeof init.body === 'string' ? init.body : null;
+  if (url.origin !== 'https://www.youtube.com' || !MUSIC_PATHS.test(url.pathname) || !body || !body.includes('"clientName":"WEB_REMIX"'))
+    return transportFetch(input, init);
+  const headers = new Headers(init.headers || req.headers);
+  headers.set('Origin', MUSIC_ORIGIN); headers.set('X-Origin', MUSIC_ORIGIN); headers.set('Referer', MUSIC_ORIGIN + '/');
+  const cookie = savedSession()?.cookie;
+  if (cookie && headers.has('Authorization')) {
+    const auth = await sidAuthorization(cookie, MUSIC_ORIGIN);
+    if (auth) headers.set('Authorization', auth);
+  }
+  url.host = 'music.youtube.com';
+  const response = await transportFetch(url.toString(), { method: req.method, headers, body });
+  if (url.pathname.endsWith('/browse') && response.ok) {
+    try { const data = await response.clone().json(); const flag = data?.responseContext?.mainAppWebResponseContext?.loggedOut; if (typeof flag === 'boolean') lastMusicLoggedOut = flag; }
+    catch { /* The provider parser reports unreadable bodies. */ }
+  }
+  return response;
+};
 let tubePromise, homeFeed, feedRequest = 0, playerPromise, playerScript = '', webConfigPromise, challengePromise, challengeExpires = 0, dataSyncId = '', accountProfilePromise;
 let contentBoundGvs = { YTMUSIC: false, WEB: false };
 // The playback path that last produced audio. Trying it first skips several failing
@@ -272,7 +304,15 @@ globalThis.musicCall = async (id, method, args) => {
         const request = ++feedRequest;
         const page = args.more && homeFeed?.has_continuation ? await homeFeed.getContinuation() : await api.music.getHomeFeed();
         if (request === feedRequest) homeFeed = page;
-        result = { sections: sections(page), hasMore: !!page.has_continuation }; break;
+        const signedIn = !!api.session.logged_in;
+        result = { sections: sections(page), hasMore: !!page.has_continuation, signedIn,
+          personalized: signedIn && lastMusicLoggedOut !== true }; break;
+      }
+      case 'radio': {
+        if (!/^[A-Za-z0-9_-]{11}$/.test(args.videoId)) throw failure('LINK', 'Choose a valid YouTube recording.');
+        const panel = await api.music.getUpNext(args.videoId, true);
+        const seen = new Set([args.videoId]);
+        result = { tracks: (panel?.contents || []).map(track).filter(t => t && !seen.has(t.id.slice(3)) && seen.add(t.id.slice(3))).slice(0, 50) }; break;
       }
       case 'explore': result = { sections: sections(await api.music.getExplore()), hasMore: false }; break;
       case 'collection': {

@@ -81,3 +81,12 @@ test('empty artist arrays do not hide YouTube authors or linked subtitle artists
 test('a subtitle containing album and view labels is never guessed to be an artist', () => {
   assert.equal(track({ id: 'jNQXAC9IVRw', title: 'Track', subtitle: 'Album • 2026 • 1M views' }).artist, '');
 });
+
+import { sidAuthorization } from '../src/music-auth.mjs';
+import { createHash } from 'node:crypto';
+test('music requests are signed for the music origin like the web client', async () => {
+  const sha = v => createHash('sha1').update(v).digest('hex');
+  const auth = await sidAuthorization('SID=x; SAPISID=abc; __Secure-3PAPISID=def', 'https://music.youtube.com', 1700000000000);
+  assert.equal(auth, `SAPISIDHASH 1700000000_${sha('1700000000 abc https://music.youtube.com')} SAPISID3PHASH 1700000000_${sha('1700000000 def https://music.youtube.com')}`);
+  assert.equal(await sidAuthorization('SID=x', 'https://music.youtube.com'), '');
+});
