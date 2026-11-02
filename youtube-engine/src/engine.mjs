@@ -13,6 +13,9 @@ const native = globalThis.MusicNative;
 const nativeFetch = nativeTransport(native, 'musicHttpResult');
 let tubePromise, homeFeed, feedRequest = 0, playerPromise, playerScript = '', webConfigPromise, challengePromise, challengeExpires = 0, dataSyncId = '', accountProfilePromise;
 let contentBoundGvs = { YTMUSIC: false, WEB: false };
+// The playback path that last produced audio. Trying it first skips several failing
+// round trips (and an attestation) on every song after the first.
+let preferredPath = null;
 const proofs = new Map(); let proofSerial = 0;
 function emit(type, data = {}) { native.event(type, JSON.stringify(data)); }
 function failure(code, message, diagnostic = '') { return Object.assign(new Error(message), { code, diagnostic }); }
@@ -25,11 +28,7 @@ globalThis.musicProofResult = (id, result) => {
   if (result.error || !result.playerToken || !result.streamToken) pending.reject(failure('VERIFICATION_REQUIRED', 'YouTube could not verify playback on this device. Retry or sign in to YouTube.', 'runtime verification: rejected'));
   else pending.resolve(result);
 };
-async function playbackProof(api, videoId, client) {
-  const bindings = proofBindings({ client, videoId, visitorData: api.session.context.client.visitorData,
-    dataSyncId, authenticated: api.session.logged_in, contentBoundGvs: contentBoundGvs[client] });
-  // Use the live WEB attestation endpoint. The old WAA /Create discovery endpoint
-  // and WEB_REMIX att/get are not used. Only this challenge reaches the sandbox.
+function attestationChallenge(api) {
   if (!challengePromise || Date.now() >= challengeExpires) challengePromise = api.actions.execute('/att/get', { engagementType: 'ENGAGEMENT_TYPE_UNBOUND', client: 'WEB' }).then(response => {
     const c = response.data?.bgChallenge;
     if (!c?.program || !c?.globalName) throw failure('VERIFICATION_REQUIRED', 'YouTube did not provide a playback verification challenge.', 'WEB att/get: missing challenge');
@@ -37,7 +36,14 @@ async function playbackProof(api, videoId, client) {
     return { program: c.program, globalName: c.globalName, interpreterHash: c.interpreterHash,
       interpreterUrl: c.interpreterUrl, interpreterJavascript: c.interpreterJavascript };
   }).catch(error => { challengePromise = undefined; throw error; });
-  const challenge = await challengePromise;
+  return challengePromise;
+}
+async function playbackProof(api, videoId, client) {
+  const bindings = proofBindings({ client, videoId, visitorData: api.session.context.client.visitorData,
+    dataSyncId, authenticated: api.session.logged_in, contentBoundGvs: contentBoundGvs[client] });
+  // Use the live WEB attestation endpoint. The old WAA /Create discovery endpoint
+  // and WEB_REMIX att/get are not used. Only this challenge reaches the sandbox.
+  const challenge = await attestationChallenge(api);
 
   return new Promise((resolve, reject) => {
     const id = String(++proofSerial);
@@ -118,6 +124,8 @@ async function tube() {
     api.session.context.client.clientVersion = webVersion || Constants.CLIENTS.WEB.VERSION;
     api.session.context.client.userAgent = locale.userAgent;
     ensurePlayer(api).catch(() => {});
+    // Warm what the first song needs while the user is still browsing.
+    if (saved) attestationChallenge(api).catch(() => {});
     if (saved) {
       try { emit('connected', await accountProfile(api)); }
       catch (error) { emit('auth-error', safeError(error)); }
@@ -204,6 +212,19 @@ async function resolve(api, id, forceProof = false) {
   // STS must accompany the player request. Direct formats can still work if the player script is unavailable.
   await ensurePlayer(api).catch(() => {});
   const errors = []; let tokens;
+  const attempt = async (client, verified) => {
+    if (client === 'WEB') await prepareWebPlayback(api);
+    tokens = verified ? await playbackProof(api, id, client) : undefined;
+    const info = await api.getBasicInfo(id, { client, ...(tokens ? { po_token: tokens.playerToken } : {}) });
+    const stream = await streamFromInfo(api, id, client, info, tokens);
+    preferredPath = { client, verified };
+    return stream;
+  };
+  const preferred = preferredPath;
+  if (preferred && (!forceProof || preferred.verified)) {
+    try { return await attempt(preferred.client, preferred.verified); }
+    catch (error) { preferredPath = null; errors.push(normalizePlayerError(preferred.client, error)); /* Fall back to the remaining paths. */ }
+  }
   for (const verified of (forceProof ? [true] : [false, true])) {
     if (verified) {
       const requiresAccount = errors.some(e => e.code === 'AUTH_REQUIRED');
@@ -212,12 +233,9 @@ async function resolve(api, id, forceProof = false) {
     }
     // Ordinary web clients only. Same recording, same session and same account.
     for (const client of ['YTMUSIC', 'WEB']) {
-      try {
-        if (client === 'WEB') await prepareWebPlayback(api);
-        tokens = verified ? await playbackProof(api, id, client) : undefined;
-        const info = await api.getBasicInfo(id, { client, ...(tokens ? { po_token: tokens.playerToken } : {}) });
-        return await streamFromInfo(api, id, client, info, tokens);
-      } catch (error) { errors.push(normalizePlayerError(client, error)); }
+      if (preferred && preferred.client === client && preferred.verified === verified) continue;
+      try { return await attempt(client, verified); }
+      catch (error) { errors.push(normalizePlayerError(client, error)); }
     }
   }
   const useful = errors.find(e => e.code === 'AUTH_REQUIRED') || errors.find(e => e.code?.startsWith('MEDIA_HTTP')) || errors.find(e => e.code === 'PLAYER_REJECTED') || errors.find(e => e.code === 'SABR_UNSUPPORTED') || errors.at(-1);

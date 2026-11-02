@@ -54,7 +54,8 @@ class YouTubeLoginActivity : ComponentActivity() {
                     Column(Modifier.fillMaxSize().systemBarsPadding()) {
                         Row(Modifier.fillMaxWidth().padding(8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                             TextButton(onClick = ::cancelLogin) { Text("Cancel") }
-                            TextButton(onClick = ::confirmAccount, enabled = !busy && WebSession.canConfirm(pageUrl)) { Text("Connect") }
+                            // Off YouTube Music, this continues there with the Google session that already exists.
+                            TextButton(onClick = ::connectOrContinue, enabled = !busy && pageUrl.isNotBlank()) { Text(if (WebSession.canConfirm(pageUrl)) "Connect" else "Continue") }
                         }
                         Text(if (pageUrl.isBlank()) "YouTube sign-in" else (runCatching { java.net.URI(pageUrl).host }.getOrNull() ?: "YouTube sign-in"), fontSize = 14.sp, modifier = Modifier.padding(horizontal = 16.dp))
                         Text(message, fontSize = 14.sp, lineHeight = 18.sp, modifier = Modifier.padding(16.dp))
@@ -69,7 +70,13 @@ class YouTubeLoginActivity : ComponentActivity() {
                                 CookieManager.getInstance().setAcceptCookie(true)
                                 CookieManager.getInstance().setAcceptThirdPartyCookies(this, false)
                                 webViewClient = object : WebViewClient() {
-                                    override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean = !WebSession.isSignInNavigation(request.url.toString())
+                                    override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                                        // Google's own pages may use frames (passkeys, 2SV prompts); only top-level navigation is confined.
+                                        if (!request.isForMainFrame) return request.url.scheme != "https"
+                                        if (WebSession.isSignInNavigation(request.url.toString())) return false
+                                        message = "Google tried to open ${request.url.host ?: "another page"}. Tap Continue to finish in YouTube Music."
+                                        return true
+                                    }
                                     override fun onPageFinished(view: WebView, url: String) {
                                         pageUrl = url
                                         val cookie = CookieManager.getInstance().getCookie("https://music.youtube.com").orEmpty()
@@ -96,6 +103,16 @@ class YouTubeLoginActivity : ComponentActivity() {
                     else cancelLogin()
                 }
             }
+        }
+    }
+
+    private fun connectOrContinue() {
+        val view = browser ?: return
+        if (WebSession.canConfirm(view.url.orEmpty())) confirmAccount()
+        else {
+            attemptedAutoConnect = false
+            message = "Opening YouTube Music…"
+            view.loadUrl("https://music.youtube.com/")
         }
     }
 

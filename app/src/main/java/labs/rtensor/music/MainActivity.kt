@@ -114,7 +114,7 @@ class MainActivity : ComponentActivity() {
         model.connectAccount()
         // Some Google providers disallow web-session tickets for third-party apps.
         // Never treat an identity token as a YouTube session or invent a ticket.
-        val url = withTimeoutOrNull(45_000) {
+        val url = withTimeoutOrNull(12_000) {
             try { DeviceYouTubeSignIn().loginUrl(this@MainActivity, email) }
             catch (e: CancellationException) { throw e }
             catch (_: Exception) { null }

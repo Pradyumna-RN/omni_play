@@ -10,6 +10,9 @@ import android.webkit.WebViewClient
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
@@ -33,8 +36,9 @@ class YouTubeRuntime private constructor(context: Context) {
     private val accountChange = Mutex()
     private val mutableProblem = MutableStateFlow<PlaybackProblem?>(null)
     val problem = mutableProblem.asStateFlow()
-    private val mutableMetadata = MutableStateFlow<YouTubeMetadata?>(null)
-    val metadata = mutableMetadata.asStateFlow()
+    // Buffered, not conflated: metadata for several recordings can arrive back to back.
+    private val mutableMetadata = MutableSharedFlow<YouTubeMetadata?>(extraBufferCapacity = 64, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+    val metadata = mutableMetadata.asSharedFlow()
     @Volatile private var activeSession: WebSession? = null
     private var sessionLoaded = false
     private var webView: WebView? = null
@@ -161,7 +165,7 @@ class YouTubeRuntime private constructor(context: Context) {
             if (epoch != generation) return
             val data = runCatching { JSONObject(json) }.getOrNull() ?: return
             when (type) {
-                "metadata" -> runCatching { YouTubeMetadata.parse(data) }.onSuccess { mutableMetadata.value = it }
+                "metadata" -> runCatching { YouTubeMetadata.parse(data) }.onSuccess { mutableMetadata.tryEmit(it) }
                 "ready" -> ready.complete(Unit)
                 "connected" -> mutableAccount.value = AccountState(connected = true, name = data.optString("name").take(120), revision = epoch + 1)
                 "signed-out" -> mutableAccount.value = AccountState()

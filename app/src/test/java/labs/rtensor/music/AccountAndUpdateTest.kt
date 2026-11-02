@@ -81,6 +81,12 @@ class AccountAndUpdateTest {
         assertTrue(WebSession.canConfirm("https://music.youtube.com/"))
         assertFalse(WebSession.canConfirm("https://accounts.google.com/"))
         assertTrue(WebSession.isSignInNavigation("https://accounts.google.com/ServiceLogin"))
+        // Regional cookie hand-off after 2-Step Verification (reported stuck in India).
+        assertTrue(WebSession.isSignInNavigation("https://accounts.google.co.in/accounts/SetSID?ssdc=1"))
+        assertTrue(WebSession.isSignInNavigation("https://www.google.co.in/accounts/SetSID"))
+        assertTrue(WebSession.isSignInNavigation("https://accounts.google.com.br/accounts/SetSID"))
+        assertFalse(WebSession.isSignInNavigation("https://www.google.co.in/search?q=x"))
+        assertFalse(WebSession.isSignInNavigation("https://accounts.google.co.in.attacker.test/accounts/SetSID"))
         listOf("https://music.youtube.com.attacker.test/", "https://user@music.youtube.com/", "http://music.youtube.com/", "intent://login", "https://accounts.google.com:444/").forEach {
             assertFalse(WebSession.canConfirm(it)); assertFalse(WebSession.isSignInNavigation(it))
         }

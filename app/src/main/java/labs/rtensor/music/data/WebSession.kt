@@ -33,11 +33,19 @@ data class WebSession(val cookie: String, val visitorData: String, val authUser:
         fun canConfirm(url: String) = runCatching {
             val u = URI(url); u.scheme == "https" && u.host == "music.youtube.com" && u.userInfo == null && u.port in listOf(-1, 443)
         }.getOrDefault(false)
+        /**
+         * Google hands a fresh sign-in to the regional accounts domain to set its cookies
+         * (for example accounts.google.co.in/accounts/SetSID) before returning to YouTube.
+         * Blocking that hop left the view stuck on the 2-Step Verification page.
+         */
+        private val regionalGoogle = Regex("""(accounts|www)\.google\.(com|[a-z]{2}|co\.[a-z]{2}|com\.[a-z]{2})""")
         fun isSignInNavigation(url: String) = runCatching {
             val u = URI(url)
-            u.scheme == "https" && u.userInfo == null && u.port in listOf(-1, 443) && u.host in setOf(
-                "accounts.google.com", "accounts.youtube.com", "music.youtube.com", "www.youtube.com", "youtube.com",
-                "consent.youtube.com", "consent.google.com", "myaccount.google.com", "gds.google.com")
+            val host = u.host?.lowercase() ?: return@runCatching false
+            u.scheme == "https" && u.userInfo == null && u.port in listOf(-1, 443) && (host in setOf(
+                "accounts.google.com", "accounts.youtube.com", "music.youtube.com", "www.youtube.com", "youtube.com", "m.youtube.com",
+                "consent.youtube.com", "consent.google.com", "myaccount.google.com", "gds.google.com") ||
+                (regionalGoogle.matches(host) && (host.startsWith("accounts.") || u.path.orEmpty().startsWith("/accounts/"))))
         }.getOrDefault(false)
     }
 }
