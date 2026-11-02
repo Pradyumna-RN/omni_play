@@ -11,17 +11,18 @@ export function entry(node) {
   let thumbs = node.thumbnails || node.thumbnail?.contents || node.thumbnail || [];
   if (!Array.isArray(thumbs)) thumbs = [];
   const artwork = largestArtwork(thumbs);
-  const artists = (node.artists || node.authors || []).map(a => a.name).filter(Boolean).join(', ');
-  const flexArtist = node.flex_columns?.[1]?.title?.runs?.filter(r => r.endpoint?.payload?.browseId?.startsWith('UC')).map(r => r.text).join(', ');
+  const linked = value => (value?.runs || []).filter(r => r.endpoint?.payload?.browseId?.startsWith('UC')).map(r => r.text);
+  const names = [...(node.artists || []), ...(node.authors || [])].map(a => a.name).filter(Boolean);
+  const artist = [...new Set([...names, node.author?.name, ...linked(node.subtitle), ...(node.flex_columns || []).flatMap(c => linked(c.title))].filter(Boolean))].join(', ');
   const kind = videoId ? 'song' : (node.item_type || 'browse');
   const browseId = payload.browseId || payload.playlistId || node.id || '';
   return { id: videoId ? `yt:${videoId}` : browseId, title,
-    subtitle: artists || node.author?.name || flexArtist || text(node.subtitle) || (videoId ? 'Unknown artist' : ''),
+    subtitle: artist || text(node.subtitle), artist,
     artwork, kind, browseId, videoId, durationMs: (node.duration?.seconds || 0) * 1000 };
 }
 export function track(node) {
   const item = entry(node);
-  return item?.videoId ? { id: item.id, title: item.title, artist: item.subtitle,
+  return item?.videoId ? { id: item.id, title: item.title, artist: item.artist,
     artwork: item.artwork, durationMs: item.durationMs, source: 'YOUTUBE',
     url: `https://www.youtube.com/watch?v=${item.videoId}` } : null;
 }

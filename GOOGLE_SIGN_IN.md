@@ -11,6 +11,23 @@ does not expose YouTube Music Home recommendations or decoded audio/stream URLs.
 Native account selection is a separate integration, not a fix for
 this adapter's stream HTTP 403 or a replacement for its web session.
 
+## Device-to-YouTube handoff (v0.3.5)
+
+After Credential Manager verifies the chosen identity, Music asks Android's Google
+account provider for a `weblogin:service=youtube` session URL with YouTube Music as
+the fixed destination. Android/Google handles any account-access consent. Only a
+validated HTTPS accounts.google.com MergeSession URL targeting music.youtube.com
+is accepted. It is opened inside Music's bridge-free sign-in view, consumed once
+and never logged or persisted. The resulting YouTube account is still verified
+through WEB accounts_list before it is marked connected.
+
+Google restricts this handoff on some devices/accounts; its availability is not
+guaranteed by Sign in with Google's public identity API. On refusal, Music opens
+normal Google browser sign-in with the selected email. The separate browser action
+is available in Settings. No OAuth identity token is converted into a YouTube cookie,
+and no other app's private session or password is read. Cancellation stops the
+account-provider request. This native handoff needs real-device validation.
+
 ## Registered clients and native selection (v0.3.3)
 
 1. Create/select a project in https://console.cloud.google.com/.

@@ -40,6 +40,30 @@ class PlaybackRetryTest {
         try { source.read(ByteArray(1), 0, 1); fail("Must preserve the HTTP failure") } catch (_: HttpDataSource.InvalidResponseCodeException) {}
         assertSame(request, original); assertEquals(403, status)
     }
+    @Test fun deniedRangeReadRefreshesAndResumesAtTheExactSeekedByte() {
+        val original = request.buildUpon().setPosition(4000).setLength(20).build()
+        val opens = mutableListOf<DataSpec>(); var position = 0L; var deny = false; var refreshed = false
+        val upstream = object : DataSource {
+            override fun open(spec: DataSpec): Long { opens += spec; position = spec.position; return spec.length }
+            override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+                if (deny && !refreshed) throw HttpDataSource.InvalidResponseCodeException(403, "Forbidden", null, emptyMap(), original, byteArrayOf())
+                repeat(length) { buffer[offset + it] = ((position + it) % 251).toByte() }; position += length; deny = true; return length
+            }
+            override fun close() {}
+            override fun getUri(): Uri? = null
+            override fun addTransferListener(listener: TransferListener) {}
+        }
+        val source = PlaybackDataSource(upstream, retryDenied = { assertSame(original, it); refreshed = true; true }) { _, _ -> fail("Successful recovery must not report a fatal HTTP error") }
+        source.open(original)
+        val bytes = ByteArray(8)
+        source.read(bytes, 0, 3); source.read(bytes, 3, 5)
+        assertEquals(listOf(4000L, 4003L), opens.map { it.position })
+        assertEquals(17L, opens.last().length)
+        assertEquals(original.key, opens.last().key)
+        repeat(8) { assertEquals(((4000 + it) % 251).toByte(), bytes[it]) }
+        source.close()
+    }
+
     private class DeniedFixture(val always: Boolean) : DataSource {
         var opens = 0; var closes = 0
         override fun open(dataSpec: DataSpec): Long {

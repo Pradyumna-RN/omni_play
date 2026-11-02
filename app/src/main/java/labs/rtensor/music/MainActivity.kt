@@ -27,9 +27,11 @@ import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.credentials.exceptions.GetCredentialProviderConfigurationException
 import androidx.credentials.exceptions.NoCredentialException
 import androidx.credentials.exceptions.GetCredentialException
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import labs.rtensor.music.auth.DeviceYouTubeSignIn
 import labs.rtensor.music.auth.GoogleAccountSignIn
 import androidx.media3.common.util.UnstableApi
 import labs.rtensor.music.ui.MusicApp
@@ -70,7 +72,7 @@ class MainActivity : ComponentActivity() {
             val local = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
                 if (uri != null) {
                     runCatching { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
-                    model.openLocal(uri)
+                    model.importLocal(uri)
                 }
             }
             MusicApp(
@@ -86,14 +88,14 @@ class MainActivity : ComponentActivity() {
                 onShareConsumed = { sharedQuery = null },
                 onRefreshFeed = { model.refreshFeed() }, onMoreFeed = { model.refreshFeed(true) },
                 onBrowse = model::browse, onRetryCollection = model::retryCollection,
-                onConnect = ::connectYouTube,
+                onConnect = ::connectYouTube, onWebSignIn = { openYouTubeBrowser() },
                 onGoogleSignIn = ::chooseGoogleAccount,
                 onGoogleSignOut = {
                     model.forgetGoogleProfile()
                     lifecycleScope.launch { try { googleSignIn.clearSelection() } catch (e: CancellationException) { throw e } catch (_: Exception) { /* Local sign-out is complete. */ } }
                 }, onCancelGoogle = { googleJob?.cancel(); model.googleSelectionEnded() },
                 onDisconnect = model::disconnectAccount,
-                onCancelConnect = model::cancelAccountConnection,
+                onCancelConnect = { googleJob?.cancel(); model.cancelAccountConnection() },
                 onRefreshExplore = model::refreshExplore,
                 onCheckUpdates = model::checkUpdates, onDownloadUpdate = model::downloadUpdate,
                 onInstallUpdate = { state.update.apkPath?.let(::requestInstall) },
@@ -101,11 +103,31 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun connectYouTube() {
+    private fun openYouTubeBrowser(deviceUrl: String? = null) {
         model.connectAccount()
         youtubeSignIn.launch(Intent(this, YouTubeLoginActivity::class.java).apply {
             model.state.value.googleProfile?.email?.let { putExtra(YouTubeLoginActivity.LOGIN_HINT, it) }
+            deviceUrl?.let { putExtra(YouTubeLoginActivity.DEVICE_LOGIN_URL, it) }
         })
+    }
+    private suspend fun connectSelectedAccount(email: String) {
+        model.connectAccount()
+        // Some Google providers disallow web-session tickets for third-party apps.
+        // Never treat an identity token as a YouTube session or invent a ticket.
+        val url = withTimeoutOrNull(45_000) {
+            try { DeviceYouTubeSignIn().loginUrl(this@MainActivity, email) }
+            catch (e: CancellationException) { throw e }
+            catch (_: Exception) { null }
+        }
+        openYouTubeBrowser(url)
+    }
+    private fun connectYouTube() {
+        val profile = model.state.value.googleProfile ?: return chooseGoogleAccount()
+        if (googleJob?.isActive == true) return
+        googleJob = lifecycleScope.launch {
+            try { connectSelectedAccount(profile.email) }
+            catch (e: CancellationException) { model.cancelAccountConnection(); throw e }
+        }
     }
     private fun chooseGoogleAccount() {
         if (googleJob?.isActive == true) return
@@ -114,9 +136,9 @@ class MainActivity : ComponentActivity() {
             try {
                 val profile = googleSignIn.select(this@MainActivity)
                 val changed = model.googleSelected(profile)
-                if (changed || !model.state.value.account.connected) connectYouTube()
-            } catch (_: GetCredentialCancellationException) { model.googleSelectionEnded() }
-            catch (e: CancellationException) { model.googleSelectionEnded(); throw e }
+                if (changed || !model.state.value.account.connected) connectSelectedAccount(profile.email)
+            } catch (_: GetCredentialCancellationException) { model.googleSelectionEnded(); model.cancelAccountConnection() }
+            catch (e: CancellationException) { model.googleSelectionEnded(); model.cancelAccountConnection(); throw e }
             catch (_: NoCredentialException) { model.googleSelectionEnded("No Google account is available. Add one in Android Settings, or use YouTube sign-in below.") }
             catch (_: GetCredentialProviderConfigurationException) { model.googleSelectionEnded("Update Google Play services to choose a device account, or use YouTube sign-in below.") }
             catch (error: GetCredentialException) {

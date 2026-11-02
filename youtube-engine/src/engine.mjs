@@ -11,7 +11,7 @@ Platform.shim.eval = evaluatePlayer;
 for (const method of ['log', 'info', 'debug', 'warn', 'error']) console[method] = () => {};
 const native = globalThis.MusicNative;
 const nativeFetch = nativeTransport(native, 'musicHttpResult');
-let tubePromise, homeFeed, feedRequest = 0, playerPromise, playerScript = '', webConfigPromise, challengePromise, challengeExpires = 0, dataSyncId = '';
+let tubePromise, homeFeed, feedRequest = 0, playerPromise, playerScript = '', webConfigPromise, challengePromise, challengeExpires = 0, dataSyncId = '', accountProfilePromise;
 let contentBoundGvs = { YTMUSIC: false, WEB: false };
 const proofs = new Map(); let proofSerial = 0;
 function emit(type, data = {}) { native.event(type, JSON.stringify(data)); }
@@ -62,12 +62,14 @@ async function bootstrap(url, clientName) {
 }
 async function accountProfile(api) {
   if (!api.session.logged_in) throw failure('AUTH_REQUIRED', 'Sign in to YouTube in Settings.');
-  // getInfo() without true uses the TV client in YouTube.js. Always request WEB.
-  const accounts = await api.account.getInfo(true);
-  const selected = accounts.find(a => a.is_selected && !a.is_disabled) || (accounts.length === 1 && !accounts[0].is_disabled ? accounts[0] : null);
-  const name = selected?.account_name?.toString();
-  if (!name) throw failure('AUTH_REQUIRED', 'YouTube did not confirm this account. Finish sign-in and retry.', 'WEB account/accounts_list: no usable account');
-  return { name };
+  // Verify once per app-owned session. Initialisation and confirmation share it.
+  if (!accountProfilePromise) accountProfilePromise = api.account.getInfo(true).then(accounts => {
+    const selected = accounts.find(a => a.is_selected && !a.is_disabled) || (accounts.length === 1 && !accounts[0].is_disabled ? accounts[0] : null);
+    const name = selected?.account_name?.toString();
+    if (!name) throw failure('AUTH_REQUIRED', 'YouTube did not confirm this account. Finish sign-in and retry.', 'WEB account/accounts_list: no usable account');
+    return { name };
+  }).catch(error => { accountProfilePromise = undefined; throw error; });
+  return accountProfilePromise;
 }
 async function tube() {
   if (!tubePromise) tubePromise = (async () => {
@@ -115,6 +117,7 @@ async function tube() {
     api.session.context.client.clientName = Constants.CLIENTS.WEB.NAME;
     api.session.context.client.clientVersion = webVersion || Constants.CLIENTS.WEB.VERSION;
     api.session.context.client.userAgent = locale.userAgent;
+    ensurePlayer(api).catch(() => {});
     if (saved) {
       try { emit('connected', await accountProfile(api)); }
       catch (error) { emit('auth-error', safeError(error)); }
@@ -175,7 +178,7 @@ async function streamFromInfo(api, id, client, info, tokens) {
     throw failure(sabr ? 'SABR_UNSUPPORTED' : 'NO_AUDIO', sabr ? 'YouTube returned SABR-only audio. This build cannot play that transport yet.' : 'YouTube did not provide an audio stream for this recording.', `${client}: ${sabr ? 'SABR_ONLY' : 'NO_AUDIO_FORMATS'}`);
   }
   let lastError;
-  for (const format of [...formats].sort((a, b) => b.bitrate - a.bitrate).slice(0, 2)) {
+  for (const format of [...formats].sort((a, b) => Number(b.mime_type?.startsWith('audio/mp4')) - Number(a.mime_type?.startsWith('audio/mp4')) || b.bitrate - a.bitrate).slice(0, 2)) {
     try {
       const needsPlayer = format.signature_cipher || format.cipher || /[?&]n=/.test(format.url || '');
       if (needsPlayer) {
@@ -187,12 +190,11 @@ async function streamFromInfo(api, id, client, info, tokens) {
       if (tokens) target.searchParams.set('pot', tokens.streamToken);
       if (info.cpn) target.searchParams.set('cpn', info.cpn);
       const headers = { 'User-Agent': api.session.context.client.userAgent, 'Origin': 'https://www.youtube.com', 'Referer': 'https://www.youtube.com/' };
-      const probeTarget = new URL(target); probeTarget.searchParams.set('range', '0-1048575');
-      const probe = await nativeFetch(probeTarget, { headers });
-      if (!probe.ok) throw failure(`MEDIA_HTTP_${probe.status}`, `YouTube rejected the audio stream (HTTP ${probe.status}). Retry to request a fresh stream.`, `${client}: media probe HTTP ${probe.status}`);
-      const type = (probe.headers.get('content-type') || '').split(';')[0];
-      if (!['audio/mp4', 'audio/webm', 'audio/mpeg', 'video/mp4', 'video/webm', 'application/octet-stream'].includes(type) || !(await probe.arrayBuffer()).byteLength) throw failure('MEDIA_RESPONSE', 'YouTube returned a page instead of playable audio.', `${client}: media probe invalid content`);
-      return { url: target.href, contentLength: Number(format.content_length) || 0, mimeType: format.mime_type?.split(';')[0] || null, headers };
+      // Media3 validates the real request. A separate probe downloaded the same
+      // bytes twice and added a CDN round trip before the user could hear anything.
+      const contentLength = Number(format.content_length) || Number(target.searchParams.get('clen')) || 0;
+      emitMetadata(id, info);
+      return { url: target.href, contentLength, mimeType: format.mime_type?.split(';')[0] || null, headers };
     } catch (error) { lastError = error; }
   }
   throw lastError;
@@ -206,7 +208,7 @@ async function resolve(api, id, forceProof = false) {
     if (verified) {
       const requiresAccount = errors.some(e => e.code === 'AUTH_REQUIRED');
       const restricted = errors.some(e => /private|copyright|not available in your country|age.restrict|premium members|members.only/i.test(e.message));
-      if (requiresAccount || restricted || (errors.length > 0 && errors.every(e => e.code === 'SABR_UNSUPPORTED'))) break;
+      if (requiresAccount || restricted || (errors.length > 0 && !errors.some(e => ['VERIFICATION_REQUIRED', 'NO_AUDIO'].includes(e.code)))) break;
     }
     // Ordinary web clients only. Same recording, same session and same account.
     for (const client of ['YTMUSIC', 'WEB']) {
@@ -223,12 +225,30 @@ async function resolve(api, id, forceProof = false) {
   throw failure(result.code, result.message, errors.map(e => safeError(e).diagnostic || safeError(e).code).join(' | ').slice(0, 800));
 }
 
+function emitMetadata(id, info) {
+  const b = info.basic_info || {};
+  const metadata = { videoId: id, title: b.title || '', artist: b.author || b.channel?.name || '',
+    artwork: largestArtwork(b.thumbnail), durationMs: (b.duration || 0) * 1000 };
+  if (metadata.title || metadata.artist) emit('metadata', metadata);
+  return metadata;
+}
+const resolving = new Map();
+function sharedResolve(api, id, forceProof) {
+  const key = `${id}:${forceProof}`;
+  if (!resolving.has(key)) resolving.set(key, resolve(api, id, forceProof).finally(() => resolving.delete(key)));
+  return resolving.get(key);
+}
 globalThis.musicCall = async (id, method, args) => {
   try {
     const api = await tube(); let result;
     switch (method) {
       case 'search': result = { tracks: await search(api, args.query) }; break;
-      case 'resolve': result = await resolve(api, args.videoId, !!args.forceProof); break;
+      case 'resolve': result = await sharedResolve(api, args.videoId, !!args.forceProof); break;
+      case 'metadata': {
+        if (!/^[A-Za-z0-9_-]{11}$/.test(args.videoId)) throw failure('LINK', 'Choose a valid YouTube recording.');
+        const info = await api.getBasicInfo(args.videoId, { client: 'YTMUSIC' });
+        result = emitMetadata(args.videoId, info); break;
+      }
       case 'verify-session': result = await accountProfile(api); break;
       case 'home': {
         const request = ++feedRequest;

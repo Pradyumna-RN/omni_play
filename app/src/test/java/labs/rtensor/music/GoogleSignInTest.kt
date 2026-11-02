@@ -78,4 +78,12 @@ class GoogleSignInTest {
         assertEquals(email, uri.getQueryParameter("login_hint"))
         assertNull(android.net.Uri.parse(YouTubeLoginActivity.signInUrl("bad\r\n@example.test")).getQueryParameter("login_hint"))
     }
+    @Test fun deviceTicketOnlyLoadsGoogleWithYoutubeMusicAsItsDestination() {
+        val valid = "https://accounts.google.com/MergeSession?uberauth=fixture&continue=https%3A%2F%2Fmusic.youtube.com%2F"
+        assertTrue(labs.rtensor.music.auth.DeviceYouTubeSignIn.isLoginUrl(valid))
+        listOf(valid.replace("accounts.google.com", "attacker.test"), valid.replace("https:", "http:"), valid.replace("music.youtube.com", "attacker.test"), "not-a-url", "https://accounts.google.com/MergeSession?uberauth=fixture").forEach {
+            assertFalse(labs.rtensor.music.auth.DeviceYouTubeSignIn.isLoginUrl(it))
+        }
+    }
+
 }

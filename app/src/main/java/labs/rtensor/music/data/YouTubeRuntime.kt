@@ -33,6 +33,8 @@ class YouTubeRuntime private constructor(context: Context) {
     private val accountChange = Mutex()
     private val mutableProblem = MutableStateFlow<PlaybackProblem?>(null)
     val problem = mutableProblem.asStateFlow()
+    private val mutableMetadata = MutableStateFlow<YouTubeMetadata?>(null)
+    val metadata = mutableMetadata.asStateFlow()
     @Volatile private var activeSession: WebSession? = null
     private var sessionLoaded = false
     private var webView: WebView? = null
@@ -41,7 +43,7 @@ class YouTubeRuntime private constructor(context: Context) {
     @Volatile private var browserUserAgent = "RTensorLabs-Music/0.3"
 
     suspend fun call(method: String, args: JSONObject = JSONObject()): JSONObject {
-        if (method == "resolve") mutableProblem.value = null
+        if (method == "resolve" && !args.optBoolean("background")) mutableProblem.value = null
         withContext(Dispatchers.Main.immediate) { ensureView() }
         try { withTimeout(15_000) { ready.await() } }
         catch (_: TimeoutCancellationException) { throw SourceException("ENGINE_START", "The YouTube engine could not start. Update Android System WebView and reopen Music.") }
@@ -52,14 +54,14 @@ class YouTubeRuntime private constructor(context: Context) {
             val data = withTimeout(when (method) { "resolve" -> 150_000; "verify-session" -> 25_000; else -> 90_000 }) { result.await() }
             data.optJSONObject("error")?.let {
                 val error = SourceException(it.optString("code"), it.optString("message"), it.optString("diagnostic"))
-                if (method == "resolve") mutableProblem.value = PlaybackProblem(args.optString("videoId"), error.message.orEmpty(), error.code, error.diagnostic)
+                if (method == "resolve" && !args.optBoolean("background")) mutableProblem.value = PlaybackProblem(args.optString("videoId"), error.message.orEmpty(), error.code, error.diagnostic)
                 throw error
             }
-            if (method == "resolve") mutableProblem.value = null
+            if (method == "resolve" && !args.optBoolean("background")) mutableProblem.value = null
             return data
         } catch (_: TimeoutCancellationException) {
             val error = SourceException("TIMEOUT", "YouTube took too long to respond. Check your connection and retry.")
-            if (method == "resolve") mutableProblem.value = PlaybackProblem(args.optString("videoId"), error.message.orEmpty(), error.code, "resolve: TIMEOUT")
+            if (method == "resolve" && !args.optBoolean("background")) mutableProblem.value = PlaybackProblem(args.optString("videoId"), error.message.orEmpty(), error.code, "resolve: TIMEOUT")
             throw error
         }
         finally { pending.remove(id) }
@@ -159,6 +161,7 @@ class YouTubeRuntime private constructor(context: Context) {
             if (epoch != generation) return
             val data = runCatching { JSONObject(json) }.getOrNull() ?: return
             when (type) {
+                "metadata" -> runCatching { YouTubeMetadata.parse(data) }.onSuccess { mutableMetadata.value = it }
                 "ready" -> ready.complete(Unit)
                 "connected" -> mutableAccount.value = AccountState(connected = true, name = data.optString("name").take(120), revision = epoch + 1)
                 "signed-out" -> mutableAccount.value = AccountState()

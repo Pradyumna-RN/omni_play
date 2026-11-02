@@ -11,7 +11,13 @@ import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.datasource.cache.CacheDataSource
+import androidx.media3.datasource.cache.SimpleCache
+import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
+import kotlinx.coroutines.*
+import java.io.File
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -30,6 +36,10 @@ import java.io.IOException
 @UnstableApi
 class MusicPlaybackService : MediaSessionService() {
     private var session: MediaSession? = null
+    private var audioCache: SimpleCache? = null
+    private val preloadScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var preloadJob: Job? = null
+    private var preloadKey: String? = null
     private val verifiedRetries = java.util.Collections.synchronizedSet(mutableSetOf<String>())
     private data class CachedAudio(val audio: ResolvedAudio, val createdAt: Long)
     private val resolvedStreams = java.util.Collections.synchronizedMap(
@@ -49,7 +59,7 @@ class MusicPlaybackService : MediaSessionService() {
                 // Resolve only the item about to play, so a long queue cannot expire in advance.
                 val cacheKey = spec.key ?: catalogueUrl
                 val now = android.os.SystemClock.elapsedRealtime()
-                val cached = resolvedStreams[cacheKey]?.takeIf { now - it.createdAt < 180_000 }
+                val cached = resolvedStreams[cacheKey]?.takeIf { now - it.createdAt < 600_000 && (Uri.parse(it.audio.url).getQueryParameter("expire")?.toLongOrNull()?.let { expiry -> expiry * 1000 - System.currentTimeMillis() > 60_000 } ?: true) }
                 val audio = cached?.audio ?: try {
                     runBlocking { youtube.resolve(Track(catalogueUrl, "", "", catalogueUrl), forceProof = cacheKey in verifiedRetries) }.also {
                         resolvedStreams[cacheKey] = CachedAudio(it, now)
@@ -72,6 +82,10 @@ class MusicPlaybackService : MediaSessionService() {
                 }
             }
         }
+        val cache = SimpleCache(File(cacheDir, "playback-audio"), LeastRecentlyUsedCacheEvictor(128L * 1024 * 1024))
+        audioCache = cache
+        val cachedData = CacheDataSource.Factory().setCache(cache).setUpstreamDataSourceFactory(data)
+            .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
         val renderers = object : DefaultRenderersFactory(this) {
             override fun buildAudioSink(context: android.content.Context, enableFloatOutput: Boolean, enableAudioTrackPlaybackParams: Boolean): AudioSink =
                 DefaultAudioSink.Builder(context)
@@ -81,11 +95,30 @@ class MusicPlaybackService : MediaSessionService() {
                     .build()
         }
         val player = ExoPlayer.Builder(this, renderers)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(data))
+            .setMediaSourceFactory(DefaultMediaSourceFactory(cachedData))
+            .setLoadControl(DefaultLoadControl.Builder().setBufferDurationsMs(15_000, 30_000, 500, 1500)
+                .setPrioritizeTimeOverSizeThresholds(true).build())
             .setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(), true)
             .setHandleAudioBecomingNoisy(true)
             .setWakeMode(C.WAKE_MODE_LOCAL)
             .build()
+        player.addListener(object : androidx.media3.common.Player.Listener {
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                if (!isPlaying || !player.hasNextMediaItem()) return
+                val next = player.getMediaItemAt(player.nextMediaItemIndex).localConfiguration ?: return
+                val url = YouTubeLink.normalize(next.uri.toString()) ?: return
+                val key = next.customCacheKey ?: url
+                if (preloadKey == key) return
+                preloadKey = key; preloadJob?.cancel()
+                // Start only after current audio plays; never hold the next song's bytes or proof open.
+                preloadJob = preloadScope.launch {
+                    try {
+                        val audio = youtube.resolve(Track(url, "", "", url), background = true)
+                        resolvedStreams[key] = CachedAudio(audio, android.os.SystemClock.elapsedRealtime())
+                    } catch (e: CancellationException) { throw e } catch (_: Exception) { /* Resolve normally on selection. */ }
+                }
+            }
+        })
         val intent = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         session = MediaSession.Builder(this, player)
             .setSessionActivity(intent)
@@ -115,6 +148,7 @@ class MusicPlaybackService : MediaSessionService() {
     override fun onDestroy() {
         session?.run { player.release(); release() }
         session = null
+        preloadScope.cancel(); audioCache?.release(); audioCache = null
         resolvedStreams.clear(); verifiedRetries.clear()
         super.onDestroy()
     }

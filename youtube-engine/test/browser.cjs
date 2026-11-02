@@ -47,10 +47,13 @@ const config = { VISITOR_DATA: 'fixture-visitor', INNERTUBE_CLIENT_VERSION: '1.2
         body = structuredClone(basePlayer);
         if (playerMode === 'rejected') body = { playabilityStatus: { status: 'ERROR', reason: 'This client is unsupported.' } };
         if (playerMode === 'sabr') body.streamingData = { serverAbrStreamingUrl: 'https://r1-synthetic.googlevideo.com/videoplayback?sabr=1' };
+        if (playerMode === 'noLength') { const f = body.streamingData.adaptiveFormats[0]; delete f.contentLength; f.url += '&clen=1024'; }
+        if (playerMode === 'preferAac') { const f = body.streamingData.adaptiveFormats[0]; body.streamingData.adaptiveFormats.unshift({...f, itag:251, mimeType:'audio/webm; codecs="opus"', bitrate:256000}); }
         if (playerMode === 'cipher') { const f = body.streamingData.adaptiveFormats[0]; f.signatureCipher = new URLSearchParams({ url: f.url + '&n=abc', sp: 'sig', s: 'xyz' }).toString(); delete f.url; }
       }
       else if (u.pathname.endsWith('/account/accounts_list')) { body = accounts; if (rejectAccounts) status = 401; }
       else if (u.pathname.endsWith('/att/get')) body = { bgChallenge: { program: 'fixture-program', globalName: 'fixtureVM', interpreterJavascript: { privateDoNotAccessOrElseSafeScriptWrappedValue: 'fixture-only' } } };
+      else if (u.pathname === '/iframe_api') { body = 'player\\/fixture\\/'; type = 'application/javascript'; }
       else if (u.pathname.endsWith('/base.js')) { body = playerScript; type = 'application/javascript'; }
       else if (u.pathname === '/videoplayback') { status = mediaStatus; body = Buffer.from([0, 1]); type = 'audio/mp4'; }
       else throw new Error('Unexpected provider path: ' + u.pathname);
@@ -83,16 +86,20 @@ const config = { VISITOR_DATA: 'fixture-visitor', INNERTUBE_CLIENT_VERSION: '1.2
     assert(calls.some(c => c.path.endsWith('/search') && c.body.context.client.clientName === 'WEB_REMIX' && c.body.context.client.clientVersion === config.INNERTUBE_CLIENT_VERSION));
     const audio = await rpc('resolve', { videoId: 'jNQXAC9IVRw' });
     assert.equal(audio.mimeType, 'audio/mp4', JSON.stringify(audio)); assert(audio.url.startsWith('https://r1-synthetic.googlevideo.com/'));
-    assert(calls.some(c => c.path === '/videoplayback' && c.query.includes('range=0-1048575')));
+    assert(!calls.some(c => c.path === '/videoplayback'), 'Resolution must not download a duplicate audio probe');
+    assert.equal(audio.contentLength, 1024);
+    assert(await page.evaluate(() => window.__events.some(e => e.type === 'metadata' && e.artist === 'Test artist')));
     assert(calls.some(c => c.path.endsWith('/player') && c.body.playbackContext.contentPlaybackContext.signatureTimestamp === 12345));
+    playerMode = 'preferAac'; assert.equal((await rpc('resolve', {videoId: 'jNQXAC9IVRw'})).mimeType, 'audio/mp4');
+    playerMode = 'noLength'; assert.equal((await rpc('resolve', {videoId: 'jNQXAC9IVRw'})).contentLength, 1024);
     playerMode = 'cipher';
     const ciphered = await rpc('resolve', { videoId: 'jNQXAC9IVRw' });
     assert.equal(new URL(ciphered.url).searchParams.get('sig'), 'zyx', JSON.stringify(ciphered));
     assert.equal(new URL(ciphered.url).searchParams.get('n'), 'cba');
     playerMode = 'direct';
-    mediaStatus = 403; const guestDenied = await rpc('resolve', { videoId: 'jNQXAC9IVRw' }); assert.equal(guestDenied.error.code, 'MEDIA_HTTP_403');
-    assert.deepEqual(proofCalls.slice(0, 2).map(c => [c.playerBinding, c.streamBinding]), [['fixture-visitor', 'fixture-visitor'], ['jNQXAC9IVRw', 'fixture-visitor']]);
-    mediaStatus = 206;
+    const guestVerified = await rpc('resolve', { videoId: 'jNQXAC9IVRw', forceProof: true });
+    assert(guestVerified.url); assert.equal(proofCalls.at(-1).playerBinding, 'fixture-visitor');
+    assert.equal(proofCalls.at(-1).streamBinding, 'fixture-visitor');
     const homeResult = await rpc('home');
     assert.deepEqual(homeResult.sections?.map(s => s.title), ['Provider second alphabetically', 'Provider first alphabetically']);
     assert.deepEqual(homeResult.sections[0].items.map(i => i.id), ['yt:aaaaaaaaaaa', 'yt:bbbbbbbbbbb', 'yt:aaaaaaaaaaa']);
@@ -112,15 +119,14 @@ const config = { VISITOR_DATA: 'fixture-visitor', INNERTUBE_CLIENT_VERSION: '1.2
     assert.equal(rejected.error.code, 'PLAYER_REJECTED', JSON.stringify(rejected)); assert.equal(rejected.error.message, 'This client is unsupported.'); assert(!JSON.stringify(rejected).includes('region'));
     playerMode = 'sabr'; const sabr = await rpc('resolve', { videoId: 'jNQXAC9IVRw' }); assert.equal(sabr.error.code, 'SABR_UNSUPPORTED');
     playerMode = 'direct'; proofFailure = false; mediaStatus = 403;
-    const denied = await rpc('resolve', { videoId: 'jNQXAC9IVRw' }); assert.equal(denied.error.code, 'MEDIA_HTTP_403'); assert(!denied.url);
+    const denied = await rpc('resolve', { videoId: 'jNQXAC9IVRw', forceProof: true }); assert(denied.url); assert.equal(new URL(denied.url).searchParams.get('pot'), 'fixture-stream-proof');
     assert.equal(proofCalls.at(-1).videoId, 'jNQXAC9IVRw');
-    assert.equal(proofCalls.at(-1).playerBinding, 'jNQXAC9IVRw'); assert.equal(proofCalls.at(-1).streamBinding, 'fixture-account||');
-    assert.equal(proofCalls.at(-2).playerBinding, 'fixture-account||');
+    assert.equal(proofCalls.at(-1).playerBinding, 'fixture-account||'); assert.equal(proofCalls.at(-1).streamBinding, 'fixture-account||');
     assert(calls.some(c => c.path.endsWith('/att/get') && c.body.context.client.clientName === 'WEB'));
     assert(!calls.some(c => c.path.includes('/Create')));
     const verifiedCall = calls.findLast(c => c.path.endsWith('/player') && c.body.serviceIntegrityDimensions?.poToken);
     assert.equal(verifiedCall.body.serviceIntegrityDimensions.poToken, 'fixture-player-proof');
-    assert(calls.some(c => c.path === '/videoplayback' && c.query.includes('pot=fixture-stream-proof')));
+    assert(!calls.some(c => c.path === '/videoplayback'));
     assert(!calls.some(c => /\/tv|oauth|device\/code/.test(c.path) || ['TVHTML5', 'ANDROID', 'ANDROID_MUSIC'].includes(c.body?.context?.client?.clientName)));
     const sandbox = await page.evaluate(async () => (await import('/evaluator.mjs')).evaluatePlayer({ output: 'return {signature:"decoded",bridge:typeof MusicNative,dom:typeof document};' }));
     assert.deepEqual(sandbox, { signature: 'decoded', bridge: 'undefined', dom: 'undefined' });
@@ -149,7 +155,11 @@ const config = { VISITOR_DATA: 'fixture-visitor', INNERTUBE_CLIENT_VERSION: '1.2
     const verifiedRetry = await rpc('resolve', { videoId: 'i1o1p_DD6TU', forceProof: true });
     assert(verifiedRetry.url, JSON.stringify(verifiedRetry));
     assert(calls.slice(retryStart).filter(c => c.path.endsWith('/player')).every(c => !!c.body.serviceIntegrityDimensions?.poToken));
+    const startPlayers = calls.filter(c => c.path.endsWith('/player')).length;
+    const both = await Promise.all([rpc('resolve', {videoId: 'aaaaaaaaaaa'}), rpc('resolve', {videoId: 'aaaaaaaaaaa'})]);
+    assert(both.every(a => a.url)); assert.equal(calls.filter(c => c.path.endsWith('/player')).length - startPlayers, 1);
+    assert.equal((await rpc('metadata', {videoId: 'jNQXAC9IVRw'})).artist, 'Test artist');
     assert.deepEqual(errors, []);
-    console.log(JSON.stringify({ passed: ['bundled engine startup', 'upstream search parser and real artist', 'largest artwork selection', 'current WEB_REMIX bootstrap version', 'playback-sized query range validation', 'signature timestamp on player request', 'actual upstream signature/n extraction in isolated Worker', 'provider feed and duplicate order', 'Explore provider browse', 'normal WEB cookie account verification', 'captured session confirms despite homepage302', 'actual Android login capture keeps selected metadata and ignores optional untrusted scripts', 'invalid account still fails confirmation', 'guest browser redirect is actionable', 'SAPISIDHASH authenticated feed', 'safe HTTP diagnostics', 'real provider rejection preserved', 'SABR-only transport diagnosed', 'CDN 403 never becomes playback success', 'client-specific guest proof binding', 'full authenticated DataSyncID proof binding', 'current WEB att/get challenge without old Create discovery', 'forced retry skips unverified player attempts', 'no TV or OAuth calls', 'worker has no account bridge'], requests: calls.length, liveProvider: false }, null, 2));
+    console.log(JSON.stringify({ passed: ['bundled engine startup', 'upstream search parser and real artist', 'largest artwork selection', 'current WEB_REMIX bootstrap version', 'no duplicate pre-playback media download', 'signature timestamp on player request', 'actual upstream signature/n extraction in isolated Worker', 'provider feed and duplicate order', 'Explore provider browse', 'normal WEB cookie account verification', 'captured session confirms despite homepage302', 'actual Android login capture keeps selected metadata and ignores optional untrusted scripts', 'invalid account still fails confirmation', 'guest browser redirect is actionable', 'SAPISIDHASH authenticated feed', 'safe HTTP diagnostics', 'real provider rejection preserved', 'SABR-only transport diagnosed', 'forced verification supplies signed media URL for native validation', 'guest music-client proof binding', 'full authenticated DataSyncID proof binding', 'current WEB att/get challenge without old Create discovery', 'forced retry skips unverified player attempts', 'no TV or OAuth calls', 'worker has no account bridge', 'concurrent resolution is shared', 'missing artist refresh uses YouTube metadata', 'AAC preference for progressive playback', 'signed provider content length fallback'], requests: calls.length, liveProvider: false }, null, 2));
   } finally { await browser.close(); await new Promise(r => server.close(r)); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

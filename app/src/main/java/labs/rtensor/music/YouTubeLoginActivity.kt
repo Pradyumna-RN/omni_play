@@ -18,11 +18,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeout
+import labs.rtensor.music.auth.DeviceYouTubeSignIn
 import labs.rtensor.music.data.WebSession
 import labs.rtensor.music.data.YouTubeRuntime
 import labs.rtensor.music.ui.MusicTheme
@@ -80,7 +83,9 @@ class YouTubeLoginActivity : ComponentActivity() {
                                 }
                                 // A fresh, app-owned login. No external browser cookies are read.
                                 CookieManager.getInstance().removeAllCookies {
-                                    loadUrl(signInUrl(intent.getStringExtra(LOGIN_HINT)))
+                                    val ticket = intent.getStringExtra(DEVICE_LOGIN_URL)?.takeIf(DeviceYouTubeSignIn::isLoginUrl)
+                                    intent.removeExtra(DEVICE_LOGIN_URL)
+                                    loadUrl(ticket ?: signInUrl(intent.getStringExtra(LOGIN_HINT)))
                                 }
                             }
                         })
@@ -100,23 +105,36 @@ class YouTubeLoginActivity : ComponentActivity() {
         busy = true; message = "Checking your YouTube account…"
         confirmationJob = lifecycleScope.launch {
             try {
-                val raw = withTimeout(8000) { suspendCancellableCoroutine<String> { continuation ->
-                    view.evaluateJavascript("""JSON.stringify((()=>{const c=window.ytcfg?.data_||window.yt?.config_||{};const p=c.WEB_PLAYER_CONTEXT_CONFIGS?.WEB_PLAYER_CONTEXT_CONFIG_ID_MUSIC_PLAYER||{};const flags=new URLSearchParams(p.serializedExperimentFlags||'');const f=flags.has('html5_generate_content_po_token')?flags.getAll('html5_generate_content_po_token').at(-1):c.EXPERIMENT_FLAGS?.html5_generate_content_po_token;let script='';try{const source=c.PLAYER_JS_URL||p.jsUrl||'';if(source){const u=new URL(source,'https://www.youtube.com');if(u.protocol==='https:'&&u.hostname==='www.youtube.com'&&!u.username&&!u.password&&(!u.port||u.port==='443')&&u.pathname.startsWith('/s/player/'))script=u.href}}catch{};return {visitorData:c.VISITOR_DATA||c.INNERTUBE_CONTEXT?.client?.visitorData||'',dataSyncId:c.DATASYNC_ID||'',delegatedSessionId:c.DELEGATED_SESSION_ID||'',authUser:Number(c.SESSION_INDEX||0),clientVersion:c.INNERTUBE_CLIENT_VERSION||c.INNERTUBE_CONTEXT?.client?.clientVersion||'',playerScript:script,musicContentBoundGvs:f===true||f==='true'?true:f===false||f==='false'?false:null}})())""") { value -> if (continuation.isActive) continuation.resume(value) }
-                } }
+                val config = withTimeout(12_000) {
+                    var captured = captureConfig(view)
+                    while (captured.optString("visitorData").isBlank()) {
+                        delay(250)
+                        captured = captureConfig(view)
+                    }
+                    captured
+                }
                 check(WebSession.canConfirm(view.url.orEmpty())) { "Return to YouTube Music and retry." }
-                val config = JSONObject(JSONTokener(raw).nextValue() as String)
                 val candidate = WebSession.parse(config.put("kind", "youtube-web")
                     .put("cookie", CookieManager.getInstance().getCookie("https://music.youtube.com").orEmpty())
                     .put("userAgent", view.settings.userAgentString))
                 YouTubeRuntime.get(applicationContext).acceptWebSession(candidate)
                 clearBrowserCookies()
                 setResult(RESULT_OK); finish()
+            } catch (_: TimeoutCancellationException) {
+                busy = false; attemptedAutoConnect = false
+                message = "YouTube is still opening your account. Wait for the page, then tap Connect."
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
                 message = (e as? labs.rtensor.music.data.SourceException)?.message ?: "Could not confirm your YouTube session. Finish sign-in and retry."
                 busy = false
             }
         }
+    }
+    private suspend fun captureConfig(view: WebView): JSONObject {
+        val raw = withTimeout(8000) { suspendCancellableCoroutine<String> { continuation ->
+            view.evaluateJavascript("""JSON.stringify((()=>{const c=window.ytcfg?.data_||window.yt?.config_||{};const p=c.WEB_PLAYER_CONTEXT_CONFIGS?.WEB_PLAYER_CONTEXT_CONFIG_ID_MUSIC_PLAYER||{};const flags=new URLSearchParams(p.serializedExperimentFlags||'');const f=flags.has('html5_generate_content_po_token')?flags.getAll('html5_generate_content_po_token').at(-1):c.EXPERIMENT_FLAGS?.html5_generate_content_po_token;let script='';try{const source=c.PLAYER_JS_URL||p.jsUrl||'';if(source){const u=new URL(source,'https://www.youtube.com');if(u.protocol==='https:'&&u.hostname==='www.youtube.com'&&!u.username&&!u.password&&(!u.port||u.port==='443')&&u.pathname.startsWith('/s/player/'))script=u.href}}catch{};return {visitorData:c.VISITOR_DATA||c.INNERTUBE_CONTEXT?.client?.visitorData||'',dataSyncId:c.DATASYNC_ID||'',delegatedSessionId:c.DELEGATED_SESSION_ID||'',authUser:Number(c.SESSION_INDEX||0),clientVersion:c.INNERTUBE_CLIENT_VERSION||c.INNERTUBE_CONTEXT?.client?.clientVersion||'',playerScript:script,musicContentBoundGvs:f===true||f==='true'?true:f===false||f==='false'?false:null}})())""") { value -> if (continuation.isActive) continuation.resume(value) }
+        } }
+        return JSONObject(JSONTokener(raw).nextValue() as String)
     }
     private fun clearBrowserCookies() {
         android.webkit.WebStorage.getInstance().deleteAllData()
@@ -128,6 +146,7 @@ class YouTubeLoginActivity : ComponentActivity() {
         super.onDestroy()
     }
     companion object {
+        const val DEVICE_LOGIN_URL = "device_youtube_login_url"
         const val LOGIN_HINT = "google_account_hint"
         fun signInUrl(email: String?): String = android.net.Uri.parse("https://accounts.google.com/ServiceLogin").buildUpon()
             .appendQueryParameter("continue", "https://music.youtube.com")

@@ -147,7 +147,7 @@ fun MusicApp(
     sharedQuery: String? = null, onShareConsumed: () -> Unit = {},
     initialPage: String = "home",
     onRefreshFeed: () -> Unit = {}, onMoreFeed: () -> Unit = {}, onBrowse: (FeedEntry) -> Unit = {}, onRetryCollection: () -> Unit = {},
-    onConnect: () -> Unit = {}, onDisconnect: () -> Unit = {}, onCancelConnect: () -> Unit = {}, onRefreshExplore: () -> Unit = {},
+    onConnect: () -> Unit = {}, onWebSignIn: () -> Unit = {}, onDisconnect: () -> Unit = {}, onCancelConnect: () -> Unit = {}, onRefreshExplore: () -> Unit = {},
     onGoogleSignIn: () -> Unit = {}, onGoogleSignOut: () -> Unit = {}, onCancelGoogle: () -> Unit = {},
     onCheckUpdates: () -> Unit = {}, onDownloadUpdate: () -> Unit = {}, onInstallUpdate: () -> Unit = {},
 ) {
@@ -244,8 +244,8 @@ fun MusicApp(
                             "queue" -> QueueScreen(state, ::play)
                             "collection" -> CollectionScreen(state, ::play, onSave)
                             "settings" -> SettingsScreen(state, onTheme, onReducedMotion, onOpenLocal, onClearHistory,
-                                onConnect, onDisconnect, onCancelConnect, onGoogleSignIn, onGoogleSignOut, onCancelGoogle, onCheckUpdates, onDownloadUpdate, onInstallUpdate)
-                            else -> HomeScreen(state, ::focusSearch, onOpenLocal, ::play, ::openEntry, onRefreshFeed, onMoreFeed, onConnect)
+                                onConnect, onWebSignIn, onDisconnect, onCancelConnect, onGoogleSignIn, onGoogleSignOut, onCancelGoogle, onCheckUpdates, onDownloadUpdate, onInstallUpdate)
+                            else -> HomeScreen(state, ::focusSearch, ::play, ::openEntry, onRefreshFeed, onMoreFeed, onConnect)
                         }
                     }
                 }
@@ -304,7 +304,7 @@ private fun AppNavigation(page: String, reduced: Boolean, onSelect: (String) -> 
 }
 
 @Composable
-private fun HomeScreen(state: MusicState, onSearch: () -> Unit, onLocal: () -> Unit, onPlay: (Track, List<Track>) -> Unit,
+private fun HomeScreen(state: MusicState, onSearch: () -> Unit, onPlay: (Track, List<Track>) -> Unit,
     onEntry: (FeedEntry) -> Unit, onRefresh: () -> Unit, onMore: () -> Unit, onConnect: () -> Unit) {
     val recent = state.history.firstOrNull()
     val hasFeed = state.feed.isNotEmpty()
@@ -347,21 +347,6 @@ private fun HomeScreen(state: MusicState, onSearch: () -> Unit, onLocal: () -> U
                     }
                 }
                 Artwork(recent, Modifier.weight(.54f).height(270.dp).clip(RoundedCornerShape(14.dp)))
-            }
-        }
-        item(key = "local") {
-            Column {
-                HorizontalDivider(color = MaterialTheme.colorScheme.outline, thickness = .5.dp)
-                Row(Modifier.fillMaxWidth().clickable(onClick = onLocal).padding(vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    IconTile(Glyph.AudioFile)
-                    Spacer(Modifier.width(14.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text("Already yours", fontSize = 15.sp, fontWeight = FontWeight.Medium)
-                        Text("Open an audio file from your device", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 3.dp))
-                    }
-                    Icon(Icons.AutoMirrored.Outlined.ArrowForward, "Open audio file", Modifier.size(19.dp))
-                }
-                HorizontalDivider(color = MaterialTheme.colorScheme.outline, thickness = .5.dp)
             }
         }
         if (state.history.isNotEmpty()) item(key = "recent") {
@@ -705,7 +690,7 @@ private val settingsSections = listOf(
 
 @Composable
 private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onReduced: (Boolean) -> Unit, onLocal: () -> Unit, onClearHistory: () -> Unit,
-    onConnect: () -> Unit, onDisconnect: () -> Unit, onCancelConnect: () -> Unit,
+    onConnect: () -> Unit, onWebSignIn: () -> Unit, onDisconnect: () -> Unit, onCancelConnect: () -> Unit,
     onGoogleSignIn: () -> Unit, onGoogleSignOut: () -> Unit, onCancelGoogle: () -> Unit,
     onCheckUpdates: () -> Unit, onDownloadUpdate: () -> Unit, onInstallUpdate: () -> Unit) {
     var confirmClear by remember { mutableStateOf(false) }
@@ -732,7 +717,7 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onReduc
             PageTitle("Settings")
 
             SettingsGroupHeader(settingsSections[0], Modifier.anchor("account"))
-            AccountCard(state, onGoogleSignIn, onGoogleSignOut, onCancelGoogle, onConnect, onDisconnect, onCancelConnect)
+            AccountCard(state, onGoogleSignIn, onGoogleSignOut, onCancelGoogle, onConnect, onWebSignIn, onDisconnect, onCancelConnect)
 
             SettingsGroupHeader(settingsSections[1], Modifier.anchor("playback"))
             SettingsCard {
@@ -746,7 +731,8 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onReduc
                 CardDivider()
                 SettingItem("Audio processing", "Off · original audio", Glyph.MusicNote)
                 CardDivider()
-                SettingItem("Open audio from device", "Play a file that is already on this phone", Glyph.AudioFile, onClick = onLocal)
+                SettingItem("Import audio", "Add a file from this device to Saved", Glyph.AudioFile, onClick = onLocal)
+                state.importMessage?.let { Text(it, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
             }
 
             SettingsGroupHeader(settingsSections[2], Modifier.anchor("appearance"))
@@ -815,7 +801,7 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onReduc
  */
 @Composable
 private fun AccountCard(state: MusicState, onGoogleSignIn: () -> Unit, onGoogleSignOut: () -> Unit, onCancelGoogle: () -> Unit,
-    onConnect: () -> Unit, onDisconnect: () -> Unit, onCancelConnect: () -> Unit) {
+    onConnect: () -> Unit, onWebSignIn: () -> Unit, onDisconnect: () -> Unit, onCancelConnect: () -> Unit) {
     val google = state.googleProfile
     val youtube = state.account
     val displayName = google?.name?.ifBlank { google.email } ?: youtube.name.takeIf { youtube.connected && it.isNotBlank() } ?: "Not signed in"
@@ -855,9 +841,9 @@ private fun AccountCard(state: MusicState, onGoogleSignIn: () -> Unit, onGoogleS
                 }
                 google == null && !youtube.connected -> {
                     Button(onClick = onGoogleSignIn, modifier = wide, shape = RoundedCornerShape(14.dp)) { Text("Sign in with Google", fontSize = 15.sp) }
-                    Text("Choose an account on this phone. YouTube Music opens next with it preselected, then confirm its YouTube connection.",
+                    Text("Choose a Gmail account on this phone to connect YouTube Music. Google may ask you to confirm sign-in.",
                         fontSize = 13.sp, lineHeight = 19.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    TextButton(onClick = onConnect) { Text("Sign in to YouTube", fontSize = 15.sp) }
+                    TextButton(onClick = onWebSignIn) { Text("Sign in using browser", fontSize = 15.sp) }
                 }
                 google != null && !youtube.connected -> {
                     Button(onClick = onConnect, modifier = wide, shape = RoundedCornerShape(14.dp)) { Text("Connect YouTube Music", fontSize = 15.sp) }

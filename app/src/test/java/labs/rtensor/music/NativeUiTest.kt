@@ -46,6 +46,7 @@ class NativeUiTest {
     @Test fun homeAndNavigation() {
         compose.setContent { MusicApp(MusicState(theme = "light", reducedMotion = true)) }
         compose.onNodeWithText("Room to listen.").assertIsDisplayed()
+        compose.onNodeWithText("Already yours").assertDoesNotExist()
         capture("home")
         compose.onNodeWithContentDescription("Search music").assertIsDisplayed()
         compose.onNodeWithContentDescription("Explore").performClick()
@@ -54,6 +55,7 @@ class NativeUiTest {
         capture("explore")
         compose.onNodeWithContentDescription("Open settings").performClick()
         compose.onNodeWithText("Music source").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Import audio").performScrollTo().assertIsDisplayed()
         capture("settings")
     }
 
@@ -101,8 +103,8 @@ class NativeUiTest {
 
     @Test fun signInOpensYouTubeWithoutATvCode() {
         var opened = false
-        compose.setContent { MusicApp(MusicState(reducedMotion = true, theme = "light"), initialPage = "settings", onConnect = { opened = true }) }
-        compose.onNodeWithText("Sign in to YouTube").performScrollTo().performClick()
+        compose.setContent { MusicApp(MusicState(reducedMotion = true, theme = "light"), initialPage = "settings", onWebSignIn = { opened = true }) }
+        compose.onNodeWithText("Sign in using browser").performScrollTo().performClick()
         org.junit.Assert.assertTrue(opened)
         compose.onNodeWithText("Open Google sign-in").assertDoesNotExist()
         compose.onNodeWithText("Getting a sign-in code…").assertDoesNotExist()
@@ -204,6 +206,14 @@ class NativeUiTest {
         compose.onNodeWithText("Updates").performScrollTo().performClick()
         compose.onNodeWithText("Check updates").assertIsDisplayed()
         capture("settings-updates-jump")
+    }
+
+    @Test fun settingsImportActionOpensTheFilePickerCallback() {
+        var imported = false
+        compose.setContent { MusicApp(MusicState(reducedMotion = true), initialPage = "settings", onOpenLocal = { imported = true }) }
+        compose.onNodeWithText("Import audio").performScrollTo().performClick()
+        org.junit.Assert.assertTrue(imported)
+        compose.onNodeWithText("Add a file from this device to Saved").assertIsDisplayed()
     }
 
 }

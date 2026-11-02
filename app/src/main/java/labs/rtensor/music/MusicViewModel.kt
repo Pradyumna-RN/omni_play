@@ -17,6 +17,8 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -27,6 +29,8 @@ import kotlinx.coroutines.launch
 import labs.rtensor.music.data.LibraryStore
 import labs.rtensor.music.data.Source
 import labs.rtensor.music.data.SourceException
+import labs.rtensor.music.data.YouTubeMetadata
+import labs.rtensor.music.data.needsArtist
 import labs.rtensor.music.data.Track
 import labs.rtensor.music.data.YouTubeSource
 import labs.rtensor.music.auth.GoogleProfile
@@ -39,6 +43,7 @@ import labs.rtensor.music.updates.UpdateState
 import labs.rtensor.music.playback.MusicPlaybackService
 
 data class MusicState(
+    val importMessage: String? = null,
     val current: Track? = null,
     val loadingTrack: Track? = null,
     val playing: Boolean = false,
@@ -87,6 +92,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         theme = library.theme, reducedMotion = library.reducedMotion,
     ))
     val state = mutable.asStateFlow()
+    private val metadata = mutableMapOf<String, YouTubeMetadata>()
+    private fun enrich(track: Track) = metadata[track.id]?.enrich(track) ?: track
     private var controller: MediaController? = null
     private var searchJob: Job? = null
     private var feedJob: Job? = null
@@ -138,6 +145,31 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 val changed = account.connected != mutable.value.account.connected || account.revision != mutable.value.account.revision
                 mutable.update { it.copy(account = account, feed = if (changed) emptyList() else it.feed, explore = if (changed) emptyList() else it.explore) }
                 if (changed) { refreshFeed(); refreshExplore() }
+            }
+        }
+        viewModelScope.launch {
+            youtube.runtime.metadata.collect { item ->
+                if (item != null) {
+                    metadata["yt:${item.videoId}"] = item
+                    val before = mutable.value
+                    mutable.update { it.copy(current = it.current?.let(::enrich), history = it.history.map(::enrich), saved = it.saved.map(::enrich), queue = it.queue.map(::enrich), results = it.results.map(::enrich), collection = it.collection.map(::enrich)) }
+                    controller?.let { c ->
+                        for (index in 0 until c.mediaItemCount) {
+                            val old = c.getMediaItemAt(index)
+                            val updated = mutable.value.queue.getOrNull(index)?.takeIf { it.id == "yt:${item.videoId}" } ?: continue
+                            if (old.mediaMetadata.artist?.toString() == updated.artist) continue
+                            val extras = Bundle(old.mediaMetadata.extras ?: Bundle()).apply { putString("catalogue_track", updated.json().toString()) }
+                            c.replaceMediaItem(index, old.buildUpon().setMediaMetadata(old.mediaMetadata.buildUpon().setArtist(updated.artist).setExtras(extras).build()).build())
+                        }
+                    }
+                    if (before.history != mutable.value.history) library.writeTracks("history", mutable.value.history)
+                    if (before.saved != mutable.value.saved) library.writeTracks("saved", mutable.value.saved)
+                }
+            }
+        }
+        viewModelScope.launch {
+            mutable.value.history.firstOrNull()?.takeIf { it.needsArtist() }?.let {
+                try { youtube.metadata(it) } catch (e: CancellationException) { throw e } catch (_: Exception) { /* Retry with playback metadata. */ }
             }
         }
         refreshFeed()
@@ -233,8 +265,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             runCatching { c.getMediaItemAt(index).mediaMetadata.extras?.getString("catalogue_track")?.let { Track.fromJson(org.json.JSONObject(it)) } }.getOrNull()
         }
         mutable.update { it.copy(
-            current = restored ?: it.current,
-            queue = queue,
+            current = restored?.let(::enrich) ?: it.current,
+            queue = queue.map(::enrich),
             queueIndex = c.currentMediaItemIndex,
             playing = c.isPlaying,
             buffering = c.playbackState == Player.STATE_BUFFERING,
@@ -324,14 +356,29 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         mutable.update { it.copy(history = history) }
     }
 
-    fun openLocal(uri: Uri) {
-        val app = getApplication<Application>()
-        val title = runCatching {
-            app.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
-                if (it.moveToFirst()) it.getString(0) else null
-            }
-        }.getOrNull() ?: "Local recording"
-        play(Track("local:$uri", title.substringBeforeLast('.', title), "On your device", uri.toString(), source = Source.LOCAL))
+    fun importLocal(uri: Uri) {
+        viewModelScope.launch {
+            mutable.update { it.copy(importMessage = "Importing audio…") }
+            try {
+                val track = withContext(Dispatchers.IO) {
+                    val app = getApplication<Application>()
+                    val filename = app.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
+                        if (it.moveToFirst()) it.getString(0) else null
+                    } ?: "Local recording"
+                    val reader = android.media.MediaMetadataRetriever()
+                    try {
+                        reader.setDataSource(app, uri)
+                        Track("local:$uri", reader.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_TITLE)?.takeIf { it.isNotBlank() } ?: filename.substringBeforeLast('.', filename),
+                            reader.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_ARTIST).orEmpty(), uri.toString(),
+                            durationMs = reader.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0, source = Source.LOCAL)
+                    } finally { reader.release() }
+                }
+                val saved = listOf(track) + mutable.value.saved.filterNot { it.id == track.id }
+                library.writeTracks("saved", saved)
+                mutable.update { it.copy(saved = saved, importMessage = "Added ${track.title} to Saved.") }
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) { mutable.update { it.copy(importMessage = "Could not import this file. Choose a readable audio file.") } }
+        }
     }
 
     fun theme(value: String) {

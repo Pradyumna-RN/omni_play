@@ -3,6 +3,16 @@
 Temporary name: **Music**. Native Android player from RTensorLabs with the approved
 Margin visual direction: warm paper, DM Sans, original provider artwork and raspberry controls.
 
+## Version 0.3.5 — sign-in handoff, seeking and faster starts
+
+- Device Google-account selection now attempts the Google account provider's web-session handoff before opening YouTube. A verified YouTube session is still required; providers that decline this handoff fall back to browser sign-in. No password or one-use handoff URL is saved.
+- Removes the separate audio probe before playback. Media3 opens and validates the real stream, with one proof-backed refresh on HTTP 403, including a later range read. Recovery preserves the requested seek position.
+- Prefers AAC/MP4, warms the player script, shares concurrent resolutions, retains fresh resolved streams longer, and resolves the next queue item after playback starts. Starts with a 500 ms audio buffer; adds a 128 MiB local LRU byte cache for rereads/seeks.
+- Home no longer contains the device-file row. Settings → Import audio adds a document to Saved using a persistent Android document permission; it does not immediately play it. The original file remains on the device.
+- Fixes YouTube artist mapping when an empty artist array hid author or linked subtitle data. Missing recent/saved/playing artist data is refreshed from YouTube's exact video metadata and persisted without guessing names from titles.
+
+Device-account handoff, real YouTube latency and live seeking still need phone verification. See [verification details](VERIFICATION.md).
+
 ## Version 0.3.4 — refined UI, synced sign-in and smoother motion
 
 - **One account card.** Settings → Account shows Google and YouTube Music together

@@ -22,7 +22,7 @@ data class Track(
     companion object {
         fun fromJson(o: JSONObject) = Track(
             id = o.getString("id"), title = o.getString("title"),
-            artist = o.optString("artist", "Unknown artist"), url = o.getString("url"),
+            artist = o.optString("artist").takeUnless { it in setOf("Unknown artist", "YouTube Music") }.orEmpty(), url = o.getString("url"),
             artwork = o.optString("artwork"), durationMs = o.optLong("durationMs"),
             source = runCatching { Source.valueOf(o.optString("source")) }.getOrDefault(Source.YOUTUBE),
         )

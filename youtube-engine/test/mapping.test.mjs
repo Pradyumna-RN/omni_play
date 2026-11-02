@@ -30,7 +30,7 @@ test('largest artwork survives provider descending thumbnail order', async () =>
   assert.equal(largestArtwork([{ url: 'https://test/large', width: 600, height: 600 }, { url: 'https://test/small', width: 40, height: 40 }]), 'https://test/large');
 });
 test('missing artist is not mislabeled as the provider', () => {
-  assert.equal(track({ id: 'jNQXAC9IVRw', title: 'Title' }).artist, 'Unknown artist');
+  assert.equal(track({ id: 'jNQXAC9IVRw', title: 'Title' }).artist, '');
 });
 test('bootstrap JSON handles braces and escaped quotes without running scripts', async () => {
   const { readYtConfig } = await import('../src/web-config.mjs');
@@ -72,4 +72,12 @@ test('GVS experiment reads serialized player flags and never treats string false
   assert.equal(contentBoundGvs(config, 'WEB'), false);
   assert.equal(contentBoundGvs({ EXPERIMENT_FLAGS: { html5_generate_content_po_token: 'false' } }, 'WEB'), false);
   assert.equal(contentBoundGvs({ EXPERIMENT_FLAGS: { html5_generate_content_po_token: true } }, 'YTMUSIC'), true);
+});
+
+test('empty artist arrays do not hide YouTube authors or linked subtitle artists', () => {
+  assert.equal(track({ id: 'jNQXAC9IVRw', title: 'Track', artists: [], authors: [{name: 'YouTube artist'}] }).artist, 'YouTube artist');
+  assert.equal(track({ id: 'jNQXAC9IVRw', title: 'Track', subtitle: { runs: [{ text: 'Provider artist', endpoint: { payload: {browseId: 'UCartist'} } }, {text: ' • Album • 2026'}] } }).artist, 'Provider artist');
+});
+test('a subtitle containing album and view labels is never guessed to be an artist', () => {
+  assert.equal(track({ id: 'jNQXAC9IVRw', title: 'Track', subtitle: 'Album • 2026 • 1M views' }).artist, '');
 });

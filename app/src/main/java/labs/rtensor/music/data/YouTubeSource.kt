@@ -5,6 +5,9 @@ import org.json.JSONObject
 
 class YouTubeSource(context: Context) {
     val runtime = YouTubeRuntime.get(context)
+    suspend fun metadata(track: Track) {
+        if (track.source == Source.YOUTUBE) runtime.call("metadata", JSONObject().put("videoId", track.id.removePrefix("yt:")))
+    }
     suspend fun search(query: String): List<Track> = tracks(runtime.call("search", JSONObject().put("query", query)))
     suspend fun collection(entry: FeedEntry): List<Track> = tracks(runtime.call("collection", JSONObject().put("id", entry.browseId).put("kind", entry.kind)))
     suspend fun home(more: Boolean = false): HomeFeed {
@@ -19,10 +22,10 @@ class YouTubeSource(context: Context) {
         }, data.optBoolean("hasMore"))
     }
 
-    suspend fun resolve(track: Track, forceProof: Boolean = false): ResolvedAudio {
+    suspend fun resolve(track: Track, forceProof: Boolean = false, background: Boolean = false): ResolvedAudio {
         if (track.source == Source.LOCAL) return ResolvedAudio(track.url, null, emptyMap())
         val canonical = YouTubeLink.normalize(track.url)?.takeIf { it.contains("/watch?v=") } ?: throw SourceException("LINK", "Choose a valid YouTube recording.")
-        val json = runtime.call("resolve", JSONObject().put("videoId", canonical.substringAfter("?v=")).put("forceProof", forceProof))
+        val json = runtime.call("resolve", JSONObject().put("videoId", canonical.substringAfter("?v=")).put("forceProof", forceProof).put("background", background))
         val headers = json.optJSONObject("headers") ?: JSONObject()
         return ResolvedAudio(
             json.getString("url"),

@@ -8,7 +8,7 @@ import java.io.EOFException
 
 /** GVS audio uses bounded query ranges, including on the first request and after seeks. */
 @UnstableApi
-internal class GoogleVideoDataSource(private val upstream: DataSource) : DataSource by upstream {
+internal class GoogleVideoDataSource(private val upstream: DataSource, private val chunkSize: Long = CHUNK_SIZE) : DataSource by upstream {
     private var original: DataSpec? = null
     private var position = 0L
     private var remaining = 0L
@@ -29,7 +29,7 @@ internal class GoogleVideoDataSource(private val upstream: DataSource) : DataSou
     }
     private fun openChunk() {
         val spec = checkNotNull(original)
-        chunkRemaining = minOf(CHUNK_SIZE, remaining)
+        chunkRemaining = minOf(chunkSize, remaining)
         // Preserve the signed raw query byte-for-byte; only replace the range parameter.
         val rawParts = spec.uri.encodedQuery.orEmpty().split('&').filter { it.isNotEmpty() && it.substringBefore('=') != "range" }
         val exactUri = spec.uri.buildUpon().encodedQuery((rawParts + "range=$position-${position + chunkRemaining - 1}").joinToString("&")).build()

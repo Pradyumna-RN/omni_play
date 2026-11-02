@@ -14,7 +14,9 @@ internal class PlaybackDataSource(
     private val onHttpFailure: (DataSpec, Int) -> Unit,
 ) : DataSource by upstream {
     private var originalRequest: DataSpec? = null
+    private var bytesRead = 0L
     override fun open(dataSpec: DataSpec): Long {
+        bytesRead = 0
         originalRequest = dataSpec
         try { return upstream.open(dataSpec) }
         catch (error: HttpDataSource.InvalidResponseCodeException) {
@@ -27,11 +29,23 @@ internal class PlaybackDataSource(
         }
     }
 
-    override fun read(buffer: ByteArray, offset: Int, length: Int): Int = try {
-        upstream.read(buffer, offset, length)
-    } catch (error: HttpDataSource.InvalidResponseCodeException) {
-        originalRequest?.let { onHttpFailure(it, error.responseCode) }
-        throw error
+    override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+        val count = try { upstream.read(buffer, offset, length) }
+        catch (error: HttpDataSource.InvalidResponseCodeException) {
+            val original = originalRequest ?: throw error
+            if (error.responseCode == 403 && retryDenied(original)) {
+                upstream.close()
+                try {
+                    // Resume from the byte after the last delivered byte, including after a seek.
+                    upstream.open(original.subrange(bytesRead))
+                    upstream.read(buffer, offset, length)
+                } catch (retry: HttpDataSource.InvalidResponseCodeException) {
+                    onHttpFailure(original, retry.responseCode); throw retry
+                }
+            } else { onHttpFailure(original, error.responseCode); throw error }
+        }
+        if (count > 0) bytesRead += count
+        return count
     }
     override fun close() { try { upstream.close() } finally { originalRequest = null } }
 
