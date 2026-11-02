@@ -7,8 +7,8 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultDataSource
-import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
@@ -40,10 +40,8 @@ class MusicPlaybackService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
         val youtube = YouTubeSource(this)
-        val http = DefaultHttpDataSource.Factory()
-            .setUserAgent("Music/0.3 (Android)")
-            .setConnectTimeoutMs(15_000).setReadTimeoutMs(20_000)
-        val data = ResolvingDataSource.Factory(DefaultDataSource.Factory(this, http)) { spec ->
+        val http = PlaybackDataSource.httpFactory()
+        val resolving = ResolvingDataSource.Factory(DefaultDataSource.Factory(this, http)) { spec ->
             val catalogueUrl = YouTubeLink.normalize(spec.uri.toString())
             if (catalogueUrl == null) spec else {
                 // Media3 calls this on its loading thread, never the UI/audio-render thread.
@@ -57,6 +55,15 @@ class MusicPlaybackService : MediaSessionService() {
                     }
                 } catch (e: Exception) { throw IOException("YouTube audio resolution failed", e) }
                 spec.withUri(Uri.parse(audio.url)).withAdditionalHeaders(audio.headers)
+            }
+        }
+        val data = DataSource.Factory {
+            PlaybackDataSource(resolving.createDataSource()) { spec, status ->
+                val catalogueUrl = YouTubeLink.normalize(spec.uri.toString())
+                if (catalogueUrl?.contains("/watch?v=") == true) {
+                    resolvedStreams.remove(spec.key ?: catalogueUrl)
+                    youtube.runtime.reportPlaybackHttpFailure(catalogueUrl.substringAfter("?v="), status)
+                }
             }
         }
         val renderers = object : DefaultRenderersFactory(this) {

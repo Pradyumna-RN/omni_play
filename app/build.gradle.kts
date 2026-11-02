@@ -15,8 +15,8 @@ android {
         applicationId = "labs.rtensor.music"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "0.3.0"
+        versionCode = 4
+        versionName = "0.3.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildFeatures { compose = true; buildConfig = true }
@@ -35,6 +35,9 @@ android {
         unitTests.isIncludeAndroidResources = true
         unitTests.all { test ->
             test.systemProperty("robolectric.dependency.repo.url", "https://repo.maven.apache.org/maven2")
+            // Android accepts Origin; JDK HttpURLConnection silently removes it by default.
+            // Let the loopback Media3 regression test observe the actual Android headers.
+            test.systemProperty("sun.net.http.allowRestrictedHeaders", "true")
             listOf("https.proxyHost", "https.proxyPort", "http.proxyHost", "http.proxyPort", "javax.net.ssl.trustStore").forEach { key ->
                 System.getProperty(key)?.let { test.systemProperty(key, it) }
             }

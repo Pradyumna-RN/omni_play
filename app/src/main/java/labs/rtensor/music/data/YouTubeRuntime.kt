@@ -64,6 +64,13 @@ class YouTubeRuntime private constructor(context: Context) {
         }
         finally { pending.remove(id) }
     }
+    fun reportPlaybackHttpFailure(videoId: String, status: Int) {
+        if (!videoId.matches(Regex("[A-Za-z0-9_-]{11}")) || status !in 100..599) return
+        mutableProblem.value = PlaybackProblem(videoId,
+            "YouTube rejected the audio request (HTTP $status). Tap Retry to request a fresh stream.",
+            "MEDIA_HTTP_$status", "Media3 audio open: HTTP $status")
+    }
+
     fun beginSignIn() { mutableAccount.value = mutableAccount.value.copy(connecting = true, error = null) }
     fun cancelSignIn() { mutableAccount.value = mutableAccount.value.copy(connecting = false) }
     suspend fun acceptWebSession(candidate: WebSession) = accountChange.withLock {

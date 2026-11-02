@@ -65,6 +65,18 @@ class AccountAndUpdateTest {
         assertTrue(runCatching { WebSession.parse(JSONObject(session.toString()).put("cookie", "SAPISID=a\r\nCookie: injected")) }.isFailure)
         assertTrue(runCatching { WebSession.parse(JSONObject(session.toString()).put("authUser", 100)) }.isFailure)
     }
+    @Test fun capturedPlayerMetadataRoundTripsWithoutAcceptingUntrustedScriptUrls() {
+        val json = WebSession("SAPISID=fixture-cookie", "visitor", playerScript = "/s/player/fixture/player_ias.vflset/en_US/base.js", musicContentBoundGvs = false).json()
+        val parsed = WebSession.parse(json)
+        assertEquals(false, parsed.musicContentBoundGvs)
+        assertEquals("/s/player/fixture/player_ias.vflset/en_US/base.js", parsed.playerScript)
+        assertEquals(parsed, WebSession.parse(parsed.json()))
+        assertNull(WebSession.parse(JSONObject().put("kind", "youtube-web").put("cookie", "SAPISID=fixture").put("visitorData", "visitor")).musicContentBoundGvs)
+        listOf("https://attacker.test/s/player/a/base.js", "https://user@www.youtube.com/s/player/a/base.js", "http://www.youtube.com/s/player/a/base.js", "https://www.youtube.com/watch?v=invalid").forEach { url ->
+            assertTrue(url, runCatching { WebSession.parse(JSONObject(json.toString()).put("playerScript", url)) }.isFailure)
+        }
+        assertTrue(runCatching { WebSession.parse(JSONObject(json.toString()).put("musicContentBoundGvs", "false")) }.isFailure)
+    }
     @Test fun loginOnlyConfirmsYoutubeMusicAndCannotNavigateToAnImpersonatedOrigin() {
         assertTrue(WebSession.canConfirm("https://music.youtube.com/"))
         assertFalse(WebSession.canConfirm("https://accounts.google.com/"))

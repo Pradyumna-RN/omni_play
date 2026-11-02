@@ -34,13 +34,13 @@ const config = { VISITOR_DATA: 'fixture-visitor', INNERTUBE_CLIENT_VERSION: '1.2
   await new Promise(r => server.listen(0, '127.0.0.1', r));
   const browser = await chromium.launch({ executablePath: process.env.BROWSER_EXECUTABLE || '/usr/bin/chromium', headless: true, args: ['--no-sandbox'] });
   try {
-    const page = await browser.newPage(); let rejectSearch = false, playerMode = 'direct', mediaStatus = 206, proofFailure = false; const calls = [], proofCalls = [], errors = [];
+    const page = await browser.newPage(); let rejectSearch = false, rejectAccounts = false, bootstrapMode = 'normal', playerMode = 'direct', mediaStatus = 206, proofFailure = false; const calls = [], proofCalls = [], errors = [];
     page.on('pageerror', e => errors.push(e.message));
     await page.exposeFunction('httpNative', async (id, url, options) => {
       const o = JSON.parse(options), u = new URL(url), bodyIn = o.body ? JSON.parse(o.body) : null;
       calls.push({ path: u.pathname, host: u.hostname, query: u.searchParams.toString(), headers: o.headers, method: o.method, body: bodyIn });
       let body, status = 200, type = 'application/json';
-      if (u.pathname === '/') { body = `<script>ytcfg.set(${JSON.stringify(u.hostname === 'music.youtube.com' ? config : { INNERTUBE_CLIENT_VERSION: '2.20261102.00.00' })});</script>`; type = 'text/html'; }
+      if (u.pathname === '/') { body = `<script>ytcfg.set(${JSON.stringify(u.hostname === 'music.youtube.com' ? config : { INNERTUBE_CLIENT_VERSION: '2.20261102.00.00' })});</script>`; type = 'text/html'; if (bootstrapMode === 'redirect') { status = 302; body = ''; } }
       else if (u.pathname.endsWith('/search')) { body = search; if (rejectSearch) status = 403; }
       else if (u.pathname.endsWith('/browse')) body = bodyIn?.browseId === 'FEmusic_explore' ? explore : home;
       else if (u.pathname.endsWith('/player')) {
@@ -49,7 +49,7 @@ const config = { VISITOR_DATA: 'fixture-visitor', INNERTUBE_CLIENT_VERSION: '1.2
         if (playerMode === 'sabr') body.streamingData = { serverAbrStreamingUrl: 'https://r1-synthetic.googlevideo.com/videoplayback?sabr=1' };
         if (playerMode === 'cipher') { const f = body.streamingData.adaptiveFormats[0]; f.signatureCipher = new URLSearchParams({ url: f.url + '&n=abc', sp: 'sig', s: 'xyz' }).toString(); delete f.url; }
       }
-      else if (u.pathname.endsWith('/account/accounts_list')) body = accounts;
+      else if (u.pathname.endsWith('/account/accounts_list')) { body = accounts; if (rejectAccounts) status = 401; }
       else if (u.pathname.endsWith('/att/get')) body = { bgChallenge: { program: 'fixture-program', globalName: 'fixtureVM', interpreterJavascript: { privateDoNotAccessOrElseSafeScriptWrappedValue: 'fixture-only' } } };
       else if (u.pathname.endsWith('/base.js')) { body = playerScript; type = 'application/javascript'; }
       else if (u.pathname === '/videoplayback') { status = mediaStatus; body = Buffer.from([0, 1]); type = 'audio/mp4'; }
@@ -97,9 +97,12 @@ const config = { VISITOR_DATA: 'fixture-visitor', INNERTUBE_CLIENT_VERSION: '1.2
     assert.deepEqual(homeResult.sections?.map(s => s.title), ['Provider second alphabetically', 'Provider first alphabetically']);
     assert.deepEqual(homeResult.sections[0].items.map(i => i.id), ['yt:aaaaaaaaaaa', 'yt:bbbbbbbbbbb', 'yt:aaaaaaaaaaa']);
     assert.deepEqual((await rpc('explore')).sections?.map(s => s.title), ['New releases from provider']);
+    bootstrapMode = 'redirect';
     await page.reload(); await page.waitForFunction(() => window.__events.some(e => e.type === 'ready'));
-    await page.evaluate(() => { window.__saved = JSON.stringify({ kind: 'youtube-web', cookie: 'SAPISID=fixture-cookie; SID=fixture-sid', visitorData: 'fixture-visitor', authUser: 1, dataSyncId: 'fixture-account||', clientVersion: 'fixture-version' }); });
+    const confirmationStart = calls.length;
+    await page.evaluate(() => { window.__saved = JSON.stringify({ kind: 'youtube-web', cookie: 'SAPISID=fixture-cookie; SID=fixture-sid', visitorData: 'fixture-visitor', authUser: 1, dataSyncId: 'fixture-account||', clientVersion: 'fixture-version', playerScript: '/s/player/fixture/player_ias.vflset/en_US/base.js', musicContentBoundGvs: false }); });
     assert.equal((await rpc('verify-session')).name, 'Fixture channel');
+    assert(!calls.slice(confirmationStart).some(c => c.path === '/'), 'Fresh account verification must not refetch redirected homepages');
     assert(await page.evaluate(() => window.__events.some(e => e.type === 'connected' && e.name === 'Fixture channel')));
     assert(calls.some(c => c.path.endsWith('/account/accounts_list') && c.headers.authorization?.startsWith('SAPISIDHASH ') && c.headers['x-goog-authuser'] === '1' && c.body.context.client.clientName === 'WEB'), 'WEB account check must use the selected authenticated web session');
     await rpc('home'); assert(calls.some(c => c.path.endsWith('/browse') && c.headers.authorization?.startsWith('SAPISIDHASH ')));
@@ -121,7 +124,26 @@ const config = { VISITOR_DATA: 'fixture-visitor', INNERTUBE_CLIENT_VERSION: '1.2
     assert(!calls.some(c => /\/tv|oauth|device\/code/.test(c.path) || ['TVHTML5', 'ANDROID', 'ANDROID_MUSIC'].includes(c.body?.context?.client?.clientName)));
     const sandbox = await page.evaluate(async () => (await import('/evaluator.mjs')).evaluatePlayer({ output: 'return {signature:"decoded",bridge:typeof MusicNative,dom:typeof document};' }));
     assert.deepEqual(sandbox, { signature: 'decoded', bridge: 'undefined', dom: 'undefined' });
+    const loginSource = fs.readFileSync(path.resolve(__dirname, '../../app/src/main/java/labs/rtensor/music/YouTubeLoginActivity.kt'), 'utf8');
+    const captureExpression = loginSource.match(/evaluateJavascript\("""([\s\S]*?)"""\)/)[1];
+    await page.evaluate(() => { window.ytcfg = { data_: { VISITOR_DATA: 'captured-visitor', SESSION_INDEX: '1', DATASYNC_ID: 'captured-account||', INNERTUBE_CLIENT_VERSION: 'captured-version', PLAYER_JS_URL: 'https://attacker.test/invalid.js', WEB_PLAYER_CONTEXT_CONFIGS: { WEB_PLAYER_CONTEXT_CONFIG_ID_MUSIC_PLAYER: { serializedExperimentFlags: 'html5_generate_content_po_token=false' } } } }; });
+    const capture = JSON.parse(await page.evaluate(captureExpression));
+    assert.equal(capture.visitorData, 'captured-visitor'); assert.equal(capture.authUser, 1);
+    assert.equal(capture.dataSyncId, 'captured-account||'); assert.equal(capture.playerScript, ''); assert.equal(capture.musicContentBoundGvs, false);
+    await page.evaluate(() => { window.ytcfg.data_.PLAYER_JS_URL = '/s/player/fixture/player_ias.vflset/en_US/base.js'; });
+    assert.equal(JSON.parse(await page.evaluate(captureExpression)).playerScript, 'https://www.youtube.com/s/player/fixture/player_ias.vflset/en_US/base.js');
+    rejectAccounts = true;
+    await page.reload(); await page.waitForFunction(() => window.__events.some(e => e.type === 'ready'));
+    await page.evaluate(() => { window.__saved = JSON.stringify({ kind: 'youtube-web', cookie: 'SAPISID=fixture-cookie', visitorData: 'fixture-visitor', authUser: 1, clientVersion: 'fixture-version' }); });
+    const invalidAccount = await rpc('verify-session');
+    assert.equal(invalidAccount.error?.code, 'AUTH_REQUIRED');
+    assert(!await page.evaluate(() => window.__events.some(e => e.type === 'connected')));
+    rejectAccounts = false;
+    await page.reload(); await page.waitForFunction(() => window.__events.some(e => e.type === 'ready'));
+    const redirectedGuest = await rpc('search', { query: 'test' });
+    assert.equal(redirectedGuest.error?.code, 'WEB_SIGN_IN_REQUIRED');
+    assert(!redirectedGuest.tracks);
     assert.deepEqual(errors, []);
-    console.log(JSON.stringify({ passed: ['bundled engine startup', 'upstream search parser and real artist', 'largest artwork selection', 'current WEB_REMIX bootstrap version', 'range-probed audio resolution', 'signature timestamp on player request', 'actual upstream signature/n extraction in isolated Worker', 'provider feed and duplicate order', 'Explore provider browse', 'normal WEB cookie account verification', 'SAPISIDHASH authenticated feed', 'safe HTTP diagnostics', 'real provider rejection preserved', 'SABR-only transport diagnosed', 'CDN 403 never becomes playback success', 'client-specific guest proof binding', 'full authenticated DataSyncID proof binding', 'current WEB att/get challenge without old Create discovery', 'no TV or OAuth calls', 'worker has no account bridge'], requests: calls.length, liveProvider: false }, null, 2));
+    console.log(JSON.stringify({ passed: ['bundled engine startup', 'upstream search parser and real artist', 'largest artwork selection', 'current WEB_REMIX bootstrap version', 'range-probed audio resolution', 'signature timestamp on player request', 'actual upstream signature/n extraction in isolated Worker', 'provider feed and duplicate order', 'Explore provider browse', 'normal WEB cookie account verification', 'captured session confirms despite homepage302', 'actual Android login capture keeps selected metadata and ignores optional untrusted scripts', 'invalid account still fails confirmation', 'guest browser redirect is actionable', 'SAPISIDHASH authenticated feed', 'safe HTTP diagnostics', 'real provider rejection preserved', 'SABR-only transport diagnosed', 'CDN 403 never becomes playback success', 'client-specific guest proof binding', 'full authenticated DataSyncID proof binding', 'current WEB att/get challenge without old Create discovery', 'no TV or OAuth calls', 'worker has no account bridge'], requests: calls.length, liveProvider: false }, null, 2));
   } finally { await browser.close(); await new Promise(r => server.close(r)); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

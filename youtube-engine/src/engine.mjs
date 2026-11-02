@@ -11,7 +11,7 @@ Platform.shim.eval = evaluatePlayer;
 for (const method of ['log', 'info', 'debug', 'warn', 'error']) console[method] = () => {};
 const native = globalThis.MusicNative;
 const nativeFetch = nativeTransport(native, 'musicHttpResult');
-let tubePromise, homeFeed, feedRequest = 0, playerPromise, playerScript = '', challengePromise, challengeExpires = 0, dataSyncId = '';
+let tubePromise, homeFeed, feedRequest = 0, playerPromise, playerScript = '', webConfigPromise, challengePromise, challengeExpires = 0, dataSyncId = '';
 let contentBoundGvs = { YTMUSIC: false, WEB: false };
 const proofs = new Map(); let proofSerial = 0;
 function emit(type, data = {}) { native.event(type, JSON.stringify(data)); }
@@ -51,10 +51,14 @@ function savedSession() {
   try { const value = JSON.parse(native.loadSession() || 'null'); return value?.kind === 'youtube-web' ? value : null; }
   catch { return null; }
 }
-async function bootstrap(url) {
+async function bootstrap(url, clientName) {
   const response = await nativeFetch(url);
+  if ([301, 302, 303, 307, 308].includes(response.status)) throw failure('WEB_SIGN_IN_REQUIRED', 'YouTube needs a browser step. Open Sign in to YouTube in Settings to continue.', `web session: browser redirect HTTP ${response.status}`);
   if (!response.ok) throw failure('BOOTSTRAP_HTTP', `YouTube could not open its web session (HTTP ${response.status}).`, `web session: HTTP ${response.status}`);
-  return readYtConfig(await response.text());
+  const config = readYtConfig(await response.text());
+  const declared = config.INNERTUBE_CONTEXT?.client?.clientName;
+  if (declared && declared !== clientName) throw failure('BOOTSTRAP_CLIENT', 'YouTube opened a different web client. Open YouTube sign-in in Settings and retry.', 'web session: redirected client mismatch');
+  return config;
 }
 async function accountProfile(api) {
   if (!api.session.logged_in) throw failure('AUTH_REQUIRED', 'Sign in to YouTube in Settings.');
@@ -70,13 +74,17 @@ async function tube() {
     const locale = JSON.parse(native.locale?.() || '{}');
     const saved = savedSession();
     const accountQuery = saved ? `?authuser=${saved.authUser || 0}` : '';
-    const config = await bootstrap('https://music.youtube.com/' + accountQuery);
+    // A captured sign-in page is already a real web bootstrap. Account confirmation
+    // must not depend on refetching a homepage that can redirect or set cookies.
+    const config = saved ? { VISITOR_DATA: saved.visitorData, INNERTUBE_CLIENT_VERSION: saved.clientVersion,
+      PLAYER_JS_URL: saved.playerScript, EXPERIMENT_FLAGS: { html5_generate_content_po_token: saved.musicContentBoundGvs } }
+      : await bootstrap('https://music.youtube.com/' + accountQuery, 'WEB_REMIX');
     const musicContext = config.INNERTUBE_CONTEXT;
     const visitorData = musicContext?.client?.visitorData || config.VISITOR_DATA || saved?.visitorData;
     if (!visitorData) throw failure('WEB_SESSION', 'YouTube did not return a web session. Open sign-in in Settings, or retry.', 'WEB_REMIX bootstrap: missing visitor data');
     const version = config.INNERTUBE_CLIENT_VERSION || musicContext?.client?.clientVersion || saved?.clientVersion;
     if (version) Constants.CLIENTS.YTMUSIC.VERSION = version;
-    const webConfig = await bootstrap('https://www.youtube.com/' + accountQuery).catch(() => ({}));
+    const webConfig = saved ? {} : await bootstrap('https://www.youtube.com/' + accountQuery, 'WEB').catch(() => ({}));
     dataSyncId = saved?.dataSyncId || config.DATASYNC_ID || '';
     contentBoundGvs = { YTMUSIC: readsContentBinding(config, 'YTMUSIC'), WEB: readsContentBinding(webConfig, 'WEB') };
     const webVersion = webConfig.INNERTUBE_CLIENT_VERSION || webConfig.INNERTUBE_CONTEXT?.client?.clientVersion;
@@ -93,6 +101,14 @@ async function tube() {
       lang: locale.language || 'en', location: locale.country || 'US', user_agent: locale.userAgent, device_category: 'mobile' });
     // Reuse the actual web client's bootstrap context, instead of inventing an Android/TV profile.
     if (musicContext?.client) Object.assign(api.session.context.client, musicContext.client);
+    else {
+      api.session.context.client.osName = 'Android';
+      api.session.context.client.osVersion = locale.androidVersion;
+      api.session.context.client.platform = 'MOBILE';
+      api.session.context.client.clientFormFactor = 'SMALL_FORM_FACTOR';
+      const chromeVersion = locale.userAgent?.match(/Chrome\/([0-9.]+)/)?.[1];
+      if (chromeVersion) api.session.context.client.browserVersion = chromeVersion;
+    }
     api.session.context.client.visitorData = visitorData;
     // YouTube.js assumes WEB is the base context: its explicit WEB option does
     // not reset a MUSIC base context. Music calls select YTMUSIC themselves.
@@ -124,6 +140,19 @@ async function search(api, query) {
   }
   const result = await api.music.search(query, { type: 'song' });
   return (result.contents || []).flatMap(s => s.contents || [s]).map(track).filter(Boolean);
+}
+async function prepareWebPlayback(api) {
+  if (!savedSession()) return;
+  if (!webConfigPromise) webConfigPromise = (async () => {
+    const saved = savedSession();
+    // Refresh WEB playback metadata separately; it cannot revoke a valid login.
+    const config = await bootstrap('https://www.youtube.com/?authuser=' + (saved?.authUser || 0), 'WEB').catch(() => null);
+    if (!config) return;
+    const version = config.INNERTUBE_CLIENT_VERSION || config.INNERTUBE_CONTEXT?.client?.clientVersion;
+    if (version) { Constants.CLIENTS.WEB.VERSION = version; api.session.context.client.clientVersion = version; }
+    contentBoundGvs.WEB = readsContentBinding(config, 'WEB');
+  })();
+  return webConfigPromise;
 }
 async function ensurePlayer(api) {
   if (!playerPromise) playerPromise = Player.create(cache, async (input, init) => {
@@ -181,6 +210,7 @@ async function resolve(api, id) {
     // Ordinary web clients only. Same recording, same session and same account.
     for (const client of ['YTMUSIC', 'WEB']) {
       try {
+        if (client === 'WEB') await prepareWebPlayback(api);
         tokens = verified ? await playbackProof(api, id, client) : undefined;
         const info = await api.getBasicInfo(id, { client, ...(tokens ? { po_token: tokens.playerToken } : {}) });
         return await streamFromInfo(api, id, client, info, tokens);

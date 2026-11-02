@@ -4,22 +4,33 @@ import android.util.Base64
 import okhttp3.Call
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Response
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
+import java.io.IOException
 import java.net.URI
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
-/** No redirects or shared cookie jar. Account cookies only reach YouTube itself. */
-internal class ProviderTransport(private val proofOnly: Boolean = false) {
-    private val calls = ConcurrentHashMap<String, Call>()
-    private val client = OkHttpClient.Builder().followRedirects(false).followSslRedirects(false)
+/** Bounded first-party page redirects; account credentials never cross an origin. */
+internal class ProviderTransport(private val proofOnly: Boolean = false, client: OkHttpClient? = null) {
+    private class RequestChain {
+        private var current: Call? = null
+        private var cancelled = false
+        @Synchronized fun attach(call: Call) {
+            if (cancelled) { call.cancel(); throw IOException("Cancelled") }
+            current = call
+        }
+        @Synchronized fun cancel() { cancelled = true; current?.cancel() }
+    }
+    private val calls = ConcurrentHashMap<String, RequestChain>()
+    private val client = (client ?: OkHttpClient()).newBuilder().followRedirects(false).followSslRedirects(false)
         .connectTimeout(12, TimeUnit.SECONDS).readTimeout(18, TimeUnit.SECONDS).callTimeout(24, TimeUnit.SECONDS).build()
 
     fun cancel(id: String) { calls.remove(id)?.cancel() }
-    fun cancelAll() { calls.values.forEach(Call::cancel); calls.clear() }
+    fun cancelAll() { calls.values.forEach(RequestChain::cancel); calls.clear() }
 
     internal fun request(url: String, options: String, userAgent: String, session: WebSession? = null): Request {
         require(options.length <= 1_048_576)
@@ -41,30 +52,62 @@ internal class ProviderTransport(private val proofOnly: Boolean = false) {
         return request.build()
     }
 
-    fun execute(id: String, url: String, options: String, userAgent: String, session: WebSession? = null): JSONObject = try {
-        val media = isMediaUrl(url)
-        val call = client.newCall(request(url, options, userAgent, session)); calls[id] = call
-        call.execute().use { response ->
-            val bytes = ByteArrayOutputStream()
-            response.body?.byteStream()?.use { input ->
-                val buffer = ByteArray(if (media) 2 else 8192)
-                while (true) {
-                    val n = input.read(buffer); if (n < 0) break
-                    require(bytes.size() + n <= MAX_RESPONSE)
-                    bytes.write(buffer, 0, n)
-                    if (media) break // Never buffer a whole recording for a range probe.
+    fun execute(id: String, url: String, options: String, userAgent: String, session: WebSession? = null): JSONObject {
+        val chain = RequestChain()
+        calls.put(id, chain)?.cancel()
+        try {
+            val media = isMediaUrl(url)
+            var next = request(url, options, userAgent, session)
+            val mayRedirect = !proofOnly && !media && next.method in setOf("GET", "HEAD")
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(24)
+            var redirects = 0
+            while (true) {
+                val remaining = deadline - System.nanoTime()
+                if (remaining <= 0) throw IOException("Request chain timed out")
+                val call = client.newCall(next)
+                call.timeout().timeout(remaining, TimeUnit.NANOSECONDS)
+                chain.attach(call)
+                call.execute().use { response ->
+                    val target = if (mayRedirect && redirects < MAX_REDIRECTS && response.code in REDIRECT_CODES)
+                        response.header("Location")?.let(next.url::resolve)?.takeIf { isYouTubeUrl(it.toString()) }
+                    else null
+                    if (target == null) return serialize(response, media, redirects)
+                    val builder = next.newBuilder().url(target)
+                    if (next.url.scheme != target.scheme || next.url.host != target.host || next.url.port != target.port) {
+                        // Do not rebuild with request(...session): that would inject cookies again.
+                        CROSS_ORIGIN_HEADERS.forEach(builder::removeHeader)
+                    }
+                    next = builder.build()
+                    redirects++
                 }
             }
-            val responseHeaders = JSONObject()
-            listOf("content-type", "content-range").forEach { name -> response.header(name)?.let { responseHeaders.put(name, it) } }
-            JSONObject().put("status", response.code).put("headers", responseHeaders)
-                .put("body", Base64.encodeToString(bytes.toByteArray(), Base64.NO_WRAP))
+        } catch (_: Exception) { return JSONObject().put("error", "NETWORK") }
+        finally { calls.remove(id, chain) }
+    }
+
+    private fun serialize(response: Response, media: Boolean, redirects: Int): JSONObject {
+        val bytes = ByteArrayOutputStream()
+        response.body?.byteStream()?.use { input ->
+            val buffer = ByteArray(if (media) 2 else 8192)
+            while (true) {
+                val n = input.read(buffer); if (n < 0) break
+                require(bytes.size() + n <= MAX_RESPONSE)
+                bytes.write(buffer, 0, n)
+                if (media) break // Never buffer a whole recording for a range probe.
+            }
         }
-    } catch (_: Exception) { JSONObject().put("error", "NETWORK") }
-    finally { calls.remove(id) }
+        val responseHeaders = JSONObject()
+        listOf("content-type", "content-range").forEach { name -> response.header(name)?.let { responseHeaders.put(name, it) } }
+        return JSONObject().put("status", response.code).put("url", response.request.url.toString()).put("redirects", redirects)
+            .put("headers", responseHeaders).put("body", Base64.encodeToString(bytes.toByteArray(), Base64.NO_WRAP))
+    }
 
     companion object {
         private const val MAX_RESPONSE = 8 * 1024 * 1024
+        private const val MAX_REDIRECTS = 4
+        private val REDIRECT_CODES = setOf(301, 302, 303, 307, 308)
+        private val CROSS_ORIGIN_HEADERS = setOf("Cookie", "Authorization", "Proxy-Authorization", "X-Goog-Authuser",
+            "X-Goog-PageId", "X-Goog-Visitor-Id", "X-Goog-Session-Index", "X-Youtube-Identity-Token", "Origin", "Referer")
         private fun uri(value: String): URI? = runCatching { URI(value).takeIf { it.scheme == "https" && it.userInfo == null && it.port in listOf(-1, 443) } }.getOrNull()
         fun isYouTubeUrl(value: String): Boolean = uri(value)?.host in setOf("www.youtube.com", "youtube.com", "music.youtube.com", "m.youtube.com")
         fun isMediaUrl(value: String): Boolean = uri(value)?.let { it.host?.endsWith(".googlevideo.com") == true && it.path == "/videoplayback" } ?: false

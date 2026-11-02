@@ -1,9 +1,22 @@
 # Music for Android
 
 Temporary name: **Music**. Native Android player from RTensorLabs with the approved
-Margin visual direction: warm paper, DM Sans, monochrome artwork and raspberry controls.
+Margin visual direction: warm paper, DM Sans, original provider artwork and raspberry controls.
 
-## Version 0.3.0
+## Version 0.3.1
+
+- Restores original artwork colours across the app.
+- Fixes the HTTP 302 account-confirmation failure: verify the session captured from
+  the signed-in YouTube page directly, without requiring another homepage fetch.
+- Handles bounded HTTPS first-party page redirects while keeping account credentials
+  confined to their origin. Google sign-in/consent steps stay in the sign-in browser.
+- Fixes a Media3 header mismatch: the player's fixed User-Agent used to overwrite the
+  browser header that passed the stream probe. Playback now retains resolved headers.
+- Preserves the actual media HTTP status in Copy details and drops rejected cached
+  streams so retries can resolve a fresh URL.
+
+Includes the previous app features:
+
 
 - **Home / Explore / Saved**, with a shared search bar and inline results. Explore
   reads YouTube Music's discoveries; provider ordering and duplicates are preserved.

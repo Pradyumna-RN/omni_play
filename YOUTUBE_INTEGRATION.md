@@ -53,8 +53,10 @@ profile is read. AES-GCM/Android KeyStore protects the saved session. A failed n
 connection restores the previous session. Closing sign-in clears its browser data.
 
 The bundled API engine has an offline app origin, no page navigation and no direct
-network access. Its native transport rejects cleartext, user-info URLs, unrelated
-hosts and redirects. YouTube cookies are injected only for first-party YouTube.
+network access. Its native transport rejects cleartext, user-info URLs and unrelated
+hosts. Up to four first-party HTTPS GET/HEAD page redirects are allowed within one
+24-second deadline. Crossing an origin removes account/authentication headers and
+cookies. POST, media/proof and Google login/consent redirects are not followed. YouTube cookies are injected only for first-party YouTube.
 Googlevideo probes receive no account cookies or authorization. Only a two-byte
 media range can use that transport; Media3 handles the actual recording.
 
@@ -92,3 +94,22 @@ uses the WEB attestation challenge path. Its
 [server implementation](https://github.com/Brainicism/bgutil-ytdlp-pot-provider/blob/master/server/src/main.ts)
 notes the old `/Create` discovery endpoint is no longer working. Music does not
 call that endpoint or depend on a third-party token server.
+
+## v0.3.1 phone-reported failures
+
+The sign-in screenshot showed an authenticated YouTube Music page but HTTP 302
+during account confirmation. The former implementation refetched the homepage
+before verifying its account. Confirmation and restored sessions now use the
+captured visitor/client/account metadata directly, with the real WEB accounts-list
+API still required to accept the account. Playback configuration refresh happens
+separately and cannot invalidate a confirmed sign-in. The login capture also keeps
+the validated player-script location and parsed Music content-bound GVS flag.
+
+The reported `ERROR_CODE_IO_BAD_HTTP_STATUS` exposed a separate playback bug.
+Media3 1.6.1 sets the factory User-Agent after applying DataSpec headers, overwriting
+the browser UA that passed the provider probe. The fixed factory value is removed.
+An actual loopback HTTP test now checks headers and signed-query preservation.
+Another test covers a rewritten CDN request returning HTTP 403 while retaining
+the original catalogue ID and cache key for diagnostics/invalidation. Actual media
+HTTP status is recorded before MediaController serialization, without signed URLs,
+headers or response bodies in the copyable diagnostic.

@@ -33,8 +33,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ColorFilter
-import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalView
@@ -621,7 +619,6 @@ private fun Artwork(track: Track?, modifier: Modifier = Modifier) {
         modifier = modifier.background(MaterialTheme.colorScheme.surfaceVariant),
         contentScale = ContentScale.Crop,
         placeholder = painterResource(R.drawable.art_main), error = painterResource(R.drawable.art_main), fallback = painterResource(R.drawable.art_main),
-        colorFilter = ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) }),
     )
 }
 
