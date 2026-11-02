@@ -3,6 +3,21 @@
 Temporary name: **Music**. Native Android player from RTensorLabs with the approved
 Margin visual direction: warm paper, DM Sans, original provider artwork and raspberry controls.
 
+## Version 0.3.7 — Library, radio and player update
+
+Packages Claude's `9a863d9` update:
+
+- Library combines Saved and listening History, with day groups and weekly stats.
+- YouTube Music radio can extend the queue. “Mixed for you” ranks radio candidates
+  on this device using listening history and saved songs.
+- Music browse/search/radio requests use the music origin and matching request
+  signatures; Home reports when YouTube explicitly answers as signed out.
+- Adds floating navigation, player/mini-player swipe gestures, a blurred cover
+  backdrop, and artwork renditions/caches suited to each display slot.
+
+Live account personalisation, radio, gestures and playback still need phone
+verification. See [verification details](VERIFICATION.md).
+
 ## Version 0.3.6 — Claude update build
 
 Packages Claude's `76a9d09` update: regional Google sign-in redirects, a Continue
