@@ -49,4 +49,14 @@ internal object Glyph {
         moveTo(12f, 16f); lineTo(12f, 11f); lineTo(15f, 10f)
         moveTo(12f, 16f); curveTo(12f, 13f, 8f, 14f, 8f, 17f); curveTo(8f, 19f, 12f, 18f, 12f, 16f)
     }
+    val Contrast = outline("Appearance") {
+        moveTo(21f, 12f); curveTo(21f, 16.97f, 16.97f, 21f, 12f, 21f); curveTo(7.03f, 21f, 3f, 16.97f, 3f, 12f)
+        curveTo(3f, 7.03f, 7.03f, 3f, 12f, 3f); curveTo(16.97f, 3f, 21f, 7.03f, 21f, 12f); close()
+        moveTo(12f, 3f); lineTo(12f, 21f); moveTo(12f, 8f); lineTo(19.5f, 8f); moveTo(12f, 12f); lineTo(21f, 12f); moveTo(12f, 16f); lineTo(19.5f, 16f)
+    }
+    val Shield = outline("Privacy") {
+        moveTo(12f, 3f); lineTo(19f, 6f); lineTo(19f, 11f); curveTo(19f, 15.5f, 16f, 19f, 12f, 21f)
+        curveTo(8f, 19f, 5f, 15.5f, 5f, 11f); lineTo(5f, 6f); close()
+        moveTo(9f, 12f); lineTo(11.2f, 14.2f); lineTo(15.2f, 10f)
+    }
 }

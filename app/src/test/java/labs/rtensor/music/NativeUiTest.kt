@@ -53,7 +53,7 @@ class NativeUiTest {
         compose.onNodeWithContentDescription("Search").assertDoesNotExist()
         capture("explore")
         compose.onNodeWithContentDescription("Open settings").performClick()
-        compose.onNodeWithText("Music source").assertIsDisplayed()
+        compose.onNodeWithText("Music source").performScrollTo().assertIsDisplayed()
         capture("settings")
     }
 
@@ -139,7 +139,8 @@ class NativeUiTest {
         compose.onNodeWithText("listener@example.test").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Change Google account").performScrollTo().performClick()
         org.junit.Assert.assertTrue(selected)
-        compose.onNodeWithText("Sign in to YouTube").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Connect YouTube Music").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Not connected").assertExists()
         capture("google-selected")
     }
     @Test fun nativeGoogleSelectionHasAnExplicitCancelAction() {
@@ -163,9 +164,38 @@ class NativeUiTest {
         compose.setContent { MusicApp(state.value, onBrowse = { state.value = state.value.copy(collectionEntry = it, collection = listOf(track)) }, onPlay = { t, queue -> playedOriginal = t == track && queue == listOf(track) }) }
         compose.onNodeWithText("Your provider’s picks").assertIsDisplayed()
         capture("provider-feed")
-        compose.onNodeWithText("Late Windows").performClick()
+        compose.onNodeWithText("Late Windows").performScrollTo().performClick()
         compose.onNodeWithText("Afterimage").assertIsDisplayed()
         compose.onNodeWithText("Play all").performClick()
         org.junit.Assert.assertTrue(playedOriginal)
+    }
+    @Test fun googleSelectionWithoutYoutubePromptsToFinishSyncOnHome() {
+        var connected = false
+        val profile = labs.rtensor.music.auth.GoogleProfile("fixture-subject", "listener@example.test", "Fixture listener")
+        compose.setContent { MusicApp(MusicState(googleProfile = profile, reducedMotion = true, theme = "light"), onConnect = { connected = true }) }
+        compose.onNodeWithText("Finish syncing YouTube Music").assertIsDisplayed()
+        compose.onNodeWithText("Connect").performClick()
+        org.junit.Assert.assertTrue(connected)
+        capture("home-sync")
+    }
+    @Test fun syncedAccountSignsOutOfBothTogether() {
+        var signedOut = false
+        var youtubeOnly = false
+        val profile = labs.rtensor.music.auth.GoogleProfile("fixture-subject", "listener@example.test", "Fixture listener")
+        compose.setContent { MusicApp(MusicState(googleProfile = profile, account = AccountState(connected = true, name = "Listener"), reducedMotion = true, theme = "light"),
+            initialPage = "settings", onGoogleSignOut = { signedOut = true }, onDisconnect = { youtubeOnly = true }) }
+        compose.onNodeWithText("Connected · Listener").assertIsDisplayed()
+        compose.onNodeWithText("Sign out").performScrollTo().performClick()
+        org.junit.Assert.assertTrue(signedOut)
+        org.junit.Assert.assertFalse(youtubeOnly)
+        capture("account-synced")
+    }
+    @Test fun miniPlayerShowsTrackAndTransport() {
+        var toggled = false
+        compose.setContent { MusicApp(MusicState(current = track, playing = true, positionMs = 72000, durationMs = 224000, queue = listOf(track, other), queueIndex = 0, reducedMotion = true, theme = "dark"), onToggle = { toggled = true }) }
+        compose.onNodeWithContentDescription("Pause").performClick()
+        org.junit.Assert.assertTrue(toggled)
+        compose.onNodeWithContentDescription("Next recording").assertIsEnabled()
+        capture("mini-player")
     }
 }

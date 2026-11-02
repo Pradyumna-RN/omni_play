@@ -3,6 +3,26 @@
 Temporary name: **Music**. Native Android player from RTensorLabs with the approved
 Margin visual direction: warm paper, DM Sans, original provider artwork and raspberry controls.
 
+## Version 0.3.4 — refined UI, synced sign-in and smoother motion
+
+- **One account card.** Settings → Account shows Google and YouTube Music together
+  with a status line for each. *Sign in with Google* picks a device account and goes
+  straight on to YouTube Music with that email preselected; *Sign out* clears both.
+  If the YouTube step is skipped, Home shows a *Finish syncing YouTube Music* banner.
+- **Home keeps "Back to your music".** The last-played hero, local-file row and
+  recently played stay at the top; the YouTube Music feed loads underneath instead of
+  replacing them. The loading line reserves its space, so nothing jumps.
+- **Settings is easier to scan.** Options are grouped into cards (Account, Playback,
+  Appearance, Updates, Privacy) with icon headers and a jump bar at the top.
+- **Mini player.** Rebuilt as a floating card with even spacing, a live progress
+  edge, a slide-in/out entrance, track-change and play/pause morph animations and a
+  loading state.
+- **Motion.** Emphasized-easing screen transitions, frame-synced progress (no more
+  200 ms steps), a springy navigation indicator, press feedback on cards, artwork
+  cross-fades and animated list changes. *Reduce motion* turns them off.
+- **Ad-free by design.** Music requests only the audio-only stream and never asks
+  for ads (no ad placements, no ad video), and playback continues in the background.
+
 ## Version 0.3.3 — native Google account selection
 
 - Adds Settings → Choose Google account using Android Credential Manager and the
