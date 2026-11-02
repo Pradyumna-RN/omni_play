@@ -1,4 +1,8 @@
-# v0.3.5 verification
+# v0.3.6 verification
+
+Built from Claude's commit `76a9d09b32695a75bc8ccc17efeafef9e938e956`.
+Only release version metadata and documentation were added for this build; the
+reviewed sign-in/playback implementation is unchanged.
 
 ## Current checks
 
@@ -13,7 +17,8 @@
     Repeated rejection is still reported rather than presented as success.
   - Existing range, truncation, negotiated-header, HTTP error, redirect, encrypted
     account, updater, library, Google identity and UI regression checks pass.
-  - New checks cover constrained device handoff URLs, exact-video artist repair,
+  - Checks cover constrained device handoff URLs, regional Google sign-in
+    navigation, exact-video artist repair,
     preserving known artists/local metadata, Home without the local-file row,
     and Settings import action placement/callback.
 - JavaScript mapping/configuration: **14 tests passed**. Empty artist arrays no
@@ -25,7 +30,7 @@
   real signature/n extraction, proof bindings and failure reporting.
 - Exact proof bundle in separate Chromium: **6 checks passed** with fixture VM and
   integrity responses. These checks do not establish live attestation acceptance.
-- APK: `labs.rtensor.music`, version `0.3.5`, code `8`. Signature matches previous
+- APK: `labs.rtensor.music`, version `0.3.6`, code `9`. Signature matches previous
   releases, certificate SHA-256:
   `43dffb7aa7b922220c9063c0f2ee9126a30c7d663e1971c8f214bdd2ac7b571f`.
 - Native UI screenshots inspected. Settings icon remains 8 dp from the right;
@@ -35,9 +40,21 @@
   no keystore, private DSP implementation or real account data. The test audio is
   a generated sine wave.
 
+## Known review findings
+
+These findings from the source review are not fixed by this build. The existing
+passing tests do not establish that these cases work:
+
+- A forced verified retry can stop after the preferred client fails, before trying
+  another client, because the verification gate examines the preferred failure.
+- A preferred path is recorded after URL resolution, before Media3 confirms actual
+  audio playback. It is not a record of a successfully played stream.
+- Metadata SharedFlow has no replay; events emitted without an active subscriber
+  are dropped, including metadata fetched during background-only playback.
+
 ## Implementation limits and device checks
 
-A fresh request to music.youtube.com was rejected by this workspace's proxy with
+The live probe recorded during v0.3.5 verification was rejected by this workspace's proxy with
 `CONNECT tunnel failed, response 403`. No network-policy bypass was used. The
 reported live playback/seek issue is not claimed universally resolved by fixtures.
 
