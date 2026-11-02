@@ -1,3 +1,4 @@
+import { sanitizeReason } from './web-config.mjs';
 const videoPattern = /^[A-Za-z0-9_-]{11}$/;
 const text = value => value == null ? '' : String(value);
 export function entry(node) {
@@ -9,12 +10,13 @@ export function entry(node) {
   if (!title) return null;
   let thumbs = node.thumbnails || node.thumbnail?.contents || node.thumbnail || [];
   if (!Array.isArray(thumbs)) thumbs = [];
-  const artwork = [...thumbs].reverse().find(t => t.url?.startsWith('https://'))?.url || '';
+  const artwork = largestArtwork(thumbs);
   const artists = (node.artists || node.authors || []).map(a => a.name).filter(Boolean).join(', ');
+  const flexArtist = node.flex_columns?.[1]?.title?.runs?.filter(r => r.endpoint?.payload?.browseId?.startsWith('UC')).map(r => r.text).join(', ');
   const kind = videoId ? 'song' : (node.item_type || 'browse');
   const browseId = payload.browseId || payload.playlistId || node.id || '';
   return { id: videoId ? `yt:${videoId}` : browseId, title,
-    subtitle: artists || node.author?.name || text(node.subtitle) || 'YouTube Music',
+    subtitle: artists || node.author?.name || flexArtist || text(node.subtitle) || (videoId ? 'Unknown artist' : ''),
     artwork, kind, browseId, videoId, durationMs: (node.duration?.seconds || 0) * 1000 };
 }
 export function track(node) {
@@ -28,12 +30,17 @@ export function sections(feed) {
   return (feed.sections || []).map(section => ({ title: text(section.header?.title || section.title) || 'From YouTube Music',
     items: (section.contents || []).map(entry).filter(Boolean) })).filter(s => s.items.length);
 }
+export function largestArtwork(thumbs = []) {
+  return [...thumbs].filter(t => t.url?.startsWith('https://')).sort((a, b) => (b.width || 0) * (b.height || 0) - (a.width || 0) * (a.height || 0))[0]?.url || '';
+}
 export function safeError(error) {
+  if (error?.code && /^[A-Z_0-9]{2,48}$/.test(error.code)) return { code: error.code, message: sanitizeReason(error.message), diagnostic: sanitizeReason(error.diagnostic || error.code) };
+  if (error?.info?.status) return { code: 'PLAYER_REJECTED', message: sanitizeReason(error.info.reason || error.message), diagnostic: sanitizeReason(error.info.status) };
   const m = String(error?.message || error || '').toLowerCase();
-  if (m.includes('403')) return { code: 'HTTP_403', message: 'YouTube refused this request (HTTP 403). Try signing in or retry later.' };
-  if (m.includes('401') || m.includes('invalid_grant') || m.includes('expired_token')) return { code: 'AUTH_REQUIRED', message: 'Your YouTube session needs to be connected again.' };
-  if (m.includes('network') || m.includes('timeout') || m.includes('failed to fetch')) return { code: 'NETWORK', message: 'Could not reach YouTube. Check your connection and retry.' };
-  if (m.includes('sign in') || m.includes('bot') || m.includes('verification')) return { code: 'VERIFICATION_REQUIRED', message: 'YouTube requires verification. Connect your account in Settings and retry.' };
-  if (m.includes('unavailable') || m.includes('private') || m.includes('not playable')) return { code: 'UNAVAILABLE', message: 'This recording is unavailable to this account or region.' };
-  return { code: 'PROVIDER_ERROR', message: 'YouTube could not complete the request. Retry or reconnect your account in Settings.' };
+  if (/403/.test(m)) return { code: 'HTTP_403', message: 'YouTube refused this request (HTTP 403). Retry or sign in to YouTube.', diagnostic: 'provider HTTP 403' };
+  if (/401|invalid_grant|expired_token/.test(m)) return { code: 'AUTH_REQUIRED', message: 'Your YouTube session needs to be connected again.', diagnostic: 'provider authentication rejected' };
+  if (/network|timeout|failed to fetch/.test(m)) return { code: 'NETWORK', message: 'Could not reach YouTube. Check your connection and retry.', diagnostic: 'provider network failed' };
+  if (/sign in|bot|verification/.test(m)) return { code: 'VERIFICATION_REQUIRED', message: 'YouTube requires verification. Sign in to YouTube in Settings and retry.', diagnostic: 'provider verification required' };
+  if (/player|decipher|signature|nsig/.test(m)) return { code: 'PLAYER_SCRIPT', message: 'Could not read YouTube’s current player script. Check for an app update.', diagnostic: 'player script extraction failed' };
+  return { code: 'PROVIDER_ERROR', message: 'YouTube could not complete the request. Retry or check for an app update.', diagnostic: 'provider response could not be read' };
 }

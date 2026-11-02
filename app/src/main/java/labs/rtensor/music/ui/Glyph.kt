@@ -16,6 +16,11 @@ internal object Glyph {
             path(fill = null, stroke = SolidColor(Color.Black), strokeLineWidth = 1.7f, strokeLineCap = StrokeCap.Round, strokeLineJoin = StrokeJoin.Round, pathBuilder = draw)
         }.build()
 
+    val Compass = outline("Explore") {
+        moveTo(22f, 12f); curveTo(22f, 17.52f, 17.52f, 22f, 12f, 22f); curveTo(6.48f, 22f, 2f, 17.52f, 2f, 12f)
+        curveTo(2f, 6.48f, 6.48f, 2f, 12f, 2f); curveTo(17.52f, 2f, 22f, 6.48f, 22f, 12f); close()
+        moveTo(16f, 8f); lineTo(13.5f, 13.5f); lineTo(8f, 16f); lineTo(10.5f, 10.5f); close()
+    }
     val Bookmark = outline("Bookmark") {
         moveTo(5f, 3f); lineTo(19f, 3f); lineTo(19f, 21f); lineTo(12f, 16f); lineTo(5f, 21f); close()
     }

@@ -1,6 +1,8 @@
 package labs.rtensor.music.ui
 
 import android.app.Activity
+import android.content.ClipData
+import android.content.ClipboardManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.*
@@ -24,6 +26,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -111,19 +115,22 @@ fun MusicApp(
     onPrevious: () -> Unit = {}, onNext: () -> Unit = {},
     onSeek: (Long) -> Unit = {}, onSave: (Track) -> Unit = {},
     onTheme: (String) -> Unit = {}, onReducedMotion: (Boolean) -> Unit = {},
-    onVolume: (Float) -> Unit = {}, onOpenLocal: () -> Unit = {},
+    onOpenLocal: () -> Unit = {},
     onClearHistory: () -> Unit = {}, onRetry: () -> Unit = {}, onDismissError: () -> Unit = {},
     sharedQuery: String? = null, onShareConsumed: () -> Unit = {},
     initialPage: String = "home",
     onRefreshFeed: () -> Unit = {}, onMoreFeed: () -> Unit = {}, onBrowse: (FeedEntry) -> Unit = {}, onRetryCollection: () -> Unit = {},
-    onConnect: () -> Unit = {}, onDisconnect: () -> Unit = {}, onCancelConnect: () -> Unit = {}, onOpenSignIn: () -> Unit = {},
+    onConnect: () -> Unit = {}, onDisconnect: () -> Unit = {}, onCancelConnect: () -> Unit = {}, onRefreshExplore: () -> Unit = {},
     onCheckUpdates: () -> Unit = {}, onDownloadUpdate: () -> Unit = {}, onInstallUpdate: () -> Unit = {},
 ) {
     var page by rememberSaveable { mutableStateOf(initialPage) }
     var back by rememberSaveable { mutableStateOf("home") }
-    var root by rememberSaveable { mutableStateOf("home") }
+    var root by rememberSaveable { mutableStateOf(initialPage.takeIf { it in listOf("home", "explore", "saved") } ?: "home") }
+    val searchFocus = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
+    fun focusSearch() { searchFocus.requestFocus(); keyboard?.show() }
     fun navigate(next: String) {
-        if (next in listOf("home", "search", "saved")) root = next
+        if (next in listOf("home", "explore", "saved")) { root = next; onQuery(""); keyboard?.hide() }
         if (page != "now" && next == "now") back = page
         page = next
     }
@@ -131,15 +138,17 @@ fun MusicApp(
     fun openEntry(entry: FeedEntry) {
         when {
             entry.videoId.isNotBlank() -> { val t = entry.asTrack(); play(t, listOf(t)) }
-            entry.kind in listOf("artist", "library_artist") -> { onQuery(entry.title); onSearch(); navigate("search") }
+            entry.kind in listOf("artist", "library_artist") -> { onQuery(entry.title); onSearch(); page = root }
             else -> { onBrowse(entry); navigate("collection") }
         }
     }
     LaunchedEffect(sharedQuery) {
-        sharedQuery?.takeIf { it.isNotBlank() }?.let { onQuery(it); navigate("search"); onSearch(); onShareConsumed() }
+        sharedQuery?.takeIf { it.isNotBlank() }?.let { onQuery(it); page = root; onSearch(); onShareConsumed() }
     }
-    BackHandler(page !in listOf("home")) {
-        page = when (page) { "queue" -> "now"; "now" -> back; "settings" -> root; else -> "home" }
+    LaunchedEffect(page) { if (page == "explore" && state.explore.isEmpty() && !state.exploreBusy) onRefreshExplore() }
+    BackHandler(page != "home" || state.query.isNotEmpty()) {
+        if (page in listOf("home", "explore", "saved") && state.query.isNotEmpty()) onQuery("")
+        else page = when (page) { "queue" -> "now"; "now" -> back; "settings", "collection" -> root; else -> "home" }
     }
     MusicTheme(state.theme) {
         Scaffold(
@@ -149,7 +158,7 @@ fun MusicApp(
                 })
             },
             bottomBar = {
-                if (page in listOf("home", "search", "saved", "collection")) {
+                if (page in listOf("home", "explore", "saved", "collection")) {
                     Column(Modifier.navigationBarsPadding()) {
                         if (state.current != null) MiniPlayer(state, { navigate("now") }, onToggle, onNext)
                         AppNavigation(if (page == "collection") root else page, ::navigate)
@@ -160,17 +169,21 @@ fun MusicApp(
             containerColor = MaterialTheme.colorScheme.background,
         ) { inset ->
             Column(Modifier.fillMaxSize().padding(inset)) {
-                if (state.error != null) ErrorBanner(state.error, onDismissError, when (page) { "search" -> onSearch; "collection" -> onRetryCollection; else -> onRetry })
+                if (page in listOf("home", "explore", "saved")) SearchBar(state, onQuery, onSearch, searchFocus)
+                if (state.error != null) ErrorBanner(state.error, onDismissError,
+                    if (state.searched && page in listOf("home", "explore", "saved")) onSearch else if (page == "collection") onRetryCollection else onRetry,
+                    state.errorDiagnostic, state.current?.id.orEmpty())
                 Crossfade(page, animationSpec = tween(if (state.reducedMotion) 0 else 180), label = "screen", modifier = Modifier.weight(1f)) { target ->
-                    when (target) {
-                        "search" -> SearchScreen(state, onQuery, onSearch, ::play, onSave)
-                        "saved" -> SavedScreen(state, ::play, onSave) { navigate("search") }
+                    if (target in listOf("home", "explore", "saved") && state.searched && state.query.isNotBlank()) SearchResults(state, ::play, onSave)
+                    else when (target) {
+                        "explore" -> ProviderHome(state.copy(feed = state.explore, feedBusy = state.exploreBusy, feedError = state.exploreError, feedHasMore = false), ::openEntry, onRefreshExplore, {}, "Explore")
+                        "saved" -> SavedScreen(state, ::play, onSave, ::focusSearch)
                         "now" -> NowScreen(state, onToggle, onPrevious, onNext, onSeek, onSave) { navigate("queue") }
                         "queue" -> QueueScreen(state, ::play)
                         "collection" -> CollectionScreen(state, ::play, onSave)
-                        "settings" -> SettingsScreen(state, onTheme, onReducedMotion, onVolume, onOpenLocal, onClearHistory,
-                            onConnect, onDisconnect, onCancelConnect, onOpenSignIn, onCheckUpdates, onDownloadUpdate, onInstallUpdate)
-                        else -> HomeScreen(state, { navigate("search") }, onOpenLocal, ::play, ::openEntry, onRefreshFeed, onMoreFeed)
+                        "settings" -> SettingsScreen(state, onTheme, onReducedMotion, onOpenLocal, onClearHistory,
+                            onConnect, onDisconnect, onCancelConnect, onCheckUpdates, onDownloadUpdate, onInstallUpdate)
+                        else -> HomeScreen(state, ::focusSearch, onOpenLocal, ::play, ::openEntry, onRefreshFeed, onMoreFeed)
                     }
                 }
             }
@@ -200,7 +213,7 @@ private fun AppHeader(page: String, onHome: () -> Unit, onSettings: () -> Unit, 
 private fun AppNavigation(page: String, onSelect: (String) -> Unit) {
     HorizontalDivider(color = MaterialTheme.colorScheme.outline, thickness = .5.dp)
     Row(Modifier.fillMaxWidth().height(70.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
-        listOf(Triple("home", "Home", Icons.Outlined.Home), Triple("search", "Search", Icons.Outlined.Search), Triple("saved", "Saved", Glyph.Bookmark)).forEach { (id, name, icon) ->
+        listOf(Triple("home", "Home", Icons.Outlined.Home), Triple("explore", "Explore", Glyph.Compass), Triple("saved", "Saved", Glyph.Bookmark)).forEach { (id, name, icon) ->
             val selected = page == id
             val color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
             Column(Modifier.widthIn(min = 80.dp).fillMaxHeight().clickable { onSelect(id) }.padding(top = 10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -279,10 +292,11 @@ private fun HomeScreen(state: MusicState, onSearch: () -> Unit, onLocal: () -> U
 }
 
 @Composable
-private fun ProviderHome(state: MusicState, onEntry: (FeedEntry) -> Unit, onRefresh: () -> Unit, onMore: () -> Unit) {
+private fun ProviderHome(state: MusicState, onEntry: (FeedEntry) -> Unit, onRefresh: () -> Unit, onMore: () -> Unit, title: String = "For your ears") {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
         item {
-            PageTitle("For your ears")
+            PageTitle(title)
+            if (title == "Explore") Text("Fresh releases, charts and discoveries from YouTube Music.", fontSize = 12.sp, lineHeight = 19.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 12.dp))
             TextButton(onClick = onRefresh, enabled = !state.feedBusy) { Icon(Icons.Outlined.Refresh, null, Modifier.size(16.dp)); Spacer(Modifier.width(6.dp)); Text("Refresh", fontSize = 11.sp) }
         }
         itemsIndexed(state.feed, key = { i, section -> "$i:${section.title}" }) { _, section ->
@@ -302,6 +316,7 @@ private fun ProviderHome(state: MusicState, onEntry: (FeedEntry) -> Unit, onRefr
         }
         if (state.feedBusy) item { LinearProgressIndicator(Modifier.fillMaxWidth().height(2.dp)) }
         if (state.feedError != null) item { Text(state.feedError, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        if (state.feed.isEmpty() && !state.feedBusy && state.feedError == null) item { EmptyState("More music awaits", "Tap Refresh to load discoveries from YouTube Music.", Glyph.Compass) }
         if (state.feedHasMore) item { OutlinedButton(onClick = onMore, enabled = !state.feedBusy, modifier = Modifier.fillMaxWidth()) { Text("More from your feed") } }
     }
 }
@@ -326,25 +341,24 @@ private fun CollectionScreen(state: MusicState, onPlay: (Track, List<Track>) -> 
 }
 
 @Composable
-private fun SearchScreen(state: MusicState, onQuery: (String) -> Unit, onSearch: () -> Unit, onPlay: (Track, List<Track>) -> Unit, onSave: (Track) -> Unit) {
+private fun SearchBar(state: MusicState, onQuery: (String) -> Unit, onSearch: () -> Unit, focus: FocusRequester) {
     val keyboard = LocalSoftwareKeyboardController.current
     val submit = { keyboard?.hide(); onSearch() }
-    Column(Modifier.fillMaxSize().padding(horizontal = 24.dp)) {
-        Spacer(Modifier.height(10.dp))
-        PageTitle("Find your sound")
-        Spacer(Modifier.height(24.dp))
-        OutlinedTextField(
-            value = state.query, onValueChange = onQuery,
-            modifier = Modifier.fillMaxWidth(), singleLine = true,
-            placeholder = { Text("A song, an artist, or a YouTube link", fontSize = 12.sp) },
-            leadingIcon = { Icon(Icons.Outlined.Search, null, Modifier.size(20.dp)) },
-            trailingIcon = { IconButton(onClick = submit, enabled = state.query.isNotBlank() && !state.searching) { Icon(Icons.AutoMirrored.Outlined.ArrowForward, "Search YouTube") } },
-            shape = RoundedCornerShape(12.dp),
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-            keyboardActions = KeyboardActions(onSearch = { submit() }),
-            textStyle = MaterialTheme.typography.bodyMedium,
-        )
-        Spacer(Modifier.height(18.dp))
+    OutlinedTextField(
+        value = state.query, onValueChange = onQuery,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp).focusRequester(focus).semantics { contentDescription = "Search music" }, singleLine = true,
+        placeholder = { Text("Songs, artists or a YouTube link", fontSize = 12.sp) },
+        leadingIcon = { IconButton(onClick = submit, enabled = state.query.isNotBlank() && !state.searching) { Icon(Icons.Outlined.Search, "Search YouTube", Modifier.size(20.dp)) } },
+        trailingIcon = { if (state.query.isNotEmpty()) IconButton(onClick = { onQuery(""); keyboard?.hide() }) { Icon(Icons.Outlined.Close, "Clear search", Modifier.size(18.dp)) } },
+        shape = RoundedCornerShape(12.dp),
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { submit() }),
+        textStyle = MaterialTheme.typography.bodyMedium,
+    )
+}
+
+@Composable
+private fun SearchResults(state: MusicState, onPlay: (Track, List<Track>) -> Unit, onSave: (Track) -> Unit) {
+    Column(Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 12.dp)) {
         when {
             state.searching -> {
                 LinearProgressIndicator(Modifier.fillMaxWidth().height(2.dp), color = MaterialTheme.colorScheme.primary, trackColor = MaterialTheme.colorScheme.outline)
@@ -483,8 +497,8 @@ private fun QueueScreen(state: MusicState, onPlay: (Track, List<Track>) -> Unit)
 }
 
 @Composable
-private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onReduced: (Boolean) -> Unit, onVolume: (Float) -> Unit, onLocal: () -> Unit, onClearHistory: () -> Unit,
-    onConnect: () -> Unit, onDisconnect: () -> Unit, onCancelConnect: () -> Unit, onOpenSignIn: () -> Unit,
+private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onReduced: (Boolean) -> Unit, onLocal: () -> Unit, onClearHistory: () -> Unit,
+    onConnect: () -> Unit, onDisconnect: () -> Unit, onCancelConnect: () -> Unit,
     onCheckUpdates: () -> Unit, onDownloadUpdate: () -> Unit, onInstallUpdate: () -> Unit) {
     var confirmClear by remember { mutableStateOf(false) }
     var showLicences by remember { mutableStateOf(false) }
@@ -498,28 +512,20 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onReduc
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("Your YouTube account", fontSize = 14.sp)
             if (state.account.connected) {
-                Text("Connected · your feed is personalised by YouTube", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("${state.account.name.ifBlank { "YouTube" }} · your feed is personalised by YouTube", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 TextButton(onClick = onDisconnect) { Text("Sign out", fontSize = 12.sp) }
+                TextButton(onClick = onConnect) { Text("Change account", fontSize = 12.sp) }
             } else if (state.account.connecting) {
-                if (state.account.code.isBlank()) { LinearProgressIndicator(Modifier.fillMaxWidth()); Text("Getting a sign-in code…", fontSize = 12.sp) }
-                else {
-                    Text(state.account.code, fontSize = 30.sp, letterSpacing = 3.sp, fontWeight = FontWeight.Medium)
-                    Text("Enter this code on Google’s page. The connection may be listed as YouTube on TV.", fontSize = 12.sp, lineHeight = 19.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Button(onClick = onOpenSignIn, shape = RoundedCornerShape(12.dp)) { Text("Open Google sign-in", fontSize = 12.sp) }
-                    Text("Return here after approving. Your feed will refresh automatically.", fontSize = 11.sp, lineHeight = 18.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
+                LinearProgressIndicator(Modifier.fillMaxWidth())
+                Text("Finish sign-in on YouTube’s page.", fontSize = 12.sp)
                 TextButton(onClick = onCancelConnect) { Text("Cancel sign-in", fontSize = 12.sp) }
             } else {
-                Text("Connect to load your own recommendations. Finish sign-in on Google’s page; Music never asks for your password.", fontSize = 12.sp, lineHeight = 19.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Sign in on Google’s own page to bring your YouTube recommendations here.", fontSize = 12.sp, lineHeight = 19.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Button(onClick = onConnect, shape = RoundedCornerShape(12.dp)) { Text("Sign in to YouTube", fontSize = 12.sp) }
             }
             state.account.error?.let { Text(it, fontSize = 12.sp, color = MaterialTheme.colorScheme.primary, lineHeight = 18.sp) }
         }
         SettingRow("Audio processing", "Off · original audio")
-        Column {
-            Text("Listening volume", fontSize = 14.sp)
-            Slider(state.volume, onVolume, modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Listening volume" })
-        }
         OutlinedButton(onClick = onLocal, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Icon(Glyph.AudioFile, null, Modifier.size(18.dp)); Spacer(Modifier.width(10.dp)); Text("Open audio from device", fontSize = 12.sp) }
         HorizontalDivider(color = MaterialTheme.colorScheme.outline, thickness = .5.dp)
         Caption("LOOK & FEEL")
@@ -548,7 +554,7 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onReduc
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outline, thickness = .5.dp)
         Caption("ON THIS DEVICE")
-        Text("Saved recordings, history and encrypted account tokens stay on this device. YouTube receives your provider requests; GitHub receives update checks.", fontSize = 12.sp, lineHeight = 19.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("Saved recordings, history and your encrypted YouTube session stay on this device. YouTube receives your provider requests; GitHub receives update checks.", fontSize = 12.sp, lineHeight = 19.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         TextButton(onClick = { confirmClear = true }, enabled = state.history.isNotEmpty()) { Text("Clear listening history", fontSize = 12.sp) }
         TextButton(onClick = { showLicences = true }) { Text("Open-source licences", fontSize = 12.sp) }
         Text("Music · RTensorLabs\nEarly build ${BuildConfig.VERSION_NAME}", fontSize = 11.sp, lineHeight = 20.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -656,11 +662,15 @@ private fun EmptyState(title: String, detail: String, image: ImageVector) {
 }
 
 @Composable
-private fun ErrorBanner(message: String, onDismiss: () -> Unit, onRetry: () -> Unit) {
+private fun ErrorBanner(message: String, onDismiss: () -> Unit, onRetry: () -> Unit, diagnostic: String = "", videoId: String = "") {
+    val context = LocalContext.current
     Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = RoundedCornerShape(10.dp), modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)) {
         Column(Modifier.fillMaxWidth().padding(start = 14.dp, end = 8.dp, top = 12.dp)) {
             Text(message, fontSize = 12.sp, lineHeight = 18.sp, color = MaterialTheme.colorScheme.onBackground)
-            Row(Modifier.align(Alignment.End)) {
+            FlowRow(Modifier.align(Alignment.End), horizontalArrangement = Arrangement.End) {
+                if (diagnostic.isNotBlank()) TextButton(onClick = {
+                    (context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("Playback details", "Music ${BuildConfig.VERSION_NAME} · $videoId\n$diagnostic"))
+                }) { Text("Copy details", fontSize = 11.sp) }
                 TextButton(onClick = onDismiss) { Text("Dismiss", fontSize = 11.sp) }
                 TextButton(onClick = onRetry) { Text("Retry", fontSize = 11.sp) }
             }

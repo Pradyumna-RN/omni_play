@@ -55,13 +55,16 @@ data class MusicState(
     val queueIndex: Int = -1,
     val theme: String = "system",
     val reducedMotion: Boolean = false,
-    val volume: Float = 1f,
     val error: String? = null,
+    val errorDiagnostic: String = "",
     val account: AccountState = AccountState(),
     val feed: List<FeedSection> = emptyList(),
     val feedBusy: Boolean = false,
     val feedHasMore: Boolean = false,
     val feedError: String? = null,
+    val explore: List<FeedSection> = emptyList(),
+    val exploreBusy: Boolean = false,
+    val exploreError: String? = null,
     val collection: List<Track> = emptyList(),
     val collectionEntry: FeedEntry? = null,
     val collectionBusy: Boolean = false,
@@ -82,6 +85,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private var searchJob: Job? = null
     private var feedJob: Job? = null
     private var collectionJob: Job? = null
+    private var exploreJob: Job? = null
     private val controllerFuture = MediaController.Builder(
         application, SessionToken(application, ComponentName(application, MusicPlaybackService::class.java))
     ).buildAsync()
@@ -95,9 +99,17 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         override fun onPlaybackStateChanged(playbackState: Int) {
             syncPlayer()
         }
+        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            syncPlayer(includeQueue = true)
+            mutable.update { it.copy(error = null, errorDiagnostic = "") }
+        }
         override fun onPlayerError(error: PlaybackException) {
+            syncPlayer(includeQueue = true)
             val sourceError = generateSequence(error as Throwable) { it.cause }.filterIsInstance<SourceException>().firstOrNull()
-            mutable.update { it.copy(error = sourceError?.message ?: "Playback stopped. Check your connection and tap Retry to refresh the audio link.", resolving = false, buffering = false) }
+            val provider = youtube.runtime.problem.value?.takeIf { it.videoId == mutable.value.current?.id?.removePrefix("yt:") }
+            mutable.update { it.copy(error = sourceError?.message ?: provider?.message ?: "Playback stopped. Check your connection and tap Retry to refresh the audio link.",
+                errorDiagnostic = sourceError?.diagnostic ?: provider?.let { p -> "${p.code}: ${p.diagnostic}" } ?: error.errorCodeName,
+                resolving = false, buffering = false) }
         }
     }
 
@@ -117,9 +129,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         }
         viewModelScope.launch {
             youtube.runtime.account.collect { account ->
-                val changed = account.connected != mutable.value.account.connected
-                mutable.update { it.copy(account = account, feed = if (changed) emptyList() else it.feed) }
-                if (changed) refreshFeed()
+                val changed = account.connected != mutable.value.account.connected || account.revision != mutable.value.account.revision
+                mutable.update { it.copy(account = account, feed = if (changed) emptyList() else it.feed, explore = if (changed) emptyList() else it.explore) }
+                if (changed) { refreshFeed(); refreshExplore() }
             }
         }
         refreshFeed()
@@ -139,6 +151,16 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun refreshExplore() {
+        exploreJob?.cancel()
+        exploreJob = viewModelScope.launch {
+            mutable.update { it.copy(exploreBusy = true, exploreError = null) }
+            try { val feed = youtube.explore(); mutable.update { it.copy(explore = feed.sections, exploreBusy = false) } }
+            catch (e: CancellationException) { throw e }
+            catch (e: Exception) { mutable.update { it.copy(exploreBusy = false, exploreError = sourceMessage(e)) } }
+        }
+    }
+
     fun browse(entry: FeedEntry) {
         collectionJob?.cancel()
         collectionJob = viewModelScope.launch {
@@ -149,13 +171,13 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
     fun retryCollection() { mutable.value.collectionEntry?.let(::browse) }
-    fun connectAccount() { viewModelScope.launch { youtube.runtime.connect() } }
+    fun connectAccount() { youtube.runtime.beginSignIn() }
     fun disconnectAccount() {
         controller?.stop(); controller?.clearMediaItems()
-        mutable.update { it.copy(current = null, queue = emptyList(), queueIndex = -1, positionMs = 0, durationMs = 0) }
+        mutable.update { it.copy(current = null, queue = emptyList(), queueIndex = -1, positionMs = 0, durationMs = 0, error = null, errorDiagnostic = "") }
         viewModelScope.launch { youtube.runtime.disconnect() }
     }
-    fun cancelAccountConnection() { viewModelScope.launch { youtube.runtime.cancelSignIn() } }
+    fun cancelAccountConnection() { youtube.runtime.cancelSignIn() }
 
     fun checkUpdates() {
         if (mutable.value.update.checking || mutable.value.update.downloading) return
@@ -199,24 +221,28 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             buffering = c.playbackState == Player.STATE_BUFFERING,
             positionMs = c.currentPosition.coerceAtLeast(0),
             durationMs = c.duration.takeIf { d -> d != C.TIME_UNSET && d > 0 } ?: 0,
-            volume = c.volume,
         ) }
     }
 
-    fun setQuery(query: String) { mutable.update { it.copy(query = query.take(400)) } }
+    fun setQuery(query: String) {
+        if (query.isBlank()) {
+            searchJob?.cancel()
+            mutable.update { it.copy(query = "", searched = false, searching = false, results = emptyList(), error = null, errorDiagnostic = "") }
+        } else mutable.update { it.copy(query = query.take(400)) }
+    }
 
     fun search() {
         val query = mutable.value.query.trim()
         if (query.isBlank()) return
         searchJob?.cancel()
         searchJob = viewModelScope.launch {
-            mutable.update { it.copy(searching = true, searched = true, error = null, results = emptyList()) }
+            mutable.update { it.copy(searching = true, searched = true, error = null, errorDiagnostic = "", results = emptyList()) }
             try {
                 val results = youtube.search(query)
                 mutable.update { it.copy(results = results, searching = false) }
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
-                mutable.update { it.copy(searching = false, error = sourceMessage(e)) }
+                mutable.update { it.copy(searching = false, error = sourceMessage(e), errorDiagnostic = (e as? SourceException)?.diagnostic.orEmpty()) }
             }
         }
     }
@@ -234,7 +260,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 .setCustomCacheKey(java.util.UUID.randomUUID().toString())
                 .setMediaMetadata(metadata).build()
         }
-        mutable.update { it.copy(current = track, loadingTrack = null, error = null, queue = ordered, queueIndex = selectedIndex, positionMs = 0, durationMs = 0) }
+        mutable.update { it.copy(current = track, loadingTrack = null, error = null, errorDiagnostic = "", queue = ordered, queueIndex = selectedIndex, positionMs = 0, durationMs = 0) }
         c.setMediaItems(items, selectedIndex, 0)
         c.prepare()
         c.play()
@@ -264,7 +290,6 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun seek(position: Long) { controller?.seekTo(position.coerceIn(0, mutable.value.durationMs)); syncPlayer() }
-    fun volume(value: Float) { controller?.volume = value.coerceIn(0f, 1f); syncPlayer() }
 
     fun save(track: Track) {
         val old = mutable.value.saved
@@ -295,11 +320,11 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         library.theme = value; mutable.update { it.copy(theme = value) }
     }
     fun reducedMotion(value: Boolean) { library.reducedMotion = value; mutable.update { it.copy(reducedMotion = value) } }
-    fun clearError() { mutable.update { it.copy(error = null) } }
+    fun clearError() { mutable.update { it.copy(error = null, errorDiagnostic = "") } }
     fun clearHistory() { library.writeTracks("history", emptyList()); mutable.update { it.copy(history = emptyList()) } }
 
     private fun sourceMessage(e: Exception): String =
-        if (e is SourceException) "${e.message} (${e.code})" else "Could not load this recording. Check your connection and retry."
+        if (e is SourceException) e.message.orEmpty() else "Could not load this recording. Check your connection and retry."
 
     override fun onCleared() {
         controller?.removeListener(listener)

@@ -1,66 +1,70 @@
 # Music for Android
 
-Temporary name: **Music**. Native Android player from RTensorLabs, using the
-approved Margin visual direction: warm paper, DM Sans, monochrome artwork and
-raspberry controls.
+Temporary name: **Music**. Native Android player from RTensorLabs with the approved
+Margin visual direction: warm paper, DM Sans, monochrome artwork and raspberry controls.
 
-## Version 0.2.0
+## Version 0.3.0
 
-- Replaces the Python / yt-dlp adapter with **YouTube.js 18.3.0 (InnerTube)**.
-- Bundles the JavaScript client in the APK. Chromium runs the client; a Worker
-  isolates player-signature expressions from the Android bridge and account tokens.
-- Supports public YouTube Music search, video/playlist links, native Media3 audio,
-  provider Home sections, album/playlist browsing and background queue playback.
-- Adds Google device-code sign-in through the external browser. In Settings, tap
-  **Sign in to YouTube**, then **Open Google sign-in** and enter the displayed code.
-  This provider connection may be shown as **YouTube on TV** on Google's page.
-- Reads the connected account's YouTube Music feed. Provider section/item order,
-  original IDs and duplicates are preserved; Music does not re-rank the feed.
-- Encrypts OAuth credentials using AES-GCM with a key in Android KeyStore. Tokens
-  stay on the device, are not logged, and are cleared on sign-out. The bundled
-  client sends provider requests directly to YouTube. No Music account server exists.
-- Adds **Settings → App updates**: check GitHub Releases, download an APK, verify
-  byte count/SHA-256/package/version/signing certificate, and open Android's installer.
-- Keeps local audio, saved items/history, one Save action, compact transport,
-  animated timeline, light/dark themes and reduced motion.
+- **Home / Explore / Saved**, with a shared search bar and inline results. Explore
+  reads YouTube Music's discoveries; provider ordering and duplicates are preserved.
+- **Normal YouTube sign-in**, replacing the TV device-code connection. Settings →
+  Sign in to YouTube opens Google's actual pages. When YouTube Music opens, select
+  the desired channel and tap **Use this account**. The app verifies the account
+  through the WEB accounts endpoint before marking it connected.
+- Uses the current web-session configuration, ordinary WEB_REMIX/WEB player requests,
+  signature timestamps and isolated player-script decoding. No TV or guessed Android
+  client fallback. A small audio range is checked before returning a stream to Media3.
+- Includes Google's runtime-attestation flow using **BgUtils 4.0.3 (MIT)** in a separate
+  WebView without the account bridge. Proofs use client-specific recording, visitor and
+  selected-account bindings, including the full authenticated session ID. Declined verification does not produce a fabricated token.
+- Preserves actual provider rejection reasons. Unsupported clients, CDN rejections,
+  verification failures and unsupported transports have separate diagnostics. The
+  player can **Copy details** without copying cookies, proofs or signed media URLs.
+- Selects the largest available artwork instead of the smallest thumbnail, and
+  retains real artist metadata.
+- Removes the redundant volume slider from Settings; device volume controls playback.
+- Keeps native Media3/background audio, album/playlist browsing, local files, saved
+  items/history, compact transport, one Save action, animated timeline, dark mode,
+  reduced motion, and verified APK updates from GitHub Releases.
 
-The old v0.1 APK has no updater. Install v0.2 manually once; later builds can be
-installed from within Music. Android requires permission to install updates from
-Music and asks for confirmation. Updates never install silently.
+Old TV credentials are discarded; sign in again after upgrading. The selected
+YouTube web session is encrypted with AES-GCM using Android KeyStore. Only Music's
+own sign-in view is read; no system-browser cookies or password form are collected.
+Google's page handles authentication. The view's cookies/cache/storage are cleared
+when it closes. Account cookies are sent only to first-party YouTube hosts, never
+media CDNs or the isolated attestation transport. Sign out removes the local session.
+No Music account server exists.
 
-## Provider verification
+## Provider verification and limitations
 
-The workspace's network proxy blocks YouTube. No live YouTube playback, Google
-account sign-in or personalised feed has been verified from this environment.
-The bundled engine is tested in real Chromium with synthetic HTTP responses,
-including the upstream parser, audio resolution, device-code events, token refresh
-storage, authenticated feed headers, diagnostics and isolated player evaluation.
-These tests do **not** establish compatibility with today's live provider.
+**Live YouTube playback and Google sign-in are not verified from this workspace.**
+Its outbound proxy blocks YouTube. Real Chromium tests run the exact bundles against
+synthetic provider responses, including the actual upstream parser and signature
+extractor. Those tests establish the implementation's behaviour, not compatibility
+with today's live provider. See [VERIFICATION.md](VERIFICATION.md).
 
-YouTube may reject a client, require verification, restrict a recording by region,
-or change its API. The app shows a diagnostic code instead of pretending playback
-succeeded. No ad-free guarantee is made. Premium-only content, downloads/offline
-streaming, and live streams are outside this build. Artist cards open provider
-search; albums and playlists open native track lists. Existing provider-account
-history informs the feed; this build does not submit listening-history events.
+YouTube can change its web API, refuse embedded sign-in or require verification.
+This build plays validated, non-DRM direct audio streams. **SABR-only streams are
+not yet supported** and receive an explicit transport error. Premium-only content,
+live streams, downloads/offline streaming and listening-history submission are
+outside this build. No universal playback or ad-free guarantee is made. Artist
+cards open inline search; albums and playlists open native track lists.
 
-Source/account information and update controls live in Settings. No account
-password is entered into Music. Google approval happens on the provider's browser
-page; the app does not embed a Google password form or collect browser cookies.
+Implementation research: [YouTube integration](YOUTUBE_INTEGRATION.md) and
+[Tryptify DSP integration review](DSP_INTEGRATION_RESEARCH.md).
 
 ## Build
 
-Use JDK 17+, Android SDK 35 / build tools 35.0.0. Android 8.0+ and a recent Android
-System WebView are required. The committed JS bundle can be built by Android
-Studio without Python, Node, or external extraction services.
+Use JDK 17+, Android SDK 35/build tools 35.0.0. Android 8.0+ and a recent Android
+System WebView are required. The committed bundles build in Android Studio without
+Python, Node or an extraction server:
 
 ```sh
 ./gradlew :app:assembleDebug :app:testDebugUnitTest
 ```
 
-The APK is `app/build/outputs/apk/debug/app-debug.apk`. Gradle verifies that the
-committed JS bundle matches its source inputs. To edit the YouTube client, use
-Node 20+ and rebuild it first:
+The APK is `app/build/outputs/apk/debug/app-debug.apk`. Gradle checks the source and
+bundle digests. After editing the JavaScript client, rebuild its bundles first:
 
 ```sh
 npm ci --prefix youtube-engine
@@ -69,32 +73,31 @@ npm test --prefix youtube-engine
 BROWSER_EXECUTABLE=/usr/bin/chromium npm run test:browser --prefix youtube-engine
 ```
 
-The Chromium checks use fixtures and do not sign into a real account. Native UI
-screenshots are generated in `app/build/reports/screenshots/`; their recording
-metadata is a test fixture. See [VERIFICATION.md](VERIFICATION.md) for results and
-remaining real-device checks.
+Native screenshots are generated in `app/build/reports/screenshots/`. Screenshot
+recordings and browser responses are test fixtures, excluded from the product feed.
 
 ## Releases and OTA signing
 
-The updater reads published releases, including previews, from this repository.
-A compatible release must have `music-debug.apk` (or `music-release.apk`) plus a
-`SHA256SUMS` asset naming that exact APK. Tags use semantic versions such as
-`v0.2.1`, and Android `versionCode` must increase. Drafts and older versions are ignored.
+**Settings → App updates** checks published GitHub releases, including previews. It
+verifies the download size, SHA-256, package name, higher versionCode and installed
+signing certificate before opening Android's installer. Android permission and
+installation confirmation remain required. Updates never install silently.
 
-The v0.2 build uses the same signing certificate as the original v0.1 download,
-allowing an upgrade that preserves saved data. Future APKs **must** use that same
-private signing key; a new developer/debug key is not interchangeable. Keep a
-private backup of the key outside the public repository. No keystore, passwords,
-OAuth tokens or local SDK configuration belong in Git or release source archives.
-GitHub checksums do not replace certificate verification. Android also verifies
-and confirms package installation.
+Releases need `music-debug.apk` (or `music-release.apk`) and a `SHA256SUMS` asset
+naming that exact APK. Tags use semantic versions and Android versionCode must
+increase. Drafts and older builds are ignored. v0.1 has no updater; install a newer
+APK manually once. v0.2 and later can use the in-app update flow.
+
+This APK retains the certificate used for v0.1/v0.2 to preserve saved data on upgrade.
+Future builds must use the same private signing key. Back it up privately; no key,
+password, account cookie, token or local SDK configuration belongs in this public
+repository. Checksums supplement Android's certificate validation.
 
 ## DSP
 
-DSP is off. `playback/AudioPipeline.kt` remains the after-decode integration point.
-The private downmix code has not been copied into this project. Its Windows DLL
-needs an Android/ARM port and JNI integration under the author's distribution
-terms. Stereo music will not benefit from multichannel downmix alone; optional
-EQ/enhancement is a separate feature.
+DSP is off. `playback/AudioPipeline.kt` is the after-decode integration point. The
+private Downmix Renderer implementation has not been copied into this repository.
+Its Windows DLL needs an Android/ARM port and JNI integration under the author's
+terms. Stereo enhancement is separate from multichannel downmix.
 
 See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

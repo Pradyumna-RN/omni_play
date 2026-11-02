@@ -4,9 +4,10 @@
   "scripts": {
     "build": "node build.mjs",
     "test": "node --test test/*.test.mjs",
-    "test:browser": "node test/browser.cjs"
+    "test:browser": "node test/browser.cjs && node test/proof-browser.cjs"
   },
   "dependencies": {
+    "bgutils-js": "4.0.3",
     "youtubei.js": "18.3.0"
   },
   "devDependencies": {

@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import labs.rtensor.music.data.AccountSession
 import labs.rtensor.music.data.YouTubeRuntime
+import labs.rtensor.music.data.WebSession
+import labs.rtensor.music.data.ProviderTransport
 import labs.rtensor.music.updates.AppIdentity
 import labs.rtensor.music.updates.GitHubUpdater
 import labs.rtensor.music.updates.Version
@@ -33,8 +35,43 @@ class AccountAndUpdateTest {
     @Test fun networkBridgeRejectsOtherHostsCredentialsAndCleartext() {
         assertTrue(YouTubeRuntime.isProviderUrl("https://music.youtube.com/youtubei/v1/browse"))
         listOf("https://youtube.com.attacker.test/x", "https://user@www.youtube.com/x", "file:///etc/passwd", "http://www.youtube.com/x", "https://www.youtube.com:444/x").forEach { assertFalse(it, YouTubeRuntime.isProviderUrl(it)) }
-        assertTrue(YouTubeRuntime.isVerificationUrl("https://www.google.com/device"))
-        assertFalse(YouTubeRuntime.isVerificationUrl("https://accounts.google.com.attacker.test/device"))
+        assertFalse(YouTubeRuntime.isProviderUrl("https://oauth2.googleapis.com/token"))
+        assertTrue(ProviderTransport.isMediaUrl("https://r1-test.googlevideo.com/videoplayback?secret=redacted"))
+        assertFalse(ProviderTransport.isMediaUrl("https://googlevideo.com.attacker.test/videoplayback"))
+        assertTrue(ProviderTransport.isProofUrl("https://jnn-pa.googleapis.com/\$rpc/google.internal.waa.v1.Waa/GenerateIT"))
+        assertFalse(ProviderTransport.isProofUrl("https://music.youtube.com/youtubei/v1/browse"))
+    }
+    @Test fun accountCookiesAndAuthorizationCannotReachMediaOrTheProofSandbox() {
+        val session = WebSession("SAPISID=synthetic-session", "visitor")
+        val headers = JSONObject().put("cookie", "injected-cookie").put("authorization", "SAPISIDHASH synthetic-auth").put("x-goog-authuser", "1").put("range", "bytes=0-1")
+        val options = JSONObject().put("method", "GET").put("headers", headers).toString()
+        val youtube = ProviderTransport().request("https://music.youtube.com/youtubei/v1/browse", options, "real-browser-agent", session)
+        assertEquals(session.cookie, youtube.header("Cookie"))
+        assertEquals("SAPISIDHASH synthetic-auth", youtube.header("Authorization"))
+        val media = ProviderTransport().request("https://r1-test.googlevideo.com/videoplayback", options, "real-browser-agent", session)
+        val proof = ProviderTransport(proofOnly = true).request("https://jnn-pa.googleapis.com/\$rpc/google.internal.waa.v1.Waa/GenerateIT", options, "real-browser-agent", session)
+        listOf(media, proof).forEach { request ->
+            assertNull(request.header("Cookie")); assertNull(request.header("Authorization")); assertNull(request.header("X-Goog-Authuser"))
+        }
+        assertTrue(runCatching { ProviderTransport().request("https://r1-test.googlevideo.com/videoplayback", "{}", "ua", session) }.isFailure)
+        assertTrue(runCatching { ProviderTransport(proofOnly = true).request("https://music.youtube.com/", options, "ua", session) }.isFailure)
+    }
+    @Test fun webSessionNeedsAnActualYoutubeCookieAndDoesNotAcceptLegacyTvTokens() {
+        val session = JSONObject().put("kind", "youtube-web").put("cookie", "SAPISID=synthetic-session; SID=synthetic-id").put("visitorData", "test-visitor").put("authUser", 1)
+        assertEquals(1, WebSession.parse(session).authUser)
+        assertEquals("synthetic-session", WebSession.parse(session).cookie.substringAfter("SAPISID=").substringBefore(';'))
+        assertTrue(runCatching { WebSession.parse(JSONObject().put("access_token", "legacy-tv-token")) }.isFailure)
+        assertTrue(runCatching { WebSession.parse(JSONObject(session.toString()).put("cookie", "SID=only-id")) }.isFailure)
+        assertTrue(runCatching { WebSession.parse(JSONObject(session.toString()).put("cookie", "SAPISID=a\r\nCookie: injected")) }.isFailure)
+        assertTrue(runCatching { WebSession.parse(JSONObject(session.toString()).put("authUser", 100)) }.isFailure)
+    }
+    @Test fun loginOnlyConfirmsYoutubeMusicAndCannotNavigateToAnImpersonatedOrigin() {
+        assertTrue(WebSession.canConfirm("https://music.youtube.com/"))
+        assertFalse(WebSession.canConfirm("https://accounts.google.com/"))
+        assertTrue(WebSession.isSignInNavigation("https://accounts.google.com/ServiceLogin"))
+        listOf("https://music.youtube.com.attacker.test/", "https://user@music.youtube.com/", "http://music.youtube.com/", "intent://login", "https://accounts.google.com:444/").forEach {
+            assertFalse(WebSession.canConfirm(it)); assertFalse(WebSession.isSignInNavigation(it))
+        }
     }
     @Test fun versionOrderingHandlesPatchNumbersAndPreviewBuilds() {
         assertTrue(Version.parse("v0.10.0")!! > Version.parse("0.2.0")!!)

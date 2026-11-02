@@ -11,9 +11,9 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
 data class AccountState(val connected: Boolean = false, val connecting: Boolean = false,
-    val code: String = "", val verificationUrl: String = "", val error: String? = null)
+    val name: String = "", val error: String? = null, val revision: Long = 0)
 
-/** OAuth tokens never enter saved-track JSON, logs, release files, or a server. */
+/** The YouTube web session stays in Android KeyStore-encrypted app storage. */
 class AccountSession(context: Context, private val keyProvider: () -> SecretKey = ::androidKey) {
     private val prefs = context.getSharedPreferences("youtube_account", Context.MODE_PRIVATE)
     @Synchronized fun load(): String? {

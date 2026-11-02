@@ -7,6 +7,7 @@ Runtime client dependencies (pinned through the lockfile):
 | Component | Version | Licence |
 | --- | --- | --- |
 | youtubei.js | 18.3.0 | MIT |
+| bgutils-js | 4.0.3 | MIT |
 | @bufbuild/protobuf | 2.16.0 | (Apache-2.0 AND BSD-3-Clause) |
 | fflate | 0.8.3 | MIT |
 | meriyah | 7.4.1 | ISC |
@@ -17,4 +18,5 @@ Settings → Open-source licences. The old Python/Chaquopy/yt-dlp runtime is rem
 Architecture images were created for the approved Margin concept; provider
 artwork is loaded at runtime. No album artwork or account data is bundled as fixtures.
 
-Upstream: https://github.com/LuanRT/YouTube.js (MIT).
+Upstream: https://github.com/LuanRT/YouTube.js and https://github.com/LuanRT/BgUtils (MIT).
+Metrolist, InnerTubeX and Morphe were researched but their GPL code is not bundled.

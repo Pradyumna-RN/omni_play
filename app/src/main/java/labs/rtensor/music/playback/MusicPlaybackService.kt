@@ -41,7 +41,7 @@ class MusicPlaybackService : MediaSessionService() {
         super.onCreate()
         val youtube = YouTubeSource(this)
         val http = DefaultHttpDataSource.Factory()
-            .setUserAgent("Music/0.1 (Android)")
+            .setUserAgent("Music/0.3 (Android)")
             .setConnectTimeoutMs(15_000).setReadTimeoutMs(20_000)
         val data = ResolvingDataSource.Factory(DefaultDataSource.Factory(this, http)) { spec ->
             val catalogueUrl = YouTubeLink.normalize(spec.uri.toString())

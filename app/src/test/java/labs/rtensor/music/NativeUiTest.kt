@@ -47,8 +47,11 @@ class NativeUiTest {
         compose.setContent { MusicApp(MusicState(theme = "light", reducedMotion = true)) }
         compose.onNodeWithText("Room to listen.").assertIsDisplayed()
         capture("home")
-        compose.onNodeWithContentDescription("Search").performClick()
-        compose.onNodeWithText("Find your sound.").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Search music").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Explore").performClick()
+        compose.onNodeWithText("Explore.").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Search").assertDoesNotExist()
+        capture("explore")
         compose.onNodeWithContentDescription("Open settings").performClick()
         compose.onNodeWithText("Music source").assertIsDisplayed()
         capture("settings")
@@ -68,7 +71,8 @@ class NativeUiTest {
     }
 
     @Test fun searchAndSavedLayouts() {
-        compose.setContent { MusicApp(MusicState(query = "Serein", searched = true, results = listOf(track, other), saved = listOf(track), reducedMotion = true, theme = "light"), initialPage = "search") }
+        val state = mutableStateOf(MusicState(query = "Serein", searched = true, results = listOf(track, other), saved = listOf(track), reducedMotion = true, theme = "light"))
+        compose.setContent { MusicApp(state.value, onQuery = { state.value = state.value.copy(query = it, searched = it.isNotEmpty()) }) }
         compose.onNodeWithText("Afterimage").assertIsDisplayed()
         capture("search")
         compose.onNodeWithContentDescription("Saved").performClick()
@@ -83,7 +87,7 @@ class NativeUiTest {
     }
 
     @Test fun repeatedPlaylistEntriesRemainVisible() {
-        compose.setContent { MusicApp(MusicState(searched = true, results = listOf(track, other, track.copy()), reducedMotion = true, theme = "light"), initialPage = "search") }
+        compose.setContent { MusicApp(MusicState(query = "test", searched = true, results = listOf(track, other, track.copy()), reducedMotion = true, theme = "light")) }
         compose.onAllNodesWithText("Afterimage").assertCountEquals(2)
     }
 
@@ -95,13 +99,38 @@ class NativeUiTest {
         capture("player-320")
     }
 
-    @Test fun deviceSignInUsesGooglePageAndHasNoPasswordField() {
+    @Test fun signInOpensYouTubeWithoutATvCode() {
         var opened = false
-        compose.setContent { MusicApp(MusicState(account = AccountState(connecting = true, code = "TEST-CODE", verificationUrl = "https://www.google.com/device"), reducedMotion = true, theme = "light"), initialPage = "settings", onOpenSignIn = { opened = true }) }
-        compose.onNodeWithText("TEST-CODE").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("Open Google sign-in").performScrollTo().performClick()
+        compose.setContent { MusicApp(MusicState(reducedMotion = true, theme = "light"), initialPage = "settings", onConnect = { opened = true }) }
+        compose.onNodeWithText("Sign in to YouTube").performScrollTo().performClick()
         org.junit.Assert.assertTrue(opened)
+        compose.onNodeWithText("Open Google sign-in").assertDoesNotExist()
+        compose.onNodeWithText("Getting a sign-in code…").assertDoesNotExist()
         capture("account-sign-in")
+    }
+    @Test fun exploreUsesProviderCardsAndTheSearchBarSubmitsInline() {
+        val state = mutableStateOf(MusicState(explore = listOf(FeedSection("Fresh discoveries", listOf(FeedEntry("yt:jNQXAC9IVRw", track.title, track.artist, "", "song", "", "jNQXAC9IVRw")))), reducedMotion = true, theme = "light"))
+        var submitted = false
+        compose.setContent { MusicApp(state.value, onQuery = { state.value = state.value.copy(query = it, searched = false) }, onSearch = { submitted = true; state.value = state.value.copy(searched = true, results = listOf(track)) }) }
+        compose.onNodeWithContentDescription("Explore").performClick()
+        compose.onNodeWithText("Fresh discoveries").assertIsDisplayed()
+        capture("explore-provider")
+        compose.onNodeWithContentDescription("Search music").performTextInput("Serein")
+        compose.onNodeWithContentDescription("Search music").performImeAction()
+        org.junit.Assert.assertTrue(submitted)
+        compose.onNodeWithText("1 RESULTS").assertIsDisplayed()
+        compose.onNodeWithText("Afterimage").assertIsDisplayed()
+        compose.onNodeWithText("Explore.").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Clear search").performClick()
+        compose.onNodeWithText("Explore.").assertIsDisplayed()
+    }
+    @Test fun playerErrorProvidesCopyableDiagnostics() {
+        compose.setContent { MusicApp(MusicState(current = track, error = "YouTube rejected the audio stream (HTTP 403).", errorDiagnostic = "YTMUSIC: media probe HTTP 403", reducedMotion = true, theme = "light"), initialPage = "now") }
+        compose.onNodeWithText("YouTube rejected the audio stream (HTTP 403).").assertIsDisplayed()
+        compose.onNodeWithText("Copy details").performClick()
+        val clipboard = compose.activity.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        org.junit.Assert.assertTrue(clipboard.primaryClip!!.getItemAt(0).text.contains("media probe HTTP 403"))
+        capture("player-error")
     }
     @Test fun verifiedUpdateHasAnExplicitInstallAction() {
         var installed = false

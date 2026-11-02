@@ -38,6 +38,10 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private val youtubeSignIn = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        model.cancelAccountConnection()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -65,18 +69,18 @@ class MainActivity : ComponentActivity() {
                 onPrevious = model::previous, onNext = model::next,
                 onSeek = model::seek, onSave = model::save,
                 onTheme = model::theme, onReducedMotion = model::reducedMotion,
-                onVolume = model::volume, onOpenLocal = { local.launch(arrayOf("audio/*")) },
+                onOpenLocal = { local.launch(arrayOf("audio/*")) },
                 onClearHistory = model::clearHistory, onRetry = model::retry, onDismissError = model::clearError,
                 sharedQuery = sharedQuery,
                 onShareConsumed = { sharedQuery = null },
                 onRefreshFeed = { model.refreshFeed() }, onMoreFeed = { model.refreshFeed(true) },
                 onBrowse = model::browse, onRetryCollection = model::retryCollection,
-                onConnect = model::connectAccount, onDisconnect = model::disconnectAccount,
+                onConnect = {
+                    model.connectAccount()
+                    youtubeSignIn.launch(Intent(this@MainActivity, YouTubeLoginActivity::class.java))
+                }, onDisconnect = model::disconnectAccount,
                 onCancelConnect = model::cancelAccountConnection,
-                onOpenSignIn = {
-                    val url = state.account.verificationUrl
-                    if (labs.rtensor.music.data.YouTubeRuntime.isVerificationUrl(url)) runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
-                },
+                onRefreshExplore = model::refreshExplore,
                 onCheckUpdates = model::checkUpdates, onDownloadUpdate = model::downloadUpdate,
                 onInstallUpdate = { state.update.apkPath?.let(::requestInstall) },
             )

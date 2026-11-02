@@ -8,7 +8,11 @@ class YouTubeSource(context: Context) {
     suspend fun search(query: String): List<Track> = tracks(runtime.call("search", JSONObject().put("query", query)))
     suspend fun collection(entry: FeedEntry): List<Track> = tracks(runtime.call("collection", JSONObject().put("id", entry.browseId).put("kind", entry.kind)))
     suspend fun home(more: Boolean = false): HomeFeed {
-        val data = runtime.call("home", JSONObject().put("more", more)); val sections = data.getJSONArray("sections")
+        return feed(runtime.call("home", JSONObject().put("more", more)))
+    }
+    suspend fun explore(): HomeFeed = feed(runtime.call("explore"))
+    private fun feed(data: JSONObject): HomeFeed {
+        val sections = data.getJSONArray("sections")
         return HomeFeed((0 until sections.length()).map { i ->
             val s = sections.getJSONObject(i); val items = s.getJSONArray("items")
             FeedSection(s.getString("title"), (0 until items.length()).map { FeedEntry.parse(items.getJSONObject(it)) })
@@ -34,4 +38,4 @@ class YouTubeSource(context: Context) {
 
 }
 
-class SourceException(val code: String, message: String) : Exception(message)
+class SourceException(val code: String, message: String, val diagnostic: String = "") : Exception(message)

@@ -15,8 +15,8 @@ android {
         applicationId = "labs.rtensor.music"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.3.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildFeatures { compose = true; buildConfig = true }
@@ -72,7 +72,8 @@ val verifyYouTubeEngine by tasks.registering {
         listOf("build.mjs", "package.json", "package-lock.json").map { engineRoot.resolve(it) }
     val bundle = file("src/main/assets/engine/engine.js")
     val manifest = file("src/main/assets/engine/manifest.json")
-    inputs.files(sources, bundle, manifest)
+    val proof = file("src/main/assets/engine/proof.js")
+    inputs.files(sources, bundle, proof, manifest)
     doLast {
         val metadata = JsonSlurper().parse(manifest) as Map<*, *>
         fun ByteArray.hex() = joinToString("") { "%02x".format(it.toInt() and 255) }
@@ -81,7 +82,7 @@ val verifyYouTubeEngine by tasks.registering {
             digest.update(source.relativeTo(rootDir).invariantSeparatorsPath.toByteArray())
             digest.update(0.toByte()); digest.update(source.readBytes()); digest.update(0.toByte())
         }
-        check(digest.digest().hex() == metadata["sourceDigest"] && MessageDigest.getInstance("SHA-256").digest(bundle.readBytes()).hex() == metadata["bundleDigest"]) {
+        check(digest.digest().hex() == metadata["sourceDigest"] && MessageDigest.getInstance("SHA-256").digest(bundle.readBytes()).hex() == metadata["bundleDigest"] && MessageDigest.getInstance("SHA-256").digest(proof.readBytes()).hex() == metadata["proofDigest"]) {
             "YouTube bundle is stale. Run npm ci --prefix youtube-engine, then npm run build --prefix youtube-engine."
         }
     }
