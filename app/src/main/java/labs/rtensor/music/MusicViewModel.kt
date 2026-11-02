@@ -29,6 +29,11 @@ import labs.rtensor.music.data.Source
 import labs.rtensor.music.data.SourceException
 import labs.rtensor.music.data.Track
 import labs.rtensor.music.data.YouTubeSource
+import labs.rtensor.music.data.AccountState
+import labs.rtensor.music.data.FeedEntry
+import labs.rtensor.music.data.FeedSection
+import labs.rtensor.music.updates.GitHubUpdater
+import labs.rtensor.music.updates.UpdateState
 import labs.rtensor.music.playback.MusicPlaybackService
 
 data class MusicState(
@@ -52,12 +57,22 @@ data class MusicState(
     val reducedMotion: Boolean = false,
     val volume: Float = 1f,
     val error: String? = null,
+    val account: AccountState = AccountState(),
+    val feed: List<FeedSection> = emptyList(),
+    val feedBusy: Boolean = false,
+    val feedHasMore: Boolean = false,
+    val feedError: String? = null,
+    val collection: List<Track> = emptyList(),
+    val collectionEntry: FeedEntry? = null,
+    val collectionBusy: Boolean = false,
+    val update: UpdateState = UpdateState(),
 )
 
 @UnstableApi
 class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val library = LibraryStore(application)
     private val youtube = YouTubeSource(application)
+    private val updater = GitHubUpdater(application)
     private val mutable = MutableStateFlow(MusicState(
         saved = library.tracks("saved"), history = library.tracks("history"),
         theme = library.theme, reducedMotion = library.reducedMotion,
@@ -65,6 +80,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     val state = mutable.asStateFlow()
     private var controller: MediaController? = null
     private var searchJob: Job? = null
+    private var feedJob: Job? = null
+    private var collectionJob: Job? = null
     private val controllerFuture = MediaController.Builder(
         application, SessionToken(application, ComponentName(application, MusicPlaybackService::class.java))
     ).buildAsync()
@@ -98,7 +115,73 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             while (isActive) { syncPlayer(); delay(200) }
         }
+        viewModelScope.launch {
+            youtube.runtime.account.collect { account ->
+                val changed = account.connected != mutable.value.account.connected
+                mutable.update { it.copy(account = account, feed = if (changed) emptyList() else it.feed) }
+                if (changed) refreshFeed()
+            }
+        }
+        refreshFeed()
+        checkUpdates()
     }
+
+    fun refreshFeed(more: Boolean = false) {
+        if (more && (mutable.value.feedBusy || !mutable.value.feedHasMore)) return
+        feedJob?.cancel()
+        feedJob = viewModelScope.launch {
+            mutable.update { it.copy(feedBusy = true, feedError = null) }
+            try {
+                val feed = youtube.home(more)
+                mutable.update { it.copy(feedBusy = false, feed = if (more) it.feed + feed.sections else feed.sections, feedHasMore = feed.hasMore) }
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { mutable.update { it.copy(feedBusy = false, feedError = sourceMessage(e)) } }
+        }
+    }
+
+    fun browse(entry: FeedEntry) {
+        collectionJob?.cancel()
+        collectionJob = viewModelScope.launch {
+            mutable.update { it.copy(collectionEntry = entry, collection = emptyList(), collectionBusy = true, error = null) }
+            try { val tracks = youtube.collection(entry); mutable.update { it.copy(collection = tracks, collectionBusy = false) } }
+            catch (e: CancellationException) { throw e }
+            catch (e: Exception) { mutable.update { it.copy(collectionBusy = false, error = sourceMessage(e)) } }
+        }
+    }
+    fun retryCollection() { mutable.value.collectionEntry?.let(::browse) }
+    fun connectAccount() { viewModelScope.launch { youtube.runtime.connect() } }
+    fun disconnectAccount() {
+        controller?.stop(); controller?.clearMediaItems()
+        mutable.update { it.copy(current = null, queue = emptyList(), queueIndex = -1, positionMs = 0, durationMs = 0) }
+        viewModelScope.launch { youtube.runtime.disconnect() }
+    }
+    fun cancelAccountConnection() { viewModelScope.launch { youtube.runtime.cancelSignIn() } }
+
+    fun checkUpdates() {
+        if (mutable.value.update.checking || mutable.value.update.downloading) return
+        viewModelScope.launch {
+            mutable.update { it.copy(update = it.update.copy(checking = true, message = "Checking GitHub releases…")) }
+            try {
+                val release = updater.check()
+                mutable.update { it.copy(update = UpdateState(release = release, message = if (release == null) "You’re up to date." else "Version ${release.version} is available.")) }
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { mutable.update { it.copy(update = it.update.copy(checking = false, message = e.message ?: "Could not check for updates.")) } }
+        }
+    }
+    fun downloadUpdate() {
+        val update = mutable.value.update
+        val release = update.release ?: return
+        if (update.downloading || update.checking) return
+        viewModelScope.launch {
+            mutable.update { it.copy(update = it.update.copy(downloading = true, progress = 0, message = "Downloading update…", apkPath = null)) }
+            try {
+                val file = updater.download(release) { progress -> mutable.update { it.copy(update = it.update.copy(progress = progress)) } }
+                mutable.update { it.copy(update = it.update.copy(downloading = false, apkPath = file.path, message = "Verified update. Ready to install.")) }
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { mutable.update { it.copy(update = it.update.copy(downloading = false, message = e.message ?: "The update download failed.")) } }
+        }
+    }
+    fun updateMessage(message: String) { mutable.update { it.copy(update = it.update.copy(message = message)) } }
 
     private fun syncPlayer(includeQueue: Boolean = false) {
         val c = controller ?: return
@@ -216,7 +299,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     fun clearHistory() { library.writeTracks("history", emptyList()); mutable.update { it.copy(history = emptyList()) } }
 
     private fun sourceMessage(e: Exception): String =
-        if (e is SourceException) e.message.orEmpty() else "Could not load this recording. Check your connection and retry."
+        if (e is SourceException) "${e.message} (${e.code})" else "Could not load this recording. Check your connection and retry."
 
     override fun onCleared() {
         controller?.removeListener(listener)

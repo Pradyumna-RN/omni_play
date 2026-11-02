@@ -1,2 +1,5 @@
-# Chaquopy supplies its runtime keep rules through its Gradle plugin.
+# The bundled client calls only this annotated bridge surface.
+-keepclassmembers class * {
+    @android.webkit.JavascriptInterface <methods>;
+}
 # No DSP implementation or coefficients are included in this project.

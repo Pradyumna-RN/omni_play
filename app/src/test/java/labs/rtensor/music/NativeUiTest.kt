@@ -8,6 +8,10 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import labs.rtensor.music.data.Track
 import labs.rtensor.music.ui.MusicApp
+import labs.rtensor.music.data.AccountState
+import labs.rtensor.music.data.FeedEntry
+import labs.rtensor.music.data.FeedSection
+import labs.rtensor.music.updates.UpdateState
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -34,7 +38,7 @@ class NativeUiTest {
             val image = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
             view.draw(Canvas(image))
             val file = File("build/reports/screenshots/$name.png")
-            file.parentFile.mkdirs()
+            file.parentFile!!.mkdirs()
             file.outputStream().use { image.compress(Bitmap.CompressFormat.PNG, 100, it) }
         }
     }
@@ -89,5 +93,34 @@ class NativeUiTest {
         compose.onNodeWithText("Play").performScrollTo().assertIsDisplayed()
         compose.onNodeWithContentDescription("Save").assertIsDisplayed()
         capture("player-320")
+    }
+
+    @Test fun deviceSignInUsesGooglePageAndHasNoPasswordField() {
+        var opened = false
+        compose.setContent { MusicApp(MusicState(account = AccountState(connecting = true, code = "TEST-CODE", verificationUrl = "https://www.google.com/device"), reducedMotion = true, theme = "light"), initialPage = "settings", onOpenSignIn = { opened = true }) }
+        compose.onNodeWithText("TEST-CODE").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Open Google sign-in").performScrollTo().performClick()
+        org.junit.Assert.assertTrue(opened)
+        capture("account-sign-in")
+    }
+    @Test fun verifiedUpdateHasAnExplicitInstallAction() {
+        var installed = false
+        compose.setContent { MusicApp(MusicState(update = UpdateState(apkPath = "/test/verified.apk", message = "Verified update. Ready to install."), reducedMotion = true, theme = "light"), initialPage = "settings", onInstallUpdate = { installed = true }) }
+        compose.onNodeWithText("Install update").performScrollTo().performClick()
+        org.junit.Assert.assertTrue(installed)
+        capture("app-updates")
+    }
+    @Test fun providerFeedOpensItsAlbumAndPlaysTheOriginalTrackList() {
+        val album = FeedEntry("MPREb_fixture", "Late Windows", "Serein", "", "album", "MPREb_fixture", "")
+        val song = FeedEntry(track.id, track.title, track.artist, "", "song", "", "jNQXAC9IVRw")
+        val state = mutableStateOf(MusicState(account = AccountState(connected = true), feed = listOf(FeedSection("Your provider’s picks", listOf(album, song, song.copy()))), reducedMotion = true, theme = "light"))
+        var playedOriginal = false
+        compose.setContent { MusicApp(state.value, onBrowse = { state.value = state.value.copy(collectionEntry = it, collection = listOf(track)) }, onPlay = { t, queue -> playedOriginal = t == track && queue == listOf(track) }) }
+        compose.onNodeWithText("Your provider’s picks").assertIsDisplayed()
+        capture("provider-feed")
+        compose.onNodeWithText("Late Windows").performClick()
+        compose.onNodeWithText("Afterimage").assertIsDisplayed()
+        compose.onNodeWithText("Play all").performClick()
+        org.junit.Assert.assertTrue(playedOriginal)
     }
 }

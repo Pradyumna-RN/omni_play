@@ -1,8 +1,10 @@
+import groovy.json.JsonSlurper
+import java.security.MessageDigest
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
-    id("com.chaquo.python")
 }
 
 android {
@@ -13,12 +15,11 @@ android {
         applicationId = "labs.rtensor.music"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
-        ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
+        versionCode = 2
+        versionName = "0.2.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
-    buildFeatures { compose = true }
+    buildFeatures { compose = true; buildConfig = true }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -42,13 +43,6 @@ android {
     packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
 }
 
-chaquopy {
-    defaultConfig {
-        version = "3.12"
-        pip { install("yt-dlp==2026.10.26") }
-    }
-}
-
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2025.04.01")
     implementation(composeBom)
@@ -62,6 +56,7 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer:1.6.1")
     implementation("androidx.media3:media3-session:1.6.1")
     implementation("io.coil-kt:coil-compose:2.7.0")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.robolectric:robolectric:4.14.1")
@@ -70,3 +65,25 @@ dependencies {
     testImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
+
+val verifyYouTubeEngine by tasks.registering {
+    val engineRoot = rootProject.file("youtube-engine")
+    val sources = fileTree(engineRoot.resolve("src")) { include("**/*.mjs") }.files +
+        listOf("build.mjs", "package.json", "package-lock.json").map { engineRoot.resolve(it) }
+    val bundle = file("src/main/assets/engine/engine.js")
+    val manifest = file("src/main/assets/engine/manifest.json")
+    inputs.files(sources, bundle, manifest)
+    doLast {
+        val metadata = JsonSlurper().parse(manifest) as Map<*, *>
+        fun ByteArray.hex() = joinToString("") { "%02x".format(it.toInt() and 255) }
+        val digest = MessageDigest.getInstance("SHA-256")
+        sources.sortedBy { it.relativeTo(rootDir).invariantSeparatorsPath }.forEach { source ->
+            digest.update(source.relativeTo(rootDir).invariantSeparatorsPath.toByteArray())
+            digest.update(0.toByte()); digest.update(source.readBytes()); digest.update(0.toByte())
+        }
+        check(digest.digest().hex() == metadata["sourceDigest"] && MessageDigest.getInstance("SHA-256").digest(bundle.readBytes()).hex() == metadata["bundleDigest"]) {
+            "YouTube bundle is stale. Run npm ci --prefix youtube-engine, then npm run build --prefix youtube-engine."
+        }
+    }
+}
+tasks.named("preBuild") { dependsOn(verifyYouTubeEngine) }

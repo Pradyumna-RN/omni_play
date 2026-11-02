@@ -1,42 +1,30 @@
-# Third-party components
+# Third-party notices
 
-The private Downmix Renderer source is **not included**. This project does not
-grant any rights to that separate repository or its algorithm.
+The app contains no private Downmix Renderer implementation or coefficients.
 
-Main dependencies:
+Runtime client dependencies (pinned through the lockfile):
 
-| Component | Version | Upstream licence |
+| Component | Version | Licence |
 | --- | --- | --- |
-| yt-dlp (Python source package, without optional binary bundles) | 2026.10.26 | Unlicense; consult its bundled third-party notices |
-| Chaquopy | 17.2.0 | MIT; bundled CPython/runtime libraries have their own notices |
-| CPython | 3.12 runtime supplied by Chaquopy | Python Software Foundation licence and bundled notices |
-| AndroidX Compose, Lifecycle, Activity, Core, Media3 | pinned in Gradle | Apache-2.0 and upstream notices |
-| Kotlin / coroutines | 2.1.20 / 1.10.2 | Apache-2.0 |
-| Coil / OkHttp / Okio | 2.7.0 / resolved Gradle versions | Apache-2.0 |
-| DM Sans | bundled font | SIL Open Font License 1.1; included in app resources |
+| youtubei.js | 18.3.0 | MIT |
+| @bufbuild/protobuf | 2.16.0 | (Apache-2.0 AND BSD-3-Clause) |
+| fflate | 0.8.3 | MIT |
+| meriyah | 7.4.1 | ISC |
 
-Dependency licence review is separate from the integration agreement for the DSP.
-Do not substitute a binary bundle or new extractor without checking its actual
-licence and transitive components. Preserve upstream notices when distributing.
+AndroidX/Media3, Kotlin/coroutines, Coil, OkHttp and Okio use Apache-2.0 and their
+upstream notices. DM Sans uses SIL OFL 1.1. Full licence texts are bundled in
+Settings → Open-source licences. The old Python/Chaquopy/yt-dlp runtime is removed.
+Architecture images were created for the approved Margin concept; provider
+artwork is loaded at runtime. No album artwork or account data is bundled as fixtures.
 
-Architecture photographs were created for the existing approved Margin concept.
-No third-party album artwork is bundled; actual search-result thumbnails come
-from the provider at runtime. The additional photographs bundled from the design
-are used only as generic artwork fallbacks.
-
-Upstream references:
-
-- https://github.com/yt-dlp/yt-dlp/blob/master/LICENSE
-- https://github.com/yt-dlp/yt-dlp#license
-- https://github.com/chaquo/chaquopy/blob/master/LICENSE.txt
-- https://docs.python.org/3/license.html
-- https://developer.android.com/jetpack/androidx
-- https://github.com/coil-kt/coil/blob/main/LICENSE.txt
+Upstream: https://github.com/LuanRT/YouTube.js (MIT).
 
 
-CHAQUOPY — MIT licence
+youtubei.js — LICENSE
 
-Copyright (c) 2017-2025 Chaquo Ltd and contributors
+MIT License
+
+Copyright (c) 2021 LuanRT
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -45,47 +33,53 @@ to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
 copies of the Software, and to permit persons to whom the Software is
 furnished to do so, subject to the following conditions:
 
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
 AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-THE SOFTWARE.
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+fflate — LICENSE
+
+MIT License
+
+Copyright (c) 2026 Arjun Barrett
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+meriyah — LICENSE.md
+
+ISC License
+
+Copyright (c) 2019 and later, KFlash and others.
+
+Permission to use, copy, modify, and/or distribute this software for any purpose with or without fee is hereby granted, provided that the above copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 
-YT-DLP — Unlicense
-
-This is free and unencumbered software released into the public domain.
-
-Anyone is free to copy, modify, publish, use, compile, sell, or
-distribute this software, either in source code form or as a compiled
-binary, for any purpose, commercial or non-commercial, and by any
-means.
-
-In jurisdictions that recognize copyright laws, the author or authors
-of this software dedicate any and all copyright interest in the
-software to the public domain. We make this dedication for the benefit
-of the public at large and to the detriment of our heirs and
-successors. We intend this dedication to be an overt act of
-relinquishment in perpetuity of all present and future rights to this
-software under copyright law.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
-IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR
-OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
-ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
-OTHER DEALINGS IN THE SOFTWARE.
-
-For more information, please refer to <http://unlicense.org/>
-
-
-APACHE LICENCE 2.0 (AndroidX / Kotlin / Coil / OkHttp / Okio)
+APACHE 2.0
 
 
                                  Apache License
@@ -291,7 +285,7 @@ APACHE LICENCE 2.0 (AndroidX / Kotlin / Coil / OkHttp / Okio)
    limitations under the License.
 
 
-DM SANS — SIL OPEN FONT LICENCE
+DM SANS
 
 Copyright 2014 The DM Sans Project Authors (https://github.com/googlefonts/dm-fonts)
 

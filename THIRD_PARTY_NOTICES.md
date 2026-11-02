@@ -1,34 +1,20 @@
-# Third-party components
+# Third-party notices
 
-The private Downmix Renderer source is **not included**. This project does not
-grant any rights to that separate repository or its algorithm.
+The app contains no private Downmix Renderer implementation or coefficients.
 
-Main dependencies:
+Runtime client dependencies (pinned through the lockfile):
 
-| Component | Version | Upstream licence |
+| Component | Version | Licence |
 | --- | --- | --- |
-| yt-dlp (Python source package, without optional binary bundles) | 2026.10.26 | Unlicense; consult its bundled third-party notices |
-| Chaquopy | 17.2.0 | MIT; bundled CPython/runtime libraries have their own notices |
-| CPython | 3.12 runtime supplied by Chaquopy | Python Software Foundation licence and bundled notices |
-| AndroidX Compose, Lifecycle, Activity, Core, Media3 | pinned in Gradle | Apache-2.0 and upstream notices |
-| Kotlin / coroutines | 2.1.20 / 1.10.2 | Apache-2.0 |
-| Coil / OkHttp / Okio | 2.7.0 / resolved Gradle versions | Apache-2.0 |
-| DM Sans | bundled font | SIL Open Font License 1.1; included in app resources |
+| youtubei.js | 18.3.0 | MIT |
+| @bufbuild/protobuf | 2.16.0 | (Apache-2.0 AND BSD-3-Clause) |
+| fflate | 0.8.3 | MIT |
+| meriyah | 7.4.1 | ISC |
 
-Dependency licence review is separate from the integration agreement for the DSP.
-Do not substitute a binary bundle or new extractor without checking its actual
-licence and transitive components. Preserve upstream notices when distributing.
+AndroidX/Media3, Kotlin/coroutines, Coil, OkHttp and Okio use Apache-2.0 and their
+upstream notices. DM Sans uses SIL OFL 1.1. Full licence texts are bundled in
+Settings → Open-source licences. The old Python/Chaquopy/yt-dlp runtime is removed.
+Architecture images were created for the approved Margin concept; provider
+artwork is loaded at runtime. No album artwork or account data is bundled as fixtures.
 
-Architecture photographs were created for the existing approved Margin concept.
-No third-party album artwork is bundled; actual search-result thumbnails come
-from the provider at runtime. The additional photographs bundled from the design
-are used only as generic artwork fallbacks.
-
-Upstream references:
-
-- https://github.com/yt-dlp/yt-dlp/blob/master/LICENSE
-- https://github.com/yt-dlp/yt-dlp#license
-- https://github.com/chaquo/chaquopy/blob/master/LICENSE.txt
-- https://docs.python.org/3/license.html
-- https://developer.android.com/jetpack/androidx
-- https://github.com/coil-kt/coil/blob/main/LICENSE.txt
+Upstream: https://github.com/LuanRT/YouTube.js (MIT).

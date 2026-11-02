@@ -8,3 +8,4 @@ local.properties
 __pycache__/
 .DS_Store
 artifacts/
+node_modules/

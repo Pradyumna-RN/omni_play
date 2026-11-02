@@ -54,6 +54,8 @@ import coil.compose.AsyncImage
 import labs.rtensor.music.MusicState
 import labs.rtensor.music.R
 import labs.rtensor.music.data.Track
+import labs.rtensor.music.data.FeedEntry
+import labs.rtensor.music.BuildConfig
 import java.util.Locale
 
 private val font = FontFamily(Font(R.font.dm_sans))
@@ -113,6 +115,9 @@ fun MusicApp(
     onClearHistory: () -> Unit = {}, onRetry: () -> Unit = {}, onDismissError: () -> Unit = {},
     sharedQuery: String? = null, onShareConsumed: () -> Unit = {},
     initialPage: String = "home",
+    onRefreshFeed: () -> Unit = {}, onMoreFeed: () -> Unit = {}, onBrowse: (FeedEntry) -> Unit = {}, onRetryCollection: () -> Unit = {},
+    onConnect: () -> Unit = {}, onDisconnect: () -> Unit = {}, onCancelConnect: () -> Unit = {}, onOpenSignIn: () -> Unit = {},
+    onCheckUpdates: () -> Unit = {}, onDownloadUpdate: () -> Unit = {}, onInstallUpdate: () -> Unit = {},
 ) {
     var page by rememberSaveable { mutableStateOf(initialPage) }
     var back by rememberSaveable { mutableStateOf("home") }
@@ -123,6 +128,13 @@ fun MusicApp(
         page = next
     }
     fun play(track: Track, list: List<Track>) { onPlay(track, list); navigate("now") }
+    fun openEntry(entry: FeedEntry) {
+        when {
+            entry.videoId.isNotBlank() -> { val t = entry.asTrack(); play(t, listOf(t)) }
+            entry.kind in listOf("artist", "library_artist") -> { onQuery(entry.title); onSearch(); navigate("search") }
+            else -> { onBrowse(entry); navigate("collection") }
+        }
+    }
     LaunchedEffect(sharedQuery) {
         sharedQuery?.takeIf { it.isNotBlank() }?.let { onQuery(it); navigate("search"); onSearch(); onShareConsumed() }
     }
@@ -137,10 +149,10 @@ fun MusicApp(
                 })
             },
             bottomBar = {
-                if (page in listOf("home", "search", "saved")) {
+                if (page in listOf("home", "search", "saved", "collection")) {
                     Column(Modifier.navigationBarsPadding()) {
                         if (state.current != null) MiniPlayer(state, { navigate("now") }, onToggle, onNext)
-                        AppNavigation(page, ::navigate)
+                        AppNavigation(if (page == "collection") root else page, ::navigate)
                     }
                 } else Spacer(Modifier.navigationBarsPadding())
             },
@@ -148,15 +160,17 @@ fun MusicApp(
             containerColor = MaterialTheme.colorScheme.background,
         ) { inset ->
             Column(Modifier.fillMaxSize().padding(inset)) {
-                if (state.error != null) ErrorBanner(state.error, onDismissError, if (page == "search") onSearch else onRetry)
+                if (state.error != null) ErrorBanner(state.error, onDismissError, when (page) { "search" -> onSearch; "collection" -> onRetryCollection; else -> onRetry })
                 Crossfade(page, animationSpec = tween(if (state.reducedMotion) 0 else 180), label = "screen", modifier = Modifier.weight(1f)) { target ->
                     when (target) {
                         "search" -> SearchScreen(state, onQuery, onSearch, ::play, onSave)
                         "saved" -> SavedScreen(state, ::play, onSave) { navigate("search") }
                         "now" -> NowScreen(state, onToggle, onPrevious, onNext, onSeek, onSave) { navigate("queue") }
                         "queue" -> QueueScreen(state, ::play)
-                        "settings" -> SettingsScreen(state, onTheme, onReducedMotion, onVolume, onOpenLocal, onClearHistory)
-                        else -> HomeScreen(state, { navigate("search") }, onOpenLocal, ::play)
+                        "collection" -> CollectionScreen(state, ::play, onSave)
+                        "settings" -> SettingsScreen(state, onTheme, onReducedMotion, onVolume, onOpenLocal, onClearHistory,
+                            onConnect, onDisconnect, onCancelConnect, onOpenSignIn, onCheckUpdates, onDownloadUpdate, onInstallUpdate)
+                        else -> HomeScreen(state, { navigate("search") }, onOpenLocal, ::play, ::openEntry, onRefreshFeed, onMoreFeed)
                     }
                 }
             }
@@ -167,9 +181,9 @@ fun MusicApp(
 @Composable
 private fun AppHeader(page: String, onHome: () -> Unit, onSettings: () -> Unit, onBack: () -> Unit) {
     Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 18.dp, vertical = 8.dp).height(52.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-        if (page in listOf("now", "queue", "settings")) {
+        if (page in listOf("now", "queue", "settings", "collection")) {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") }
-            Caption(when (page) { "now" -> "NOW PLAYING"; "queue" -> "UP NEXT"; else -> "SETTINGS" })
+            Caption(when (page) { "now" -> "NOW PLAYING"; "queue" -> "UP NEXT"; "collection" -> "COLLECTION"; else -> "SETTINGS" })
             Spacer(Modifier.width(48.dp))
         } else {
             Column(Modifier.clickable(onClick = onHome).padding(6.dp)) {
@@ -201,10 +215,19 @@ private fun AppNavigation(page: String, onSelect: (String) -> Unit) {
 }
 
 @Composable
-private fun HomeScreen(state: MusicState, onSearch: () -> Unit, onLocal: () -> Unit, onPlay: (Track, List<Track>) -> Unit) {
+private fun HomeScreen(state: MusicState, onSearch: () -> Unit, onLocal: () -> Unit, onPlay: (Track, List<Track>) -> Unit,
+    onEntry: (FeedEntry) -> Unit, onRefresh: () -> Unit, onMore: () -> Unit) {
+    if (state.feed.isNotEmpty()) { ProviderHome(state, onEntry, onRefresh, onMore); return }
     val recent = state.history.firstOrNull()
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 10.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
         item { PageTitle(if (recent == null) "Room to listen" else "Back to your music") }
+        if (state.feedBusy) item { LinearProgressIndicator(Modifier.fillMaxWidth().height(2.dp)) }
+        if (state.feedError != null) item {
+            Column {
+                Text(state.feedError, fontSize = 12.sp, lineHeight = 19.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                TextButton(onClick = onRefresh) { Text("Retry feed", fontSize = 12.sp) }
+            }
+        }
         item {
             Row(Modifier.fillMaxWidth().heightIn(min = 265.dp), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(.46f)) {
@@ -249,6 +272,53 @@ private fun HomeScreen(state: MusicState, onSearch: () -> Unit, onLocal: () -> U
                             Text(track.artist, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 3.dp))
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProviderHome(state: MusicState, onEntry: (FeedEntry) -> Unit, onRefresh: () -> Unit, onMore: () -> Unit) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
+        item {
+            PageTitle("For your ears")
+            TextButton(onClick = onRefresh, enabled = !state.feedBusy) { Icon(Icons.Outlined.Refresh, null, Modifier.size(16.dp)); Spacer(Modifier.width(6.dp)); Text("Refresh", fontSize = 11.sp) }
+        }
+        itemsIndexed(state.feed, key = { i, section -> "$i:${section.title}" }) { _, section ->
+            Column {
+                SectionTitle(section.title)
+                Spacer(Modifier.height(16.dp))
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    itemsIndexed(section.items, key = { i, entry -> "$i:${entry.id}" }) { _, entry ->
+                        Column(Modifier.width(156.dp).clickable { onEntry(entry) }) {
+                            Artwork(Track(entry.id, entry.title, entry.subtitle, "", entry.artwork), Modifier.size(156.dp).clip(RoundedCornerShape(10.dp)))
+                            Text(entry.title, fontSize = 13.sp, lineHeight = 18.sp, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 10.dp))
+                            Text(entry.subtitle, fontSize = 10.sp, lineHeight = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
+                        }
+                    }
+                }
+            }
+        }
+        if (state.feedBusy) item { LinearProgressIndicator(Modifier.fillMaxWidth().height(2.dp)) }
+        if (state.feedError != null) item { Text(state.feedError, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        if (state.feedHasMore) item { OutlinedButton(onClick = onMore, enabled = !state.feedBusy, modifier = Modifier.fillMaxWidth()) { Text("More from your feed") } }
+    }
+}
+
+@Composable
+private fun CollectionScreen(state: MusicState, onPlay: (Track, List<Track>) -> Unit, onSave: (Track) -> Unit) {
+    Column(Modifier.fillMaxSize().padding(horizontal = 24.dp)) {
+        Text(state.collectionEntry?.title.orEmpty(), fontSize = 30.sp, fontWeight = FontWeight.Medium, lineHeight = 35.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Text(state.collectionEntry?.subtitle.orEmpty(), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 12.dp))
+        if (state.collectionBusy) LinearProgressIndicator(Modifier.fillMaxWidth().height(2.dp))
+        else if (state.collection.isEmpty() && state.error == null) EmptyState("Nothing to play here", "This collection has no available recordings.", Glyph.MusicNote)
+        else {
+            Button(onClick = { state.collection.firstOrNull()?.let { onPlay(it, state.collection) } }, enabled = state.collection.isNotEmpty(), shape = RoundedCornerShape(12.dp)) { Icon(Icons.Outlined.PlayArrow, null); Text("Play all") }
+            Spacer(Modifier.height(14.dp))
+            LazyColumn {
+                itemsIndexed(state.collection, key = { i, track -> "$i:${track.id}" }) { _, track ->
+                    TrackRow(track, state.saved.any { it.id == track.id }, state.current?.id == track.id, { onPlay(track, state.collection) }, { onSave(track) })
                 }
             }
         }
@@ -413,7 +483,9 @@ private fun QueueScreen(state: MusicState, onPlay: (Track, List<Track>) -> Unit)
 }
 
 @Composable
-private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onReduced: (Boolean) -> Unit, onVolume: (Float) -> Unit, onLocal: () -> Unit, onClearHistory: () -> Unit) {
+private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onReduced: (Boolean) -> Unit, onVolume: (Float) -> Unit, onLocal: () -> Unit, onClearHistory: () -> Unit,
+    onConnect: () -> Unit, onDisconnect: () -> Unit, onCancelConnect: () -> Unit, onOpenSignIn: () -> Unit,
+    onCheckUpdates: () -> Unit, onDownloadUpdate: () -> Unit, onInstallUpdate: () -> Unit) {
     var confirmClear by remember { mutableStateOf(false) }
     var showLicences by remember { mutableStateOf(false) }
     val context = LocalContext.current
@@ -421,8 +493,28 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onReduc
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
         PageTitle("Make yourself at home")
         Caption("LISTENING")
-        SettingRow("Music source", "YouTube · public search and links")
-        SettingRow("Recommendations", "Automatic · personalised feeds aren’t connected yet")
+        SettingRow("Music source", "YouTube Music · search, links and provider feed")
+        SettingRow("Recommendations", "Automatic · the provider’s order is preserved")
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("Your YouTube account", fontSize = 14.sp)
+            if (state.account.connected) {
+                Text("Connected · your feed is personalised by YouTube", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                TextButton(onClick = onDisconnect) { Text("Sign out", fontSize = 12.sp) }
+            } else if (state.account.connecting) {
+                if (state.account.code.isBlank()) { LinearProgressIndicator(Modifier.fillMaxWidth()); Text("Getting a sign-in code…", fontSize = 12.sp) }
+                else {
+                    Text(state.account.code, fontSize = 30.sp, letterSpacing = 3.sp, fontWeight = FontWeight.Medium)
+                    Text("Enter this code on Google’s page. The connection may be listed as YouTube on TV.", fontSize = 12.sp, lineHeight = 19.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Button(onClick = onOpenSignIn, shape = RoundedCornerShape(12.dp)) { Text("Open Google sign-in", fontSize = 12.sp) }
+                    Text("Return here after approving. Your feed will refresh automatically.", fontSize = 11.sp, lineHeight = 18.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                TextButton(onClick = onCancelConnect) { Text("Cancel sign-in", fontSize = 12.sp) }
+            } else {
+                Text("Connect to load your own recommendations. Finish sign-in on Google’s page; Music never asks for your password.", fontSize = 12.sp, lineHeight = 19.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Button(onClick = onConnect, shape = RoundedCornerShape(12.dp)) { Text("Sign in to YouTube", fontSize = 12.sp) }
+            }
+            state.account.error?.let { Text(it, fontSize = 12.sp, color = MaterialTheme.colorScheme.primary, lineHeight = 18.sp) }
+        }
         SettingRow("Audio processing", "Off · original audio")
         Column {
             Text("Listening volume", fontSize = 14.sp)
@@ -442,11 +534,24 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onReduc
             Switch(checked = state.reducedMotion, onCheckedChange = onReduced, modifier = Modifier.semantics { contentDescription = "Reduce motion" })
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outline, thickness = .5.dp)
+        Caption("APP UPDATES")
+        SettingRow("Music ${BuildConfig.VERSION_NAME}", "Preview channel · GitHub Releases")
+        if (state.update.message.isNotBlank()) Text(state.update.message, fontSize = 12.sp, lineHeight = 19.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (state.update.downloading) {
+            LinearProgressIndicator(progress = { state.update.progress / 100f }, modifier = Modifier.fillMaxWidth())
+            Text("${state.update.progress}%", fontSize = 11.sp)
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = onCheckUpdates, enabled = !state.update.checking && !state.update.downloading) { Text("Check updates", fontSize = 12.sp) }
+            if (state.update.apkPath != null) Button(onClick = onInstallUpdate) { Text("Install update", fontSize = 12.sp) }
+            else if (state.update.release != null) Button(onClick = onDownloadUpdate, enabled = !state.update.downloading && !state.update.checking) { Text("Download", fontSize = 12.sp) }
+        }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outline, thickness = .5.dp)
         Caption("ON THIS DEVICE")
-        Text("Saved recordings and listening history stay on your device. YouTube receives your searches and playback requests.", fontSize = 12.sp, lineHeight = 19.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("Saved recordings, history and encrypted account tokens stay on this device. YouTube receives your provider requests; GitHub receives update checks.", fontSize = 12.sp, lineHeight = 19.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         TextButton(onClick = { confirmClear = true }, enabled = state.history.isNotEmpty()) { Text("Clear listening history", fontSize = 12.sp) }
         TextButton(onClick = { showLicences = true }) { Text("Open-source licences", fontSize = 12.sp) }
-        Text("Music · RTensorLabs\nEarly build 0.1.0", fontSize = 11.sp, lineHeight = 20.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("Music · RTensorLabs\nEarly build ${BuildConfig.VERSION_NAME}", fontSize = 11.sp, lineHeight = 20.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(20.dp))
     }
     if (confirmClear) AlertDialog(
