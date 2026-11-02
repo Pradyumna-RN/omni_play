@@ -3,6 +3,16 @@
 Temporary name: **Music**. Native Android player from RTensorLabs with the approved
 Margin visual direction: warm paper, DM Sans, original provider artwork and raspberry controls.
 
+## Version 0.3.6 — Claude update build
+
+Packages Claude's `76a9d09` update: regional Google sign-in redirects, a Continue
+button during sign-in, a shorter device-account handoff timeout, preferred playback
+paths, attestation-challenge warmup and buffered artist metadata events.
+
+This build preserves that implementation. Previously identified playback-fallback
+and metadata-lifecycle concerns remain; live login and playback need device checks.
+See [verification details](VERIFICATION.md).
+
 ## Version 0.3.5 — sign-in handoff, seeking and faster starts
 
 - Device Google-account selection now attempts the Google account provider's web-session handoff before opening YouTube. A verified YouTube session is still required; providers that decline this handoff fall back to browser sign-in. No password or one-use handoff URL is saved.
