@@ -1,8 +1,8 @@
-# v0.3.2 verification
+# v0.3.3 verification
 
 - Native Android build and bundled-engine/source/proof digest checks: passed.
-- Android/JVM suite: **41 tests**, no failures or skips.
-  - 11 Compose checks: Home/Explore/Saved, persistent search submission and clearing,
+- Android/JVM suite: **49 tests**, no failures or skips.
+  - 13 Compose checks: Home/Explore/Saved, persistent search submission and clearing,
     provider cards, albums, original queue identity, one Save action, compact/dark
     player, ordinary sign-in action, copyable errors and verified-update installer.
   - 10 account/update checks: encrypted session reload/tamper rejection, old TV-blob
@@ -19,6 +19,9 @@
     audio rejection and provider rendition URLs.
   - 3 retry checks: one forced reopen, repeated rejection remains an error, and
     later range failures preserve catalogue identity.
+  - 6 Google identity checks: signed response verification, tamper rejection,
+    expiry/audience/issuer/nonce/presenter checks, supported algorithms and keys,
+    separate encrypted profile storage, and safe Google login-hint encoding.
   - 3 catalogue-link and 2 saved-library checks.
 - JavaScript mapping/configuration suite: **12 tests passed**.
 - Real Chromium using the exact engine bundle: **25 checks passed** with synthetic
@@ -39,8 +42,8 @@
 - Native Home, Explore, search, sign-in and error/player screenshots inspected;
   Settings text is larger with stronger contrast; its icon is 8 dp from the right.
   Larger provider artwork URLs have an original-image fallback. No grayscale filter.
-- APK package `labs.rtensor.music`, version `0.3.2`, versionCode `5`.
-- APK signature must match v0.1/v0.2; verified SHA-256:
+- APK package `labs.rtensor.music`, version `0.3.3`, versionCode `6`.
+- APK signature must match prior releases; verified SHA-256:
   `43dffb7aa7b922220c9063c0f2ee9126a30c7d663e1971c8f214bdd2ac7b571f`.
 - Packaged engine/proof assets checked against the source assets. No Python runtime,
   private DSP source, keystore or real account data belongs in the release archive.
@@ -53,6 +56,10 @@ A fresh YouTube probe was rejected by this workspace's outbound proxy:
 `Tunnel connection failed: 403 Forbidden`. No network-policy bypass was used. The
 browser tests use synthetic responses and a fixture VM; they do not establish live
 provider compatibility, successful Google sign-in or accepted live attestation.
+
+Native Google account selection, provider consent and production JWKS retrieval
+have not been tested on a device. The identity tests use generated RSA fixtures;
+no real user token or credentials are used.
 
 Real-device checks remain: sign in on Google's page and select the intended channel;
 load its personalised Home and Explore; search and play a recording, including the

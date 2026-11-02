@@ -3,6 +3,19 @@
 Temporary name: **Music**. Native Android player from RTensorLabs with the approved
 Margin visual direction: warm paper, DM Sans, original provider artwork and raspberry controls.
 
+## Version 0.3.3 — native Google account selection
+
+- Adds Settings → Choose Google account using Android Credential Manager and the
+  registered Android/Web OAuth clients. Google's signed, nonce-bound response is
+  verified before accepting a profile.
+- Saves only the selected profile in encrypted local storage; ID/access tokens and
+  passwords are not saved. Native cancellation and sign-out are wired.
+- Keeps Google identity and YouTube feed connection as separate states. The chosen
+  email preselects Google's YouTube sign-in page. Account switches clear the previous
+  YouTube connection; existing web-only sign-in remains available.
+- Includes the v0.3.2 UI/artwork/transport changes below. Live Google sign-in and
+  YouTube playback remain unverified here. See [Google sign-in details](GOOGLE_SIGN_IN.md).
+
 ## Version 0.3.2 — playback transport candidate
 
 - Uses bounded one-MiB GVS query ranges across playback and seeks. The resolver's

@@ -8,10 +8,10 @@ Google OAuth asks the user to select an account and approve specific scopes.
 It returns permission tokens, never the user's password. Sign in with Google
 identity tokens alone do not authorize YouTube APIs. YouTube Data API access also
 does not expose YouTube Music Home recommendations or decoded audio/stream URLs.
-Native account selection would therefore be a separate integration, not a fix for
+Native account selection is a separate integration, not a fix for
 this adapter's stream HTTP 403 or a replacement for its web session.
 
-## Registration if native Google sign-in is added
+## Registered clients and native selection (v0.3.3)
 
 1. Create/select a project in https://console.cloud.google.com/.
 2. Configure Google Auth Platform branding and audience. While testing, add your
@@ -25,9 +25,37 @@ this adapter's stream HTTP 403 or a replacement for its web session.
 5. If adding official YouTube Data API features, enable that API and request only
    the permissions those features need, separately from basic Google identity.
 
-Registration alone does not add the SDK or provide YouTube Music playback access.
-No native-account chooser is enabled in v0.3.2. The existing web flow now confirms
-an authenticated Music page automatically and remains cancellable during checking.
+The registered public clients are in `app/src/main/res/values/google_oauth.xml`:
+- Android: `526624069759-obhnitrtm5scip7j2eutbm5aufrq916e.apps.googleusercontent.com`
+- Web/audience: `526624069759-l806dmep3tq1mkmbo0d08ga6l188ir69.apps.googleusercontent.com`
+
+v0.3.3 implements native device account selection using AndroidX Credential Manager
+1.6.0 and Google's ID library 1.1.1. The latter is pinned for Kotlin2.1 compatibility.
+The SDK uses the Web client as its token audience; the Android registration binds
+this package and signing certificate. No Google Services JSON or client secret is
+required in the APK.
+
+Settings → Choose Google account opens the Google provider on the device. The
+returned token is verified against Google's fixed HTTPS JWKS endpoint: RS256
+signature, issuer, Web audience, authorized presenter, expiration, issue time,
+one-use random nonce and verified email. Tokens are not logged or stored. Only
+subject/email/display name are encrypted in a separate local preference vault.
+Cancellation stops the credential request/key fetch. App sign-out clears the local
+profile and YouTube session and asks Credential Manager to clear its selection.
+It does not remove the phone's Google account.
+
+A selected Google account and a connected YouTube session are separate UI states.
+After successful selection, the chosen email is safely encoded as a Google-page
+login hint. The normal YouTube connection still requires the actual signed-in web
+session and WEB account verification. Changing Google accounts clears the previous
+YouTube connection to prevent another account's cached feed from remaining visible.
+A cancelled/unverified Google response does not replace the selected profile.
+
+The native chooser and real OAuth consent have not been tested on a phone here.
+An emulator/Robolectric fixture cannot establish Google Play services or Cloud
+registration compatibility. If Google reports registration error10, check the
+Android package/SHA-1 and that both clients belong to the same project. In Testing
+mode, add the intended Google account to the Google Auth Platform test users.
 
 Official documentation:
 - https://developer.android.com/identity/sign-in/credential-manager-siwg

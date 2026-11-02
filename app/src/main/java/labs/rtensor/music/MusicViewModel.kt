@@ -29,6 +29,8 @@ import labs.rtensor.music.data.Source
 import labs.rtensor.music.data.SourceException
 import labs.rtensor.music.data.Track
 import labs.rtensor.music.data.YouTubeSource
+import labs.rtensor.music.auth.GoogleProfile
+import labs.rtensor.music.auth.GoogleProfileStore
 import labs.rtensor.music.data.AccountState
 import labs.rtensor.music.data.FeedEntry
 import labs.rtensor.music.data.FeedSection
@@ -58,6 +60,9 @@ data class MusicState(
     val error: String? = null,
     val errorDiagnostic: String = "",
     val account: AccountState = AccountState(),
+    val googleProfile: GoogleProfile? = null,
+    val googleBusy: Boolean = false,
+    val googleError: String? = null,
     val feed: List<FeedSection> = emptyList(),
     val feedBusy: Boolean = false,
     val feedHasMore: Boolean = false,
@@ -74,10 +79,11 @@ data class MusicState(
 @UnstableApi
 class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val library = LibraryStore(application)
+    private val googleProfiles = GoogleProfileStore(application)
     private val youtube = YouTubeSource(application)
     private val updater = GitHubUpdater(application)
     private val mutable = MutableStateFlow(MusicState(
-        saved = library.tracks("saved"), history = library.tracks("history"),
+        saved = library.tracks("saved"), history = library.tracks("history"), googleProfile = googleProfiles.load(),
         theme = library.theme, reducedMotion = library.reducedMotion,
     ))
     val state = mutable.asStateFlow()
@@ -171,6 +177,19 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
     fun retryCollection() { mutable.value.collectionEntry?.let(::browse) }
+    fun googleSelecting() { mutable.update { it.copy(googleBusy = true, googleError = null) } }
+    fun googleSelected(profile: GoogleProfile): Boolean {
+        val changed = profile.subject != mutable.value.googleProfile?.subject
+        googleProfiles.save(profile)
+        if (changed) disconnectAccount()
+        mutable.update { it.copy(googleProfile = profile, googleBusy = false, googleError = null) }
+        return changed
+    }
+    fun googleSelectionEnded(error: String? = null) { mutable.update { it.copy(googleBusy = false, googleError = error) } }
+    fun forgetGoogleProfile() {
+        googleProfiles.clear(); disconnectAccount()
+        mutable.update { it.copy(googleProfile = null, googleBusy = false, googleError = null) }
+    }
     fun connectAccount() { youtube.runtime.beginSignIn() }
     fun disconnectAccount() {
         controller?.stop(); controller?.clearMediaItems()

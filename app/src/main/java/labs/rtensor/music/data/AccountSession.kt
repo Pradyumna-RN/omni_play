@@ -14,8 +14,8 @@ data class AccountState(val connected: Boolean = false, val connecting: Boolean 
     val name: String = "", val error: String? = null, val revision: Long = 0)
 
 /** The YouTube web session stays in Android KeyStore-encrypted app storage. */
-class AccountSession(context: Context, private val keyProvider: () -> SecretKey = ::androidKey) {
-    private val prefs = context.getSharedPreferences("youtube_account", Context.MODE_PRIVATE)
+class AccountSession(context: Context, prefsName: String = "youtube_account", private val keyProvider: () -> SecretKey = ::androidKey) {
+    private val prefs = context.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
     @Synchronized fun load(): String? {
         val stored = prefs.getString("credentials", null) ?: return null
         return try {

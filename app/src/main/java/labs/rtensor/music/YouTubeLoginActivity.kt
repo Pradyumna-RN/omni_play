@@ -80,7 +80,7 @@ class YouTubeLoginActivity : ComponentActivity() {
                                 }
                                 // A fresh, app-owned login. No external browser cookies are read.
                                 CookieManager.getInstance().removeAllCookies {
-                                    loadUrl("https://accounts.google.com/ServiceLogin?continue=https%3A%2F%2Fmusic.youtube.com")
+                                    loadUrl(signInUrl(intent.getStringExtra(LOGIN_HINT)))
                                 }
                             }
                         })
@@ -127,4 +127,12 @@ class YouTubeLoginActivity : ComponentActivity() {
         if (isFinishing) clearBrowserCookies()
         super.onDestroy()
     }
+    companion object {
+        const val LOGIN_HINT = "google_account_hint"
+        fun signInUrl(email: String?): String = android.net.Uri.parse("https://accounts.google.com/ServiceLogin").buildUpon()
+            .appendQueryParameter("continue", "https://music.youtube.com")
+            .apply { email?.takeIf { it.length <= 320 && it.contains('@') && !it.contains('\r') && !it.contains('\n') }?.let { appendQueryParameter("login_hint", it) } }
+            .build().toString()
+    }
+
 }

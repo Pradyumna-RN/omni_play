@@ -120,6 +120,7 @@ fun MusicApp(
     initialPage: String = "home",
     onRefreshFeed: () -> Unit = {}, onMoreFeed: () -> Unit = {}, onBrowse: (FeedEntry) -> Unit = {}, onRetryCollection: () -> Unit = {},
     onConnect: () -> Unit = {}, onDisconnect: () -> Unit = {}, onCancelConnect: () -> Unit = {}, onRefreshExplore: () -> Unit = {},
+    onGoogleSignIn: () -> Unit = {}, onGoogleSignOut: () -> Unit = {}, onCancelGoogle: () -> Unit = {},
     onCheckUpdates: () -> Unit = {}, onDownloadUpdate: () -> Unit = {}, onInstallUpdate: () -> Unit = {},
 ) {
     var page by rememberSaveable { mutableStateOf(initialPage) }
@@ -181,7 +182,7 @@ fun MusicApp(
                         "queue" -> QueueScreen(state, ::play)
                         "collection" -> CollectionScreen(state, ::play, onSave)
                         "settings" -> SettingsScreen(state, onTheme, onReducedMotion, onOpenLocal, onClearHistory,
-                            onConnect, onDisconnect, onCancelConnect, onCheckUpdates, onDownloadUpdate, onInstallUpdate)
+                            onConnect, onDisconnect, onCancelConnect, onGoogleSignIn, onGoogleSignOut, onCancelGoogle, onCheckUpdates, onDownloadUpdate, onInstallUpdate)
                         else -> HomeScreen(state, ::focusSearch, onOpenLocal, ::play, ::openEntry, onRefreshFeed, onMoreFeed)
                     }
                 }
@@ -500,6 +501,7 @@ private fun QueueScreen(state: MusicState, onPlay: (Track, List<Track>) -> Unit)
 @Composable
 private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onReduced: (Boolean) -> Unit, onLocal: () -> Unit, onClearHistory: () -> Unit,
     onConnect: () -> Unit, onDisconnect: () -> Unit, onCancelConnect: () -> Unit,
+    onGoogleSignIn: () -> Unit, onGoogleSignOut: () -> Unit, onCancelGoogle: () -> Unit,
     onCheckUpdates: () -> Unit, onDownloadUpdate: () -> Unit, onInstallUpdate: () -> Unit) {
     var confirmClear by remember { mutableStateOf(false) }
     var showLicences by remember { mutableStateOf(false) }
@@ -510,6 +512,21 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onReduc
         SettingsSectionTitle("LISTENING")
         SettingRow("Music source", "YouTube Music · search, links and provider feed")
         SettingRow("Recommendations", "Automatic · the provider’s order is preserved")
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("Google account", fontSize = 16.sp, fontWeight = FontWeight.Medium)
+            if (state.googleProfile != null) {
+                Text(state.googleProfile.name.ifBlank { state.googleProfile.email }, fontSize = 15.sp)
+                Text(state.googleProfile.email, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else Text("Choose an account already on your device. Then connect its YouTube feed.", fontSize = 14.sp, lineHeight = 22.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (state.googleBusy) {
+                LinearProgressIndicator(Modifier.fillMaxWidth())
+                TextButton(onClick = onCancelGoogle) { Text("Cancel Google sign-in") }
+            } else {
+                OutlinedButton(onClick = onGoogleSignIn, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text(if (state.googleProfile == null) "Choose Google account" else "Change Google account", fontSize = 15.sp) }
+                if (state.googleProfile != null) TextButton(onClick = onGoogleSignOut) { Text("Sign out of Google", fontSize = 15.sp) }
+            }
+            state.googleError?.let { Text(it, fontSize = 14.sp, lineHeight = 22.sp, color = MaterialTheme.colorScheme.primary) }
+        }
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("Your YouTube account", fontSize = 15.sp)
             if (state.account.connected) {

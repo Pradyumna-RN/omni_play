@@ -132,6 +132,22 @@ class NativeUiTest {
         org.junit.Assert.assertTrue(clipboard.primaryClip!!.getItemAt(0).text.contains("media probe HTTP 403"))
         capture("player-error")
     }
+    @Test fun googleDeviceSelectionDoesNotPretendTheYoutubeSessionIsConnected() {
+        var selected = false
+        val profile = labs.rtensor.music.auth.GoogleProfile("fixture-subject", "listener@example.test", "Fixture listener")
+        compose.setContent { MusicApp(MusicState(googleProfile = profile, reducedMotion = true, theme = "light"), initialPage = "settings", onGoogleSignIn = { selected = true }) }
+        compose.onNodeWithText("listener@example.test").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Change Google account").performScrollTo().performClick()
+        org.junit.Assert.assertTrue(selected)
+        compose.onNodeWithText("Sign in to YouTube").performScrollTo().assertIsDisplayed()
+        capture("google-selected")
+    }
+    @Test fun nativeGoogleSelectionHasAnExplicitCancelAction() {
+        var cancelled = false
+        compose.setContent { MusicApp(MusicState(googleBusy = true, reducedMotion = true, theme = "light"), initialPage = "settings", onCancelGoogle = { cancelled = true }) }
+        compose.onNodeWithText("Cancel Google sign-in").performScrollTo().performClick()
+        org.junit.Assert.assertTrue(cancelled)
+    }
     @Test fun verifiedUpdateHasAnExplicitInstallAction() {
         var installed = false
         compose.setContent { MusicApp(MusicState(update = UpdateState(apkPath = "/test/verified.apk", message = "Verified update. Ready to install."), reducedMotion = true, theme = "light"), initialPage = "settings", onInstallUpdate = { installed = true }) }

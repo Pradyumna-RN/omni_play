@@ -22,6 +22,15 @@ import android.net.Uri
 import android.provider.Settings
 import java.io.File
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.credentials.exceptions.GetCredentialCancellationException
+import androidx.credentials.exceptions.GetCredentialProviderConfigurationException
+import androidx.credentials.exceptions.NoCredentialException
+import androidx.credentials.exceptions.GetCredentialException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
+import labs.rtensor.music.auth.GoogleAccountSignIn
 import androidx.media3.common.util.UnstableApi
 import labs.rtensor.music.ui.MusicApp
 
@@ -30,6 +39,8 @@ class MainActivity : ComponentActivity() {
     private val model: MusicViewModel by viewModels()
     private var sharedQuery by mutableStateOf<String?>(null)
     private var pendingInstall: String? = null
+    private val googleSignIn by lazy { GoogleAccountSignIn(applicationContext) }
+    private var googleJob: Job? = null
     private val installPermission = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         pendingInstall?.let { path ->
             pendingInstall = null
@@ -75,15 +86,46 @@ class MainActivity : ComponentActivity() {
                 onShareConsumed = { sharedQuery = null },
                 onRefreshFeed = { model.refreshFeed() }, onMoreFeed = { model.refreshFeed(true) },
                 onBrowse = model::browse, onRetryCollection = model::retryCollection,
-                onConnect = {
-                    model.connectAccount()
-                    youtubeSignIn.launch(Intent(this@MainActivity, YouTubeLoginActivity::class.java))
-                }, onDisconnect = model::disconnectAccount,
+                onConnect = ::connectYouTube,
+                onGoogleSignIn = ::chooseGoogleAccount,
+                onGoogleSignOut = {
+                    model.forgetGoogleProfile()
+                    lifecycleScope.launch { try { googleSignIn.clearSelection() } catch (e: CancellationException) { throw e } catch (_: Exception) { /* Local sign-out is complete. */ } }
+                }, onCancelGoogle = { googleJob?.cancel(); model.googleSelectionEnded() },
+                onDisconnect = model::disconnectAccount,
                 onCancelConnect = model::cancelAccountConnection,
                 onRefreshExplore = model::refreshExplore,
                 onCheckUpdates = model::checkUpdates, onDownloadUpdate = model::downloadUpdate,
                 onInstallUpdate = { state.update.apkPath?.let(::requestInstall) },
             )
+        }
+    }
+
+    private fun connectYouTube() {
+        model.connectAccount()
+        youtubeSignIn.launch(Intent(this, YouTubeLoginActivity::class.java).apply {
+            model.state.value.googleProfile?.email?.let { putExtra(YouTubeLoginActivity.LOGIN_HINT, it) }
+        })
+    }
+    private fun chooseGoogleAccount() {
+        if (googleJob?.isActive == true) return
+        model.googleSelecting()
+        googleJob = lifecycleScope.launch {
+            try {
+                val profile = googleSignIn.select(this@MainActivity)
+                val changed = model.googleSelected(profile)
+                if (changed || !model.state.value.account.connected) connectYouTube()
+            } catch (_: GetCredentialCancellationException) { model.googleSelectionEnded() }
+            catch (e: CancellationException) { model.googleSelectionEnded(); throw e }
+            catch (_: NoCredentialException) { model.googleSelectionEnded("No Google account is available. Add one in Android Settings, or use YouTube sign-in below.") }
+            catch (_: GetCredentialProviderConfigurationException) { model.googleSelectionEnded("Update Google Play services to choose a device account, or use YouTube sign-in below.") }
+            catch (error: GetCredentialException) {
+                val status = Regex("""\[(\d{1,5})\]""").find(error.message.orEmpty())?.groupValues?.get(1)?.toIntOrNull()
+                val type = error.type.substringAfterLast('.').takeIf { it.matches(Regex("[A-Za-z_0-9]{1,70}")) } ?: "UNKNOWN"
+                model.googleSelectionEnded(if (status == 10) "Google rejected the app registration (10). Check the package name and signing fingerprint in Google Cloud."
+                    else "Google account selection failed ($type). Retry, or use YouTube sign-in below.")
+            }
+            catch (_: Exception) { model.googleSelectionEnded("Google sign-in could not be verified. Check your connection and retry, or use YouTube sign-in below.") }
         }
     }
 
