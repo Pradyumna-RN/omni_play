@@ -866,13 +866,16 @@ private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () ->
 
 /**
  * The cover follows your finger sideways. Let go past about a quarter of its width and it
- * slides off and the next (or previous) recording fades in; otherwise it eases back.
+ * continues in that direction as the next recording fades in; otherwise it eases back.
  */
 @Composable
 private fun SwipeableCover(track: Track, reduced: Boolean,
     canPrevious: Boolean, canNext: Boolean, onPrevious: () -> Unit, onNext: () -> Unit) {
     val offset = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
+    val exitingOffsets = remember { mutableStateMapOf<String, Float>() }
+    val targetId by rememberUpdatedState(track.id)
+    LaunchedEffect(track.id) { offset.snapTo(0f) }
     val next by rememberUpdatedState(onNext)
     val previous by rememberUpdatedState(onPrevious)
     val allowNext by rememberUpdatedState(canNext)
@@ -881,21 +884,33 @@ private fun SwipeableCover(track: Track, reduced: Boolean,
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val width = with(LocalDensity.current) { maxWidth.toPx() }
         Crossfade(track, animationSpec = tween(if (reduced) 0 else SwapMs), label = "now cover") { shown ->
+            DisposableEffect(shown.id) { onDispose { exitingOffsets.remove(shown.id) } }
             Artwork(shown, Modifier.fillMaxWidth().aspectRatio(1f)
                 .graphicsLayer {
-                    translationX = offset.value
-                    alpha = 1f - (abs(offset.value) / width).coerceIn(0f, 1f) * .5f
+                    val x = if (shown.id == targetId) offset.value else exitingOffsets[shown.id] ?: 0f
+                    translationX = x
+                    alpha = 1f - (abs(x) / width).coerceIn(0f, 1f) * .5f
                     shape = RoundedCornerShape(18.dp); clip = true
                 }
-                .pointerInput(Unit) {
+                .pointerInput(shown.id, reduced, width) {
                     detectHorizontalDragGestures(
                         onDragEnd = {
                             val value = offset.value
                             val threshold = width * .25f
                             scope.launch {
                                 when {
-                                    value < -threshold && allowNext -> { offset.animateTo(-width / 3, tween(if (reduced) 0 else 120, easing = EmphasizedAccelerate)); next(); offset.snapTo(0f) }
-                                    value > threshold && allowPrevious -> { offset.animateTo(width / 3, tween(if (reduced) 0 else 120, easing = EmphasizedAccelerate)); previous(); offset.snapTo(0f) }
+                                    value < -threshold && allowNext -> {
+                                        offset.animateTo((value - width / 12).coerceAtLeast(-width), tween(if (reduced) 0 else 120, easing = EmphasizedAccelerate))
+                                        exitingOffsets[shown.id] = offset.value
+                                        next()
+                                        offset.animateTo(0f, settle)
+                                    }
+                                    value > threshold && allowPrevious -> {
+                                        offset.animateTo((value + width / 12).coerceAtMost(width), tween(if (reduced) 0 else 120, easing = EmphasizedAccelerate))
+                                        exitingOffsets[shown.id] = offset.value
+                                        previous()
+                                        offset.animateTo(0f, settle)
+                                    }
                                     else -> offset.animateTo(0f, settle)
                                 }
                             }
@@ -1243,7 +1258,7 @@ private fun IconTile(icon: ImageVector) {
 // Mini player
 // ---------------------------------------------------------------------------------------
 
-/** Tap or swipe up to open the player; swipe sideways to skip. The card tilts and springs back. */
+/** Tap or swipe up to open; swipe sideways to skip. The card follows the gesture and eases back. */
 @Composable
 private fun MiniPlayer(state: MusicState, onOpen: () -> Unit, onToggle: () -> Unit, onNext: () -> Unit, onPrevious: () -> Unit) {
     val track = state.current ?: return

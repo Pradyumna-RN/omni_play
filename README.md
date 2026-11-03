@@ -3,6 +3,24 @@
 Temporary name: **Music**. Native Android player from RTensorLabs with the approved
 Margin visual direction: warm paper, DM Sans, original provider artwork and raspberry controls.
 
+## Version 0.3.9 — player motion and gestures
+
+Includes Claude's `73e4cb6` update: a queue below the player, calmer transitions,
+Home/Explore pull-to-refresh, and the recommendation refinements in `7faea75`.
+
+- Fixes long cover swipes briefly reversing direction on release. The outgoing
+  cover keeps its release position during the fade and the incoming cover starts centred.
+- Adds 12 Compose checks with animations enabled and actual pointer gestures:
+  covers, title/control fades, timeline progress and seeking, mini-player navigation,
+  queue selection, refresh, reduced motion and compact screens with large text.
+- All **88 Android/JVM checks**, **15 JavaScript unit tests**, **43 Chromium engine
+  checks** and **6 proof checks** passed. The signed APK keeps the previous certificate.
+
+The release includes frame captures and GIF previews from the native-graphics UI
+tests. They use fixture tracks with placeholder covers and a controlled animation
+clock. They do not measure phone frame rate or establish live YouTube playback.
+See [verification details](VERIFICATION.md).
+
 ## Version 0.3.8 — media fallback and seek fixes
 
 Includes Claude's visionOS 1.04 / visionOS Music / embedded-client update, plus:
