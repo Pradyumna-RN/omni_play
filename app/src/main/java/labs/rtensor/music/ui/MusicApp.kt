@@ -59,6 +59,13 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.semantics.setProgress
+import androidx.compose.foundation.gestures.detectTapGestures
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -213,11 +220,12 @@ fun MusicApp(
                 topBar = {
                     AppHeader(page, onHome = { navigate("home") }, onSettings = { navigate("settings") }, onBack = {
                         page = when (page) { "now" -> back; else -> root }
-                    })
+                    }) { SearchBar(state, onQuery, onSearch, searchFocus, Modifier.weight(1f)) }
                 },
                 bottomBar = {
                     if (page in rootPages + "collection") {
-                        Column(Modifier.navigationBarsPadding()) {
+                        Column(Modifier.background(MaterialTheme.colorScheme.surface).navigationBarsPadding()) {
+                            HorizontalDivider(thickness = .5.dp, color = MaterialTheme.colorScheme.outline)
                             AnimatedVisibility(
                                 visible = state.current != null,
                                 enter = if (reduced) EnterTransition.None else slideInVertically(tween(360, easing = EmphasizedDecelerate)) { it } + fadeIn(tween(240)),
@@ -233,7 +241,6 @@ fun MusicApp(
                 containerColor = MaterialTheme.colorScheme.background,
             ) { inset ->
                 Column(Modifier.fillMaxSize().padding(inset)) {
-                    if (page in rootPages) SearchBar(state, onQuery, onSearch, searchFocus)
                     var lastError by remember { mutableStateOf(state.error) }
                     if (state.error != null) lastError = state.error
                     AnimatedVisibility(
@@ -273,23 +280,26 @@ fun MusicApp(
 }
 
 @Composable
-private fun AppHeader(page: String, onHome: () -> Unit, onSettings: () -> Unit, onBack: () -> Unit) {
-    Row(Modifier.fillMaxWidth().statusBarsPadding().padding(start = 18.dp, end = 8.dp, top = 8.dp, bottom = 8.dp).height(52.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+private fun AppHeader(page: String, onHome: () -> Unit, onSettings: () -> Unit, onBack: () -> Unit, search: @Composable RowScope.() -> Unit) {
+    Row(Modifier.fillMaxWidth().statusBarsPadding().padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp).heightIn(min = 48.dp),
+        verticalAlignment = Alignment.CenterVertically) {
         if (page in listOf("now", "settings", "collection")) {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") }
-            Caption(when (page) { "now" -> "NOW PLAYING"; "collection" -> "COLLECTION"; else -> "SETTINGS" })
+            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                Caption(when (page) { "now" -> "NOW PLAYING"; "collection" -> "COLLECTION"; else -> "SETTINGS" })
+            }
             Spacer(Modifier.width(48.dp))
         } else {
-            Column(Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onHome).padding(6.dp)) {
-                Text("MUSIC", fontFamily = font, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 5.sp)
-                Spacer(Modifier.height(7.dp))
-                Box(Modifier.width(22.dp).height(2.dp).background(MaterialTheme.colorScheme.primary, RoundedCornerShape(1.dp)))
+            // A small monogram stands in for the old wordmark so search can share the row.
+            Column(Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onHome).padding(horizontal = 6.dp, vertical = 8.dp)
+                .semantics { contentDescription = "Music, go home" }, horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("M", fontFamily = font, fontSize = 18.sp, lineHeight = 18.sp, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(4.dp))
+                Box(Modifier.width(12.dp).height(2.dp).background(MaterialTheme.colorScheme.primary, RoundedCornerShape(1.dp)))
             }
-            IconButton(onClick = onSettings, modifier = Modifier.size(48.dp)) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.CenterEnd) {
-                    Icon(Icons.Outlined.Settings, "Open settings", Modifier.size(24.dp))
-                }
-            }
+            Spacer(Modifier.width(6.dp))
+            search()
+            IconButton(onClick = onSettings, modifier = Modifier.size(48.dp)) { Icon(Icons.Outlined.Settings, "Open settings", Modifier.size(22.dp)) }
         }
     }
 }
@@ -307,8 +317,8 @@ private fun AnimatedContentTransitionScope<String>.screenTransition(from: String
             slideOutVertically(tween(180, easing = EmphasizedAccelerate)) { it / 10 } + fadeOut(tween(180))).apply { targetContentZIndex = -1f }.using(SizeTransform(clip = false))
         from in tabs && to in tabs -> {
             val dir = if (tabs.indexOf(to) > tabs.indexOf(from)) 1 else -1
-            (slideInHorizontally(PageSpring) { w -> dir * w / 5 } + fadeIn(tween(200, 40)) togetherWith
-                slideOutHorizontally(PageSpring) { w -> -dir * w / 7 } + fadeOut(tween(120))).using(SizeTransform(clip = false))
+            (slideInHorizontally(tween(240, easing = EmphasizedDecelerate)) { w -> dir * w / 12 } + fadeIn(tween(200, 40)) togetherWith
+                slideOutHorizontally(tween(160, easing = EmphasizedAccelerate)) { w -> -dir * w / 16 } + fadeOut(tween(100))).using(null)
         }
         else -> {
             val forward = to in listOf("settings", "collection", "search")
@@ -328,48 +338,47 @@ private val navTabs = listOf(
 )
 
 /**
- * A floating bar: one highlight that slides between tabs on a spring, the chosen icon
- * switches to its filled form with a small bounce, and the label fades in beside it.
+ * A flat tab bar docked under the mini player. A soft pill sits behind the chosen icon and
+ * stretches across to the next tab, its leading edge first and the trailing edge catching up,
+ * like ink being dragged. The pill is painted in the draw phase, so switching tabs never
+ * re-measures the bar, and labels stay put instead of growing in and out.
  */
 @Composable
 private fun AppNavigation(page: String, reduced: Boolean, onSelect: (String) -> Unit) {
     val selectedIndex = navTabs.indexOfFirst { it.id == page }.coerceAtLeast(0)
     val scheme = MaterialTheme.colorScheme
-    Surface(
-        shape = RoundedCornerShape(28.dp), color = scheme.surface, shadowElevation = 10.dp, tonalElevation = 2.dp,
-        border = BorderStroke(.5.dp, scheme.outline.copy(alpha = .7f)),
-        modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 10.dp).height(64.dp),
+    val lead = remember { Animatable(selectedIndex.toFloat()) }
+    val trail = remember { Animatable(selectedIndex.toFloat()) }
+    LaunchedEffect(selectedIndex, reduced) {
+        val target = selectedIndex.toFloat()
+        if (reduced) { lead.snapTo(target); trail.snapTo(target); return@LaunchedEffect }
+        launch { lead.animateTo(target, tween(200, easing = EmphasizedDecelerate)) }
+        trail.animateTo(target, tween(240, delayMillis = 50, easing = EmphasizedDecelerate))
+    }
+    val pill = scheme.secondaryContainer
+    Row(
+        Modifier.fillMaxWidth().height(60.dp).padding(horizontal = 8.dp).drawBehind {
+            val slot = size.width / navTabs.size
+            val w = 56.dp.toPx(); val h = 30.dp.toPx(); val top = 7.dp.toPx()
+            val left = slot * (minOf(lead.value, trail.value) + .5f) - w / 2
+            val right = slot * (maxOf(lead.value, trail.value) + .5f) + w / 2
+            drawRoundRect(pill, Offset(left, top), Size(right - left, h), CornerRadius(h / 2))
+        },
     ) {
-        BoxWithConstraints(Modifier.fillMaxSize().padding(6.dp)) {
-            val slot = maxWidth / navTabs.size
-            val offset by animateDpAsState(slot * selectedIndex,
-                if (reduced) snap<Dp>() else spring<Dp>(dampingRatio = .78f, stiffness = 500f), label = "nav indicator")
-            Box(Modifier.offset(x = offset).width(slot).fillMaxHeight().padding(horizontal = 2.dp)
-                .background(scheme.secondaryContainer, RoundedCornerShape(22.dp)))
-            Row(Modifier.fillMaxSize()) {
-                navTabs.forEachIndexed { index, tab ->
-                    val selected = index == selectedIndex
-                    val color by animateColorAsState(if (selected) scheme.primary else scheme.onSurfaceVariant, tween(if (reduced) 0 else 200), label = "nav colour")
-                    val bounce = remember { Animatable(1f) }
-                    LaunchedEffect(selected) {
-                        if (selected && !reduced) { bounce.snapTo(.82f); bounce.animateTo(1f, spring(dampingRatio = .42f, stiffness = 600f)) }
-                    }
-                    val source = remember { MutableInteractionSource() }
-                    Row(
-                        Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(22.dp))
-                            .clickable(interactionSource = source, indication = LocalIndication.current) { onSelect(tab.id) }
-                            .semantics { contentDescription = tab.label },
-                        horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(if (selected) tab.selectedIcon else tab.icon, null, tint = color,
-                            modifier = Modifier.size(22.dp).graphicsLayer { scaleX = bounce.value; scaleY = bounce.value })
-                        AnimatedVisibility(selected,
-                            enter = if (reduced) EnterTransition.None else expandHorizontally(spring(stiffness = 500f)) + fadeIn(tween(180, 60)),
-                            exit = if (reduced) ExitTransition.None else shrinkHorizontally(spring(stiffness = 600f)) + fadeOut(tween(90))) {
-                            Text(tab.label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = color, maxLines = 1, modifier = Modifier.padding(start = 8.dp))
-                        }
-                    }
+        navTabs.forEachIndexed { index, tab ->
+            val selected = index == selectedIndex
+            val color by animateColorAsState(if (selected) scheme.onSurface else scheme.onSurfaceVariant, tween(if (reduced) 0 else QuickMs), label = "tab colour")
+            Column(
+                Modifier.weight(1f).fillMaxHeight()
+                    .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { onSelect(tab.id) }
+                    .semantics { contentDescription = tab.label },
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Box(Modifier.padding(top = 7.dp).size(56.dp, 30.dp), contentAlignment = Alignment.Center) {
+                    Icon(if (selected) tab.selectedIcon else tab.icon, null, tint = color, modifier = Modifier.size(22.dp))
                 }
+                Text(tab.label, fontSize = 11.sp, lineHeight = 14.sp, letterSpacing = .3.sp, color = color, maxLines = 1,
+                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal, modifier = Modifier.padding(top = 3.dp))
             }
         }
     }
@@ -384,11 +393,11 @@ private fun HomeScreen(state: MusicState, onSearch: () -> Unit, onPlay: (Track, 
     val showHero = recent != null || !hasFeed
     PrefetchArtwork(state.feed.flatMap { it.items.take(10).map(FeedEntry::artwork) } + state.forYou.take(12).map(Track::artwork), 156.dp)
     PullToRefresh(state.feedBusy, onRefresh) {
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 10.dp, bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(22.dp)) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
         item(key = "title") {
             Column {
                 PageTitle(if (recent != null) "Back to your music" else if (hasFeed) "For your ears" else "Room to listen")
-                Spacer(Modifier.height(18.dp))
+                Spacer(Modifier.height(8.dp))
                 LoadingLine(state.feedBusy, state.reducedMotion)
             }
         }
@@ -407,14 +416,14 @@ private fun HomeScreen(state: MusicState, onSearch: () -> Unit, onPlay: (Track, 
             }
         }
         if (showHero) item(key = "hero") {
-            Row(Modifier.fillMaxWidth().heightIn(min = 265.dp), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(.46f)) {
                     Caption(if (recent == null) "START WITH A SONG" else "LAST PLAYED")
-                    Spacer(Modifier.height(17.dp))
-                    Text(recent?.title ?: "Find your\nnext repeat.", fontFamily = font, fontWeight = FontWeight.Medium, fontSize = 31.sp, lineHeight = 34.sp, letterSpacing = (-1.2).sp, maxLines = 4, overflow = TextOverflow.Ellipsis)
+                    Spacer(Modifier.height(10.dp))
+                    Text(recent?.title ?: "Find your\nnext repeat.", fontFamily = font, fontWeight = FontWeight.Medium, fontSize = 27.sp, lineHeight = 31.sp, letterSpacing = (-1).sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
                     Spacer(Modifier.height(10.dp))
                     Text(recent?.artist ?: "A song, an artist,\na familiar feeling.", fontSize = 12.sp, lineHeight = 19.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    Spacer(Modifier.height(27.dp))
+                    Spacer(Modifier.height(18.dp))
                     Row(Modifier.clip(RoundedCornerShape(24.dp)).pressable { if (recent != null) onPlay(recent, state.history) else onSearch() }.padding(end = 12.dp),
                         verticalAlignment = Alignment.CenterVertically) {
                         Box(Modifier.size(46.dp).background(MaterialTheme.colorScheme.primary, CircleShape), contentAlignment = Alignment.Center) {
@@ -424,7 +433,7 @@ private fun HomeScreen(state: MusicState, onSearch: () -> Unit, onPlay: (Track, 
                         Text(if (recent == null) "Find music" else "Play", fontSize = 14.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Medium)
                     }
                 }
-                Artwork(recent, Modifier.weight(.54f).height(270.dp).clip(RoundedCornerShape(14.dp)), size = 270.dp)
+                Artwork(recent, Modifier.weight(.54f).aspectRatio(.9f).clip(RoundedCornerShape(14.dp)), size = 220.dp)
             }
         }
         if (state.history.isNotEmpty()) item(key = "recent") {
@@ -606,13 +615,13 @@ private fun CollectionScreen(state: MusicState, onPlay: (Track, List<Track>) -> 
 }
 
 @Composable
-private fun SearchBar(state: MusicState, onQuery: (String) -> Unit, onSearch: () -> Unit, focus: FocusRequester) {
+private fun SearchBar(state: MusicState, onQuery: (String) -> Unit, onSearch: () -> Unit, focus: FocusRequester, modifier: Modifier = Modifier) {
     val keyboard = LocalSoftwareKeyboardController.current
     val submit = { keyboard?.hide(); onSearch() }
     OutlinedTextField(
         value = state.query, onValueChange = onQuery,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp).focusRequester(focus).semantics { contentDescription = "Search music" }, singleLine = true,
-        placeholder = { Text("Songs, artists or a YouTube link", fontSize = 13.sp) },
+        modifier = modifier.focusRequester(focus).semantics { contentDescription = "Search music" }, singleLine = true,
+        placeholder = { Text("Songs, artists or a link", fontSize = 13.sp, maxLines = 1) },
         leadingIcon = { IconButton(onClick = submit, enabled = state.query.isNotBlank() && !state.searching) { Icon(Icons.Outlined.Search, "Search YouTube", Modifier.size(20.dp)) } },
         trailingIcon = { if (state.query.isNotEmpty()) IconButton(onClick = { onQuery(""); keyboard?.hide() }) { Icon(Icons.Outlined.Close, "Clear search", Modifier.size(18.dp)) } },
         shape = RoundedCornerShape(14.dp),
@@ -807,11 +816,18 @@ private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () ->
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 10.dp, bottom = 32.dp)) {
             item(key = "player") {
                 Column(Modifier.fillMaxWidth()) {
-                    SwipeableCover(track, reduced, canPrevious = canSkip, canNext = canSkip && hasNext, onPrevious = onPrevious, onNext = onNext)
+                    CoverDeck(track, queueIndex, state.queue.getOrNull(queueIndex - 1), state.queue.getOrNull(queueIndex + 1), reduced,
+                        canPrevious = canSkip, canNext = canSkip && hasNext, onPrevious = onPrevious, onNext = onNext)
                     Spacer(Modifier.height(16.dp))
                     ProgressLine(position, duration, playing, reduced, onSeek)
                     Spacer(Modifier.height(18.dp))
-                    Crossfade(track, animationSpec = tween(if (reduced) 0 else SwapMs), label = "now title") { shown ->
+                    // The title rises into place from below while the old one lifts away: a different
+                    // motion from the cover so the two never look like one sliding block.
+                    AnimatedContent(track, contentKey = { it.id }, label = "now title", transitionSpec = {
+                        if (reduced) (EnterTransition.None togetherWith ExitTransition.None).using(null)
+                        else ((fadeIn(tween(220, 60, EmphasizedDecelerate)) + slideInVertically(tween(280, easing = EmphasizedDecelerate)) { it / 4 }) togetherWith
+                            (fadeOut(tween(100)) + slideOutVertically(tween(140, easing = EmphasizedAccelerate)) { -it / 8 })).using(SizeTransform(clip = false))
+                    }) { shown ->
                         Column(Modifier.fillMaxWidth()) {
                             Text(shown.title, fontFamily = font, fontSize = 32.sp, lineHeight = 37.sp, letterSpacing = (-1.2).sp, fontWeight = FontWeight.Medium, maxLines = 3, overflow = TextOverflow.Ellipsis)
                             Text(shown.artist, fontSize = 17.sp, lineHeight = 24.sp, color = scheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp), maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -864,108 +880,198 @@ private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () ->
     }
 }
 
+/** What the deck remembers between frames without causing recomposition. */
+private class DeckMemory(var track: Track, var index: Int) {
+    var thrown = false
+    var motion: Job? = null
+}
+
 /**
- * The cover follows your finger sideways. Let go past about a quarter of its width and it
- * slides off and the next (or previous) recording fades in; otherwise it eases back.
+ * The cover is the top card of a small deck. Dragging swings it off on an arc (it pivots
+ * around a point below the card) while the next or previous cover rises from underneath.
+ * Let go past a third of the width, or flick, and the card is thrown; the one underneath is
+ * already in place, so nothing crossfades. Skips from the buttons deal the new card in from
+ * the side it comes from. Every frame of this runs in the draw phase.
  */
 @Composable
-private fun SwipeableCover(track: Track, reduced: Boolean,
+private fun CoverDeck(track: Track, index: Int, previousTrack: Track?, nextTrack: Track?, reduced: Boolean,
     canPrevious: Boolean, canNext: Boolean, onPrevious: () -> Unit, onNext: () -> Unit) {
-    val offset = remember { Animatable(0f) }
+    val drag = remember { mutableFloatStateOf(0f) }
+    val deal = remember { Animatable(1f) }
+    var dealFrom by remember { mutableFloatStateOf(0f) }
+    var outgoing by remember { mutableStateOf<Track?>(null) }
+    val memory = remember { DeckMemory(track, index) }
     val scope = rememberCoroutineScope()
     val next by rememberUpdatedState(onNext)
     val previous by rememberUpdatedState(onPrevious)
     val allowNext by rememberUpdatedState(canNext)
     val allowPrevious by rememberUpdatedState(canPrevious)
-    val settle = tween<Float>(if (reduced) 0 else SwapMs, easing = EmphasizedDecelerate)
-    BoxWithConstraints(Modifier.fillMaxWidth()) {
-        val width = with(LocalDensity.current) { maxWidth.toPx() }
-        Crossfade(track, animationSpec = tween(if (reduced) 0 else SwapMs), label = "now cover") { shown ->
-            Artwork(shown, Modifier.fillMaxWidth().aspectRatio(1f)
-                .graphicsLayer {
-                    translationX = offset.value
-                    alpha = 1f - (abs(offset.value) / width).coerceIn(0f, 1f) * .5f
-                    shape = RoundedCornerShape(18.dp); clip = true
-                }
-                .pointerInput(Unit) {
-                    detectHorizontalDragGestures(
-                        onDragEnd = {
-                            val value = offset.value
-                            val threshold = width * .25f
-                            scope.launch {
-                                when {
-                                    value < -threshold && allowNext -> { offset.animateTo(-width / 3, tween(if (reduced) 0 else 120, easing = EmphasizedAccelerate)); next(); offset.snapTo(0f) }
-                                    value > threshold && allowPrevious -> { offset.animateTo(width / 3, tween(if (reduced) 0 else 120, easing = EmphasizedAccelerate)); previous(); offset.snapTo(0f) }
-                                    else -> offset.animateTo(0f, settle)
-                                }
-                            }
-                        },
-                        onDragCancel = { scope.launch { offset.animateTo(0f, settle) } },
-                    ) { change, delta ->
-                        change.consume()
-                        // Resist past the edge when there is nothing to swipe to.
-                        val blocked = (offset.value + delta < 0 && !allowNext) || (offset.value + delta > 0 && !allowPrevious)
-                        scope.launch { offset.snapTo(offset.value + if (blocked) delta * .25f else delta) }
-                    }
-                }
-                .semantics { contentDescription = "Cover for ${shown.title}. Swipe left for next, right for previous." },
-                size = 400.dp)
+    val shape = RoundedCornerShape(18.dp)
+    BoxWithConstraints(Modifier.fillMaxWidth().aspectRatio(1f)) {
+        val width = constraints.maxWidth.toFloat().coerceAtLeast(1f)
+        val flick = with(LocalDensity.current) { 700.dp.toPx() }
+        suspend fun slide(to: Float, ms: Int, easing: Easing) {
+            animate(drag.floatValue, to, animationSpec = tween(if (reduced) 0 else ms, easing = easing)) { v, _ -> drag.floatValue = v }
         }
+        LaunchedEffect(track.id) {
+            val old = memory.track
+            val forward = index >= memory.index
+            memory.track = track; memory.index = index
+            if (old.id == track.id) return@LaunchedEffect
+            if (memory.thrown) { memory.thrown = false; memory.motion?.cancel(); drag.floatValue = 0f; return@LaunchedEffect }
+            drag.floatValue = 0f
+            if (reduced) return@LaunchedEffect
+            outgoing = old; dealFrom = if (forward) 1f else -1f
+            deal.snapTo(0f)
+            deal.animateTo(1f, tween(300, easing = EmphasizedDecelerate))
+            outgoing = null
+        }
+        // How far the drag has gone, 0..1, towards whichever neighbour it reveals.
+        fun reveal(towardNext: Boolean): Float {
+            val x = drag.floatValue
+            return if ((x < 0) == towardNext && x != 0f) (abs(x) / width).coerceIn(0f, 1f) else 0f
+        }
+        // Neighbours wait underneath, invisible until a drag reveals one of them.
+        for ((shown, towardNext) in listOf(previousTrack to false, nextTrack to true)) {
+            if (shown == null) continue
+            key(towardNext, shown.id) {
+                Artwork(shown, Modifier.matchParentSize().graphicsLayer {
+                    val p = reveal(towardNext)
+                    alpha = if (p == 0f) 0f else .4f + .6f * p
+                    scaleX = .9f + .1f * p; scaleY = scaleX
+                    this.shape = shape; clip = true
+                }, size = 400.dp)
+            }
+        }
+        outgoing?.let { leaving ->
+            Artwork(leaving, Modifier.matchParentSize().graphicsLayer {
+                val d = deal.value
+                alpha = 1f - d; scaleX = 1f - .08f * d; scaleY = scaleX
+                translationX = -dealFrom * width * .12f * d
+                this.shape = shape; clip = true
+            }, size = 400.dp)
+        }
+        Artwork(track, Modifier.matchParentSize()
+            .graphicsLayer {
+                val d = deal.value
+                val x = drag.floatValue + dealFrom * width * .3f * (1f - d)
+                translationX = x
+                rotationZ = x / width * 10f
+                transformOrigin = TransformOrigin(.5f, 1.6f)
+                alpha = if (d < 1f) .25f + .75f * d else 1f
+                this.shape = shape; clip = true
+            }
+            .pointerInput(Unit) {
+                val tracker = VelocityTracker()
+                detectHorizontalDragGestures(
+                    onDragStart = { memory.motion?.cancel(); tracker.resetTracking() },
+                    onDragEnd = {
+                        val x = drag.floatValue
+                        val v = tracker.calculateVelocity().x
+                        val goNext = allowNext && (x < -width / 3 || (v < -flick && x < 0))
+                        val goPrevious = allowPrevious && (x > width / 3 || (v > flick && x > 0))
+                        memory.motion = scope.launch {
+                            if (goNext || goPrevious) {
+                                memory.thrown = true
+                                slide(if (goNext) -width * 1.3f else width * 1.3f, 160, EmphasizedAccelerate)
+                                if (goNext) next() else previous()
+                                // If the player never moves on, bring the card back.
+                                delay(1200)
+                                if (memory.thrown) { memory.thrown = false; slide(0f, SwapMs, EmphasizedDecelerate) }
+                            } else slide(0f, SwapMs, EmphasizedDecelerate)
+                        }
+                    },
+                    onDragCancel = { memory.motion = scope.launch { slide(0f, SwapMs, EmphasizedDecelerate) } },
+                ) { change, delta ->
+                    change.consume()
+                    tracker.addPosition(change.uptimeMillis, change.position)
+                    val x = drag.floatValue
+                    // Resist past the edge when there is nothing to swipe to.
+                    val blocked = (x + delta < 0 && !allowNext) || (x + delta > 0 && !allowPrevious)
+                    drag.floatValue = x + if (blocked) delta * .2f else delta
+                }
+            }
+            .semantics { contentDescription = "Cover for ${track.title}. Swipe left for next, right for previous." },
+            size = 400.dp)
     }
 }
 
 /**
- * The player reports its position a few times a second. Between reports, advance the
- * shown position with the display's frame clock so progress moves continuously instead
- * of in steps; small differences are blended in and large ones (seeks) are applied at once.
+ * Playback position that keeps moving between the player's updates. It is returned as a
+ * State so callers read it while drawing; reading it in composition would recompose every frame.
  */
 @Composable
-private fun rememberSmoothPosition(position: Long, duration: Long, animate: Boolean): Long {
-    var shown by remember { mutableLongStateOf(position) }
+private fun rememberSmoothPosition(position: Long, duration: Long, animate: Boolean): State<Long> {
+    val shown = remember { mutableLongStateOf(position) }
     LaunchedEffect(position, duration, animate) {
-        val drift = position - shown
-        shown = if (!animate || abs(drift) > 750) position else shown + drift / 3
+        val drift = position - shown.longValue
+        shown.longValue = if (!animate || abs(drift) > 750) position else shown.longValue + drift / 3
         if (!animate) return@LaunchedEffect
-        val base = shown
+        val base = shown.longValue
         val limit = if (duration > 0) duration else Long.MAX_VALUE
         val start = withFrameNanos { it }
-        while (true) withFrameNanos { now -> shown = (base + (now - start) / 1_000_000).coerceAtMost(limit) }
+        while (true) withFrameNanos { now -> shown.longValue = (base + (now - start) / 1_000_000).coerceAtMost(limit) }
     }
     return shown
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * A drawn seek line. The played part and the thumb are painted from the smooth position in
+ * the draw phase; the time labels only recompose when the second changes. Touching the line
+ * thickens it, and you can tap or drag anywhere on it to seek.
+ */
 @Composable
 private fun ProgressLine(position: Long, duration: Long, playing: Boolean, reduced: Boolean, onSeek: (Long) -> Unit) {
-    var drag by remember { mutableStateOf<Float?>(null) }
-    val smoothPosition = rememberSmoothPosition(position, duration, playing && !reduced && drag == null)
-    val actual = if (duration > 0) (smoothPosition.toFloat() / duration).coerceIn(0f, 1f) else 0f
-    val fraction = drag ?: actual
+    val drag = remember { mutableStateOf<Float?>(null) }
+    val smooth = rememberSmoothPosition(position, duration, playing && !reduced)
+    val fraction = { drag.value ?: if (duration > 0) (smooth.value.toFloat() / duration).coerceIn(0f, 1f) else 0f }
+    val seconds by remember(duration) { derivedStateOf { (fraction() * duration).toLong() / 1000 } }
+    val active by remember { derivedStateOf { drag.value != null } }
+    val grow = remember { Animatable(0f) }
+    LaunchedEffect(active) { grow.animateTo(if (active) 1f else 0f, tween(if (reduced) 0 else QuickMs, easing = EmphasizedDecelerate)) }
+    val seek by rememberUpdatedState(onSeek)
+    val scope = rememberCoroutineScope()
     val accent = MaterialTheme.colorScheme.primary
     val line = MaterialTheme.colorScheme.outline
-    val thickness by animateDpAsState(if (drag != null) 6.dp else 4.dp, tween(if (reduced) 0 else 160), label = "track thickness")
-    val thumb by animateDpAsState(if (drag != null) 18.dp else 12.dp, tween(if (reduced) 0 else QuickMs), label = "thumb size")
-    Slider(
-        value = fraction, onValueChange = { drag = it },
-        onValueChangeFinished = { drag?.let { onSeek((it * duration).toLong()) }; drag = null },
-        enabled = duration > 0, valueRange = 0f..1f,
-        modifier = Modifier.fillMaxWidth().height(32.dp).semantics { contentDescription = "Playback position" },
-        thumb = { Box(Modifier.size(18.dp), contentAlignment = Alignment.Center) { Box(Modifier.size(thumb).background(accent, CircleShape)) } },
-        track = {
-            Canvas(Modifier.fillMaxWidth().height(20.dp)) {
-                val h = thickness.toPx()
-                val y = size.height / 2f - h / 2f
-                drawRoundRect(line, Offset(0f, y), Size(size.width, h), CornerRadius(h))
-                val played = (size.width * fraction).coerceAtLeast(.01f)
-                drawRoundRect(accent, Offset(0f, y), Size(played, h), CornerRadius(h))
+    fun release() {
+        val target = drag.value ?: return
+        seek((target * duration).toLong())
+        // Hold the line where it was dropped until the player reports the new position.
+        scope.launch { delay(450); drag.value = null }
+    }
+    Canvas(
+        Modifier.fillMaxWidth().height(32.dp)
+            .pointerInput(duration) {
+                if (duration <= 0) return@pointerInput
+                detectTapGestures { drag.value = (it.x / size.width).coerceIn(0f, 1f); release() }
             }
-        },
-    )
+            .pointerInput(duration) {
+                if (duration <= 0) return@pointerInput
+                detectHorizontalDragGestures(
+                    onDragStart = { drag.value = (it.x / size.width).coerceIn(0f, 1f) },
+                    onDragEnd = { release() }, onDragCancel = { drag.value = null },
+                ) { change, _ -> change.consume(); drag.value = (change.position.x / size.width).coerceIn(0f, 1f) }
+            }
+            .semantics {
+                contentDescription = "Playback position"
+                setProgress { value -> if (duration > 0) seek((value.coerceIn(0f, 1f) * duration).toLong()); duration > 0 }
+            },
+    ) {
+        val g = grow.value
+        val h = (4.dp + 2.dp * g).toPx()
+        val y = center.y - h / 2
+        drawRoundRect(line, Offset(0f, y), Size(size.width, h), CornerRadius(h / 2))
+        val played = size.width * fraction()
+        drawRoundRect(accent, Offset(0f, y), Size(played.coerceAtLeast(h), h), CornerRadius(h / 2))
+        val r = (6.dp + 3.dp * g).toPx()
+        drawCircle(accent, r, Offset(played.coerceIn(r, size.width - r), center.y))
+    }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        Text(clock((fraction * duration).toLong()), fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, letterSpacing = .5.sp)
+        Text(clock(seconds * 1000), fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, letterSpacing = .5.sp)
         Text(if (duration > 0) clock(duration) else "—:—", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, letterSpacing = .5.sp)
     }
 }
+
 
 // ---------------------------------------------------------------------------------------
 // Settings: grouped cards with icon headers and a jump bar, so each option is easy to find.
@@ -1243,83 +1349,93 @@ private fun IconTile(icon: ImageVector) {
 // Mini player
 // ---------------------------------------------------------------------------------------
 
-/** Tap or swipe up to open the player; swipe sideways to skip. The card tilts and springs back. */
+/**
+ * The mini player is the top half of the bottom dock. Its progress is a hairline painted
+ * along its upper edge. Swipe sideways to skip, or up to open the player. A new track rolls
+ * in like a ticker: up when moving forward, down when going back.
+ */
 @Composable
 private fun MiniPlayer(state: MusicState, onOpen: () -> Unit, onToggle: () -> Unit, onNext: () -> Unit, onPrevious: () -> Unit) {
     val track = state.current ?: return
     val reduced = state.reducedMotion
     val loading = state.resolving || state.buffering
     val position = rememberSmoothPosition(state.positionMs, state.durationMs, state.playing && !reduced)
-    val fraction = if (state.durationMs > 0) (position.toFloat() / state.durationMs).coerceIn(0f, 1f) else 0f
+    val duration = state.durationMs
     val i = state.queueIndex
     val hasNext = i >= 0 && i < state.queue.lastIndex
-    val offsetX = remember { Animatable(0f) }
-    val offsetY = remember { Animatable(0f) }
+    val dx = remember { mutableFloatStateOf(0f) }
+    val dy = remember { mutableFloatStateOf(0f) }
     val scope = rememberCoroutineScope()
     val open by rememberUpdatedState(onOpen)
     val next by rememberUpdatedState(onNext)
     val previous by rememberUpdatedState(onPrevious)
     val allowNext by rememberUpdatedState(hasNext)
     val density = LocalDensity.current
-    val back = tween<Float>(if (reduced) 0 else SwapMs, easing = EmphasizedDecelerate)
-    Surface(
-        onClick = onOpen, shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surface,
-        border = BorderStroke(.5.dp, MaterialTheme.colorScheme.outline), shadowElevation = 8.dp,
-        modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 8.dp)
-            .graphicsLayer {
-                translationX = offsetX.value * .35f
-                translationY = offsetY.value.coerceAtMost(0f) * .5f
+    val accent = MaterialTheme.colorScheme.primary
+    fun settle() {
+        val spec = tween<Float>(if (reduced) 0 else SwapMs, easing = EmphasizedDecelerate)
+        scope.launch { animate(dx.floatValue, 0f, animationSpec = spec) { v, _ -> dx.floatValue = v } }
+        scope.launch { animate(dy.floatValue, 0f, animationSpec = spec) { v, _ -> dy.floatValue = v } }
+    }
+    Column(
+        Modifier.fillMaxWidth()
+            .drawBehind {
+                if (duration > 0) {
+                    val f = (position.value.toFloat() / duration).coerceIn(0f, 1f)
+                    drawRect(accent, size = Size(size.width * f, 2.dp.toPx()))
+                }
             }
+            .clickable(onClick = onOpen)
             .pointerInput(Unit) {
                 val trigger = with(density) { 56.dp.toPx() }
                 detectDragGestures(
                     onDragEnd = {
-                        val x = offsetX.value; val y = offsetY.value
-                        scope.launch {
-                            when {
-                                -y > trigger && -y > abs(x) -> { open(); launch { offsetX.snapTo(0f) }; offsetY.animateTo(0f, back) }
-                                x < -trigger && allowNext -> { next(); launch { offsetY.snapTo(0f) }; offsetX.animateTo(0f, back) }
-                                x > trigger -> { previous(); launch { offsetY.snapTo(0f) }; offsetX.animateTo(0f, back) }
-                                else -> { launch { offsetY.animateTo(0f, back) }; offsetX.animateTo(0f, back) }
-                            }
+                        val x = dx.floatValue; val y = dy.floatValue
+                        when {
+                            -y > trigger && -y > abs(x) -> open()
+                            x < -trigger && allowNext -> next()
+                            x > trigger -> previous()
                         }
+                        settle()
                     },
-                    onDragCancel = { scope.launch { launch { offsetY.animateTo(0f, back) }; offsetX.animateTo(0f, back) } },
+                    onDragCancel = { settle() },
                 ) { change, drag ->
                     change.consume()
-                    scope.launch { offsetX.snapTo(offsetX.value + drag.x) }
-                    scope.launch { offsetY.snapTo(offsetY.value + drag.y) }
+                    dx.floatValue += drag.x
+                    dy.floatValue += drag.y
                 }
             },
     ) {
-        Column {
-            Row(Modifier.fillMaxWidth().height(64.dp).padding(start = 10.dp, end = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                AnimatedContent(
-                    targetState = track to i, contentKey = { it.first.id }, label = "mini track", modifier = Modifier.weight(1f),
-                    transitionSpec = {
-                        val forward = targetState.second >= initialState.second
-                        if (reduced) (EnterTransition.None togetherWith ExitTransition.None).using(null)
-                        else (fadeIn(tween(SwapMs, easing = EmphasizedDecelerate)) + slideInHorizontally(tween(SwapMs, easing = EmphasizedDecelerate)) { if (forward) it / 12 else -it / 12 }) togetherWith
-                            fadeOut(tween(90))
-                    },
-                ) { (shown, _) ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Artwork(shown, Modifier.size(44.dp).clip(RoundedCornerShape(10.dp)), size = 44.dp)
-                        Spacer(Modifier.width(12.dp))
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
-                            Text(shown.title, fontSize = 14.sp, lineHeight = 18.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(shown.artist, fontSize = 12.sp, lineHeight = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
-                        }
+        Row(
+            Modifier.fillMaxWidth().height(64.dp).padding(start = 12.dp, end = 6.dp)
+                .graphicsLayer {
+                    translationX = dx.floatValue * .35f
+                    translationY = dy.floatValue.coerceAtMost(0f) * .3f
+                    alpha = 1f - (abs(dx.floatValue) / size.width).coerceIn(0f, .5f)
+                },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            AnimatedContent(
+                targetState = track to i, contentKey = { it.first.id }, label = "mini track", modifier = Modifier.weight(1f),
+                transitionSpec = {
+                    val forward = targetState.second >= initialState.second
+                    if (reduced) (EnterTransition.None togetherWith ExitTransition.None).using(null)
+                    else ((fadeIn(tween(SwapMs, 40)) + slideInVertically(tween(240, easing = EmphasizedDecelerate)) { if (forward) it / 2 else -it / 2 }) togetherWith
+                        (fadeOut(tween(100)) + slideOutVertically(tween(160, easing = EmphasizedAccelerate)) { if (forward) -it / 3 else it / 3 })).using(SizeTransform(clip = true))
+                },
+            ) { (shown, _) ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Artwork(shown, Modifier.size(44.dp).clip(RoundedCornerShape(10.dp)), size = 44.dp)
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
+                        Text(shown.title, fontSize = 14.sp, lineHeight = 18.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(shown.artist, fontSize = 12.sp, lineHeight = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
                     }
                 }
-                Spacer(Modifier.width(8.dp))
-                PlayPauseCircle(state.playing, loading, reduced, enabled = !state.resolving, onClick = onToggle)
-                IconButton(onClick = onNext, enabled = hasNext, modifier = Modifier.size(44.dp)) { Icon(Glyph.Next, "Next recording", Modifier.size(20.dp)) }
             }
-            // Progress runs along the bottom edge of the card.
-            Box(Modifier.fillMaxWidth().height(3.dp).background(MaterialTheme.colorScheme.outline.copy(alpha = .6f))) {
-                Box(Modifier.fillMaxWidth(fraction).fillMaxHeight().background(MaterialTheme.colorScheme.primary))
-            }
+            Spacer(Modifier.width(8.dp))
+            PlayPauseCircle(state.playing, loading, reduced, enabled = !state.resolving, onClick = onToggle)
+            IconButton(onClick = onNext, enabled = hasNext, modifier = Modifier.size(44.dp)) { Icon(Glyph.Next, "Next recording", Modifier.size(20.dp)) }
         }
     }
 }
@@ -1429,7 +1545,7 @@ private fun LabelledControl(label: String, image: ImageVector, onClick: () -> Un
 @Composable
 private fun PageTitle(text: String) {
     val title = buildAnnotatedString { append(text); withStyle(SpanStyle(color = MaterialTheme.colorScheme.primary)) { append('.') } }
-    Text(title, fontFamily = font, fontSize = 35.sp, lineHeight = 39.sp, fontWeight = FontWeight.Medium, letterSpacing = (-1.5).sp)
+    Text(title, fontFamily = font, fontSize = 30.sp, lineHeight = 34.sp, fontWeight = FontWeight.Medium, letterSpacing = (-1.2).sp)
 }
 
 @Composable
