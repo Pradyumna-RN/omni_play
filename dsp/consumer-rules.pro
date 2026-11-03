@@ -1,0 +1,1 @@
+-keep class labs.rtensor.dsp.NativeBindings { *; }

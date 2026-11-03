@@ -15,8 +15,8 @@ android {
         applicationId = "labs.rtensor.music"
         minSdk = 26
         targetSdk = 35
-        versionCode = 12
-        versionName = "0.3.9"
+        versionCode = 13
+        versionName = "0.3.10"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildFeatures { compose = true; buildConfig = true }
@@ -47,6 +47,7 @@ android {
 }
 
 dependencies {
+    implementation(project(":dsp"))
     val composeBom = platform("androidx.compose:compose-bom:2025.04.01")
     implementation(composeBom)
     implementation("androidx.activity:activity-compose:1.10.1")

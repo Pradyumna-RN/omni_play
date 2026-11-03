@@ -13,6 +13,7 @@ import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.SimpleCache
 import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
@@ -93,7 +94,7 @@ class MusicPlaybackService : MediaSessionService() {
         audioCache = cache
         val cachedData = CacheDataSource.Factory().setCache(cache).setUpstreamDataSourceFactory(data)
             .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
-        val renderers = object : DefaultRenderersFactory(this) {
+        val renderers = AudioPipeline.privateRenderers(this) ?: object : DefaultRenderersFactory(this) {
             override fun buildAudioSink(context: android.content.Context, enableFloatOutput: Boolean, enableAudioTrackPlaybackParams: Boolean): AudioSink =
                 DefaultAudioSink.Builder(context)
                     .setEnableFloatOutput(enableFloatOutput)
@@ -111,6 +112,13 @@ class MusicPlaybackService : MediaSessionService() {
             .setHandleAudioBecomingNoisy(true)
             // Keep Wi-Fi awake too, so the screen-off buffer refills without stalling.
             .setWakeMode(C.WAKE_MODE_NETWORK)
+            .apply {
+                if (AudioPipeline.hasPrivateRenderer || labs.rtensor.dsp.NativeDownmixEngine.wasPackaged) {
+                    setTrackSelector(DefaultTrackSelector(this@MusicPlaybackService).apply {
+                        parameters = buildUponParameters().setConstrainAudioChannelCountToDeviceCapabilities(false).build()
+                    })
+                }
+            }
             .build()
         var confirmedKey: String? = null
         fun confirmPlaying() {
