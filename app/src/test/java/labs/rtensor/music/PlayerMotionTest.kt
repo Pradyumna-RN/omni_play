@@ -181,7 +181,8 @@ class PlayerMotionTest {
     @Test fun inlineQueueJumpsToTheOriginalIndexWithoutRebuildingPlayback() {
         var skipped = -1; var replayed = false
         compose.setContent { MusicApp(initial().copy(reducedMotion = true), initialPage = "now", onSkipTo = { skipped = it }, onPlay = { _, _ -> replayed = true }) }
-        compose.onNodeWithText(three.title).performScrollTo().performClick()
+        compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText(three.title))
+        compose.onNodeWithText(three.title).performClick()
         assertEquals(2, skipped); assertFalse(replayed)
     }
 

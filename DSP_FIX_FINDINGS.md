@@ -2,6 +2,42 @@
 
 Follows `CLAUDE_DSP_FIX_HANDOFF.md`.
 
+## Current validation: Music 0.3.16 / original DMR
+
+Reviewed Claude's `2370a14` and merge `e1351cc`, preserving the 0.3.15 decoder
+fix. The complete Android Gradle run passes **128 app tests and 72 DSP tests**,
+with no failures, errors or skips, plus fatal lint and both native packaging
+guards. The app module and player UI are compiled, including the previously
+excluded FLAC-layout test in the DSP suite.
+
+The new native-backed sink test uses the **actual original DMR JNI**, not the
+stand-in engine, at all three conversions (44.1→48, 88.2→96 and 176.4→192 kHz),
+with both six and eight input channels. A continuous centre-only signal is
+rendered in Processed, is suppressed by Original's FL/FR-only comparison, and
+returns when Processed is selected again. Assertions check the last 10 ms RMS
+level of each segment, exact output duration, finite/non-silent PCM, mode reports,
+one engine/sink configuration and the EOF clock excluding conversion/core tails.
+These tests feed decoded synthetic PCM; they do not establish phone AAC/ALAC
+decoding or an actual Android AudioTrack output.
+
+Added Compose checks for disabled comparison plus its unknown-layout reason and
+the missing-library explanation. The existing queue interaction test now scrolls
+the lazy list to its target before clicking; a newly visible status section can
+place that row outside the initial composed viewport. Product navigation was
+not changed to satisfy the test.
+
+Corrected bypass reporting: it now describes the PCM channel count configured
+at the Android sink (or the explicit output-channel map), instead of always
+claiming a two-channel render. This does not prove the hardware output layout;
+Android can mix the passed-through PCM for its actual device. Unknown layouts
+remain unprocessed, with no fabricated DMR or Atmos claim.
+
+The native DMR and FFmpeg binaries are unchanged from 0.3.15. No private algorithm
+or coefficients were modified or published. **0.3.16 / code 19** uses normal OTA
+naming; the updater test covers upgrading installed 0.3.15/code18 as well.
+Phone codec support, audible quality, UI frame rate and the user's actual Starboy
+file remain unverified because no phone/file was supplied.
+
 ## Root cause found
 
 `ffmpeg_jni.cc` `decodePacket` advanced the output pointer *and* added the

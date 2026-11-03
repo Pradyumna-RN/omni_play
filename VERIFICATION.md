@@ -1,4 +1,25 @@
-# Current verification: Music 0.3.15 / E-AC-3 fix and normal OTA
+# Current verification: Music 0.3.16 / multichannel rates and comparison
+
+- **128 app tests and 72 DSP tests pass**, no failures, errors or skips, plus
+  fatal lint and both decoder/private-DMR APK packaging guards.
+- Real original DMR JNI processes six/eight-channel PCM through all three new
+  rate conversions. A centre-only A/B test measures audible-level output in
+  Processed, suppression in Original, and return in Processed, alongside exact
+  duration, mode reports, one sink/engine and EOF-clock/tail checks.
+- Compose tests verify disabled comparison and a clear reason for unknown layouts
+  or missing DSP. The lazy queue test scrolls to its offscreen target. Existing
+  gestures, progress and pending-mode checks pass.
+- Bypassed PCM reports its configured sink channel count, not a false DMR stereo
+  render. Actual hardware routing/mixing is not established by that report.
+- Stereo remains unchanged. The private DMR and FFmpeg native artifacts are the
+  same as 0.3.15. Version 0.3.16/code19 uses the same signature/package and normal
+  OTA filenames; tests cover upgrade from 0.3.15/code18 and the older prototype.
+
+These native tests use decoded synthetic PCM and a recording sink on the host.
+Phone AAC/ALAC decoding, AudioTrack routing, listening quality, UI frame rate and
+the user's Starboy file remain unverified. See [findings](DSP_FIX_FINDINGS.md).
+
+# Previous verification: Music 0.3.15 / E-AC-3 fix and normal OTA
 
 - **126 app tests and 66 DSP tests pass**, with no failures, errors or skips,
   including Claude's real Java/JNI multiframe packet and layout-change tests.

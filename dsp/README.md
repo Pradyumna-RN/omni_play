@@ -2,9 +2,9 @@
 
 Standalone Android AAR, minimum API 26. Interfaces and Media3 integration are open
 in this module; the author's processing implementation stays in its private build.
-No DSP source, matrices, coefficients or compiled library is committed here.
+No private DSP source, matrices, coefficients or compiled library is committed here.
 The portable build reuses the supplied renderer's native core.
-The interpolation filter in `StereoRateAdapter` is a public sample-rate adapter,
+The interpolation filter in `PcmRateAdapter` is a public sample-rate adapter,
 separate from the private renderer and its coefficients.
 
 ## Build
@@ -34,26 +34,29 @@ multichannel render explicitly instead of silently claiming DSP processing.
 - `NativeDownmixEngine`: direct, native-order, interleaved float32 buffers; one
   bounded processing owner per stream; explicit speaker-position IDs. Each stream
   has independent history. Configure allocates; processing does not grow buffers.
-- Supported core rates: 48, 96 and 192 kHz. The adapter additionally converts
-  **44.1 kHz stereo to 48 kHz** using a streaming 128-tap normalized windowed-sinc
-  interpolator, retaining phase/history across blocks. Source and render rates
-  are reported separately. Unsupported multichannel rates are rejected; other
-  unsupported stereo rates remain original, with comparison disabled.
+- Supported core rates: 48, 96 and 192 kHz. For known multichannel layouts, the
+  adapter converts **44.1→48, 88.2→96 and 176.4→192 kHz** using a streaming
+  128-tap normalized windowed-sinc interpolator, retaining channel identity and
+  phase/history across blocks. Source and render rates are reported separately.
+  Unprocessable PCM uses the Android delegate if it accepts the format, with
+  comparison disabled and a reason. Music bypasses stereo unchanged at every rate.
 - `DownmixAudioSink` wraps the decoded PCM sink, including float output. It avoids
   Media3's float-branch `AudioProcessor` bypass and preserves PCM24 low bits during
   conversion to float. PCM32 conversion follows the core's float32 precision.
-- Multichannel PCM16/24/32/float is mapped to the original core and outputs stereo
-  float. Supported stereo explicitly maps FL/FR and uses the original native
-  monitor upmix. Generated spatial channels are identified as generated audio,
-  not original Atmos metadata. Mono bypasses processing.
+- Supported multichannel PCM16/24/32/float maps to the original core and outputs
+  stereo float. Mono and stereo bypass by default. Other library consumers may
+  opt into native stereo enhancement using `processStereo`; Music does not do so.
+  Generated spatial channels are not original Atmos metadata.
 - Live comparison calls the original native compare control: FL/FR only, with
   common delay/gain. A 10 ms fade out followed by a 10 ms fade in changes the mix
   at silence. It keeps native history warm and does not reconfigure the sink or
   reload the source. Rate conversion remains active in both comparison modes;
   neither mode establishes bit-perfect hardware output.
 - Speaker positions come from the decoder's Android mask, or FLAC's specified
-  channel assignment when that mask is absent. Unknown masks, remapping arrays
-  and unsupported positions (including back-center) produce explicit errors.
+  channel assignment when that mask is absent. Unknown masks and unsupported
+  positions (including back-center) disable DSP and pass the original PCM to the
+  Android delegate, with an explanation. Decoder remapping arrays still require
+  explicit reconciliation before processing and otherwise produce an error.
   Generic multichannel WAV without exposed positions is not guessed from count.
 - Partial writes retain pending output without processing/resampling a block twice.
   Seek and discontinuity clear pending output and reset both histories. EOF drains

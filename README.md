@@ -3,6 +3,16 @@
 Temporary name: **Music**. Native Android player from RTensorLabs with the approved
 Margin visual direction: warm paper, DM Sans, original provider artwork and raspberry controls.
 
+## Music 0.3.16 — multichannel rates and visible processing status
+
+Known multichannel layouts at 44.1/88.2/176.4 kHz now convert to the original
+DMR's 48/96/192 kHz rates. Stereo remains unchanged. When the decoder cannot
+identify speaker positions, Music can play the original PCM through Android
+and shows why processing is unavailable. Missing-DSP builds also show a reason.
+
+VersionCode 19 uses the normal OTA feed. The original native DMR is unchanged.
+See [validation and limitations](DSP_FIX_FINDINGS.md).
+
 ## Music 0.3.15 — multiframe E-AC-3 fix and OTA
 
 Fixes corrupted audio and a buffer-growth crash when an MP4/M4A packet contains
