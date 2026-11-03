@@ -11,6 +11,11 @@ internal data class LocalAudioMetadata(val title: String = "", val artist: Strin
 /** Metadata support is optional: Media3's software decoder may support a file
  * the platform retriever cannot open. Read permission is still required. */
 internal object LocalAudioImporter {
+    /** Document picker types. Owned Dolby Digital Plus test material and many
+     * recordings arrive as .mp4/.ec3 typed as video/mp4 or octet-stream; the
+     * player only takes the audio track. */
+    val PICKER_TYPES = arrayOf("audio/*", "video/mp4", "application/octet-stream")
+
     fun read(context: Context, uri: Uri,
         metadata: (Context, Uri) -> LocalAudioMetadata = ::readMetadata): Track {
         context.contentResolver.openInputStream(uri).use {

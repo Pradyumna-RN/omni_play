@@ -99,11 +99,22 @@ struct GrowOutputBufferCallback {
 /**
  * Decodes the packet into the output buffer, returning the number of bytes
  * written, or a negative AUDIO_DECODER_ERROR constant value in the case of an
- * error.
+ * error. One packet may hold several codec frames (for example an MP4 E-AC-3
+ * sample made of several syncframes); their PCM is appended contiguously.
+ * {@code growBuffer(requiredSize)} must return the base address of a buffer of
+ * at least that size that preserves the bytes already written.
  */
+template <typename GrowBuffer>
 int decodePacket(AVCodecContext *context, AVPacket *packet,
                  uint8_t *outputBuffer, int outputSize,
-                 GrowOutputBufferCallback growBuffer);
+                 const GrowBuffer &growBuffer);
+
+/**
+ * Returns a resampler for this frame's own layout, rate and sample format.
+ * The cached converter is rebuilt when any of them changes mid-stream, so it
+ * never reinterprets new PCM with an earlier packet's layout.
+ */
+SwrContext *resamplerFor(AVCodecContext *context, const AVFrame *frame);
 
 /**
  * Transforms ffmpeg AVERROR into a negative AUDIO_DECODER_ERROR constant value.
@@ -332,78 +343,95 @@ AVCodecContext *createContext(JNIEnv *env, const AVCodec *codec,
   return context;
 }
 
+SwrContext *resamplerFor(AVCodecContext *context, const AVFrame *frame) {
+  SwrContext *resampleContext = static_cast<SwrContext *>(context->opaque);
+  if (resampleContext) {
+    int64_t rate = 0, format = AV_SAMPLE_FMT_NONE;
+    AVChannelLayout layout = {};
+    bool same = av_opt_get_int(resampleContext, "in_sample_rate", 0, &rate) >= 0 &&
+                av_opt_get_int(resampleContext, "in_sample_fmt", 0, &format) >= 0 &&
+                av_opt_get_chlayout(resampleContext, "in_chlayout", 0, &layout) >= 0 &&
+                rate == frame->sample_rate && format == frame->format &&
+                av_channel_layout_compare(&layout, &frame->ch_layout) == 0;
+    av_channel_layout_uninit(&layout);
+    if (same) return resampleContext;
+    LOGD("Decoded layout, rate or format changed; rebuilding the converter.");
+    swr_free(&resampleContext);
+    context->opaque = NULL;
+  }
+  int result = swr_alloc_set_opts2(
+      &resampleContext, &frame->ch_layout, context->request_sample_fmt,
+      frame->sample_rate, &frame->ch_layout, (AVSampleFormat)frame->format,
+      frame->sample_rate, 0, NULL);
+  if (result < 0) {
+    logError("swr_alloc_set_opts2", result);
+    swr_free(&resampleContext);
+    return NULL;
+  }
+  result = swr_init(resampleContext);
+  if (result < 0) {
+    logError("swr_init", result);
+    swr_free(&resampleContext);
+    return NULL;
+  }
+  context->opaque = resampleContext;
+  return resampleContext;
+}
+
+template <typename GrowBuffer>
 int decodePacket(AVCodecContext *context, AVPacket *packet,
                  uint8_t *outputBuffer, int outputSize,
-                 GrowOutputBufferCallback growBuffer) {
-  int result = 0;
-  // Queue input data.
-  result = avcodec_send_packet(context, packet);
+                 const GrowBuffer &growBuffer) {
+  int result = avcodec_send_packet(context, packet);
   if (result) {
     logError("avcodec_send_packet", result);
     return transformError(result);
   }
 
-  // Dequeue output data until it runs out.
+  // RTensorLabs: outputBuffer always stays the base address; frames are
+  // written at base + outSize. Upstream advanced the pointer and the earlier
+  // local patch also added outSize, so the second frame of a packet landed
+  // twice as far in (leaving stale bytes and overrunning the buffer).
   int outSize = 0;
+  int packetChannels = 0;
   while (true) {
     AVFrame *frame = av_frame_alloc();
     if (!frame) {
       LOGE("Failed to allocate output frame.");
-      return AUDIO_DECODER_ERROR_INVALID_DATA;
+      return AUDIO_DECODER_ERROR_OTHER;
     }
     result = avcodec_receive_frame(context, frame);
     if (result) {
       av_frame_free(&frame);
-      if (result == AVERROR(EAGAIN)) {
-        break;
-      }
+      if (result == AVERROR(EAGAIN)) break;
       logError("avcodec_receive_frame", result);
       return transformError(result);
     }
-
-    // Resample output.
-    AVSampleFormat sampleFormat = context->sample_fmt;
-    int channelCount = context->ch_layout.nb_channels;
-    int sampleRate = context->sample_rate;
-    int sampleCount = frame->nb_samples;
-    int dataSize = av_samples_get_buffer_size(NULL, channelCount, sampleCount,
-                                              sampleFormat, 1);
-    SwrContext *resampleContext = static_cast<SwrContext *>(context->opaque);
+    SwrContext *resampleContext = resamplerFor(context, frame);
     if (!resampleContext) {
-      result =
-          swr_alloc_set_opts2(&resampleContext,             // ps
-                              &context->ch_layout,          // out_ch_layout
-                              context->request_sample_fmt,  // out_sample_fmt
-                              sampleRate,                   // out_sample_rate
-                              &context->ch_layout,          // in_ch_layout
-                              sampleFormat,                 // in_sample_fmt
-                              sampleRate,                   // in_sample_rate
-                              0,                            // log_offset
-                              NULL                          // log_ctx
-          );
-      if (result < 0) {
-        logError("swr_alloc_set_opts2", result);
-        av_frame_free(&frame);
-        return transformError(result);
-      }
-      result = swr_init(resampleContext);
-      if (result < 0) {
-        logError("swr_init", result);
-        av_frame_free(&frame);
-        return transformError(result);
-      }
-      context->opaque = resampleContext;
+      av_frame_free(&frame);
+      return AUDIO_DECODER_ERROR_OTHER;
     }
-
+    // A packet's frames must share one layout: the caller reports one PCM
+    // format per output buffer.
+    if (packetChannels && frame->ch_layout.nb_channels != packetChannels) {
+      LOGE("Channel count changed inside one packet.");
+      av_frame_free(&frame);
+      return AUDIO_DECODER_ERROR_OTHER;
+    }
+    int channelCount = packetChannels = frame->ch_layout.nb_channels;
     int outSampleSize = av_get_bytes_per_sample(context->request_sample_fmt);
-    int outSamples = swr_get_out_samples(resampleContext, sampleCount);
-    int bufferOutSize = outSampleSize * channelCount * outSamples;
-    if (outSize + bufferOutSize > outputSize) {
-      LOGD(
-          "Output buffer size (%d) too small for output data (%d), "
-          "reallocating buffer.",
-          outputSize, outSize + bufferOutSize);
-      outputSize = outSize + bufferOutSize;
+    int frameBytes = outSampleSize * channelCount;
+    int outSamples = swr_get_out_samples(resampleContext, frame->nb_samples);
+    if (channelCount <= 0 || outSamples < 0) {
+      av_frame_free(&frame);
+      return AUDIO_DECODER_ERROR_INVALID_DATA;
+    }
+    int required = outSize + frameBytes * outSamples;
+    if (required > outputSize) {
+      LOGD("Output buffer size (%d) too small for output data (%d), "
+           "reallocating buffer.", outputSize, required);
+      outputSize = required;
       outputBuffer = growBuffer(outputSize);
       if (!outputBuffer) {
         LOGE("Failed to reallocate output buffer.");
@@ -411,12 +439,12 @@ int decodePacket(AVCodecContext *context, AVPacket *packet,
         return AUDIO_DECODER_ERROR_OTHER;
       }
     }
-    // RTensorLabs: swr_convert's capacity is in frames, not bytes. Append
-    // after earlier decoded frames if a packet produces more than one.
-    uint8_t *outputPlanes[] = { outputBuffer + outSize };
-    int capacityFrames = (outputSize - outSize) / (outSampleSize * channelCount);
+    uint8_t *outputPlanes[] = {outputBuffer + outSize};
+    // swr_convert's capacity is in frames (samples per channel), not bytes.
+    int capacityFrames = (outputSize - outSize) / frameBytes;
     result = swr_convert(resampleContext, outputPlanes, capacityFrames,
-                         (const uint8_t **)frame->extended_data, frame->nb_samples);
+                         (const uint8_t **)frame->extended_data,
+                         frame->nb_samples);
     av_frame_free(&frame);
     if (result < 0) {
       logError("swr_convert", result);
@@ -428,8 +456,8 @@ int decodePacket(AVCodecContext *context, AVPacket *packet,
            available);
       return AUDIO_DECODER_ERROR_INVALID_DATA;
     }
-    outputBuffer += bufferOutSize;
-    outSize += bufferOutSize;
+    // Count what was written, not the converter's upper bound.
+    outSize += result * frameBytes;
   }
   return outSize;
 }

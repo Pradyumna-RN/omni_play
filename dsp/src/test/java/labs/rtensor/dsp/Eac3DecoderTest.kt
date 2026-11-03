@@ -9,6 +9,7 @@ import androidx.media3.common.DrmInitData
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.decoder.ffmpeg.FfmpegAudioDecoder
+import androidx.media3.decoder.ffmpeg.FfmpegDecoderException
 import androidx.media3.decoder.ffmpeg.FfmpegLibrary
 import androidx.media3.exoplayer.Renderer
 import androidx.media3.exoplayer.audio.AudioSink
@@ -62,6 +63,43 @@ class Eac3DecoderTest {
             val pcm = checkNotNull(decoded.data)
             return ByteArray(pcm.remaining()).also(pcm::get)
         } finally { decoded.release() }
+    }
+
+    /** MP4 E-AC-3 samples can hold several syncframes. Each one must land after the
+     * previous frame's PCM, including when the output buffer has to grow. */
+    @Test fun severalSyncframesInOnePacketDecodeContiguouslyAndMatchSeparateDecoding() {
+        native()
+        val packets = frames("owned-51.eac3").take(12)
+        val separate = FfmpegAudioDecoder(format(), 4, 4, 8192, true)
+        val expected = try { ByteArrayOutputStream().also { out -> packets.forEachIndexed { i, f -> out.write(decode(separate, f, i * 32000L)) } }.toByteArray() }
+            finally { separate.release() }
+        assertEquals(12 * 1536 * 6 * 4, expected.size)
+        for (group in listOf(2, 3, 6)) {
+            val joined = FfmpegAudioDecoder(format(), 4, 4, 8192, true)
+            try {
+                val actual = ByteArrayOutputStream()
+                packets.chunked(group).forEachIndexed { i, chunk ->
+                    val packet = ByteArrayOutputStream().also { out -> chunk.forEach(out::write) }.toByteArray()
+                    val pcm = decode(joined, packet, i * 32000L * group)
+                    assertEquals("A $group-frame packet returns every frame", chunk.size * 1536 * 6 * 4, pcm.size)
+                    actual.write(pcm)
+                }
+                assertArrayEquals("$group syncframes per packet", expected, actual.toByteArray())
+                assertEquals(6, joined.channelCount); assertEquals(0x60fL, joined.channelLayoutMask)
+            } finally { joined.release() }
+        }
+    }
+
+    @Test fun aMidStreamLayoutChangeIsAnExplicitDecoderError() {
+        native()
+        val decoder = FfmpegAudioDecoder(format(), 4, 4, 8192, true)
+        try {
+            assertEquals(1536 * 6 * 4, decode(decoder, frames("owned-51.eac3")[0], 0).size)
+            val error = assertThrows(FfmpegDecoderException::class.java) { decode(decoder, frames("owned-stereo.eac3")[0], 32000) }
+            assertTrue(error.message, "6 ch" in error.message!! && "2 ch" in error.message!! && "0x60f" in error.message!!)
+            assertEquals("The configured layout is kept", 0x60fL, decoder.channelLayoutMask)
+            assertEquals(DownmixStage.DECODER, PlaybackDiagnostics.describe(error)!!.stage)
+        } finally { decoder.release() }
     }
 
     @Test fun actualEac3DecodesSixDistinctChannelsWithoutStereoFoldingAndResetsAfterSeeking() {
@@ -151,8 +189,8 @@ class Eac3DecoderTest {
         val protected = format().buildUpon().setDrmInitData(DrmInitData(DrmInitData.SchemeData(C.WIDEVINE_UUID, "audio/mp4", byteArrayOf(1)))).build()
         assertEquals(C.FORMAT_UNSUPPORTED_DRM, software.capabilities.supportsFormat(protected) and 7)
         assertEquals(listOf(SpeakerPosition.FL, SpeakerPosition.FR, SpeakerPosition.FC, SpeakerPosition.LFE, SpeakerPosition.SL, SpeakerPosition.SR), FfmpegSpeakerLayout.positions(0x60f, 6))
-        assertThrows(IllegalArgumentException::class.java) { FfmpegSpeakerLayout.positions(0, 6) }
-        assertThrows(IllegalArgumentException::class.java) { FfmpegSpeakerLayout.positions(0x13f, 7) } // back-centre is not a supported DMR position
-        assertThrows(IllegalArgumentException::class.java) { FfmpegSpeakerLayout.positions(0x3f, 8) }
+        assertThrows(DownmixException::class.java) { FfmpegSpeakerLayout.positions(0, 6) }
+        assertThrows(DownmixException::class.java) { FfmpegSpeakerLayout.positions(0x13f, 7) } // back-centre is not a supported DMR position
+        assertThrows(DownmixException::class.java) { FfmpegSpeakerLayout.positions(0x3f, 8) }
     }
 }

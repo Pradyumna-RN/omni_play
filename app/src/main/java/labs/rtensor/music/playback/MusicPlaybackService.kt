@@ -160,6 +160,8 @@ class MusicPlaybackService : MediaSessionService() {
         }
         player.addListener(object : androidx.media3.common.Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
+                // Classify here: the controller only receives the top-level cause.
+                AudioPipeline.reportFailure(error)
                 val item = player.currentMediaItem ?: return
                 val key = item.localConfiguration?.customCacheKey ?: return
                 if (!sources.reject(key)) return

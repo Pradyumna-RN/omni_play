@@ -49,6 +49,9 @@ public final class FfmpegAudioDecoder
   private boolean hasOutputFormat;
   private volatile int channelCount;
   private volatile int sampleRate;
+  // RTensorLabs: captured with the count/rate on the decoder thread. Reading the
+  // live native context from the playback thread raced decoding and release.
+  private volatile long channelLayoutMask;
 
   public FfmpegAudioDecoder(
       Format format,
@@ -129,6 +132,7 @@ public final class FfmpegAudioDecoder
     if (!hasOutputFormat) {
       channelCount = ffmpegGetChannelCount(nativeContext);
       sampleRate = ffmpegGetSampleRate(nativeContext);
+      channelLayoutMask = ffmpegGetChannelLayoutMask(nativeContext);
       if (sampleRate == 0 && "alac".equals(codecName)) {
         checkNotNull(extraData);
         // ALAC decoder did not set the sample rate in earlier versions of FFmpeg. See
@@ -138,6 +142,21 @@ public final class FfmpegAudioDecoder
         sampleRate = parsableExtraData.readUnsignedIntToInt();
       }
       hasOutputFormat = true;
+    } else {
+      // RTensorLabs: the sink was configured from the first packet. Later PCM in
+      // another layout would be misread as that layout, so stop explicitly.
+      @Nullable
+      String change =
+          describeOutputChange(
+              channelCount,
+              sampleRate,
+              channelLayoutMask,
+              ffmpegGetChannelCount(nativeContext),
+              "alac".equals(codecName) ? sampleRate : ffmpegGetSampleRate(nativeContext),
+              ffmpegGetChannelLayoutMask(nativeContext));
+      if (change != null) {
+        return new FfmpegDecoderException(change);
+      }
     }
     // Get a new reference to the output ByteBuffer in case the native decode method reallocated the
     // buffer to grow its size.
@@ -167,7 +186,34 @@ public final class FfmpegAudioDecoder
     return channelCount;
   }
 
-  public long getChannelLayoutMask() { return ffmpegGetChannelLayoutMask(nativeContext); }
+  /**
+   * Returns FFmpeg's native-order channel mask for the decoded PCM, or 0 when the
+   * layout is not a native-order mask. Valid once output has been produced.
+   */
+  public long getChannelLayoutMask() {
+    return channelLayoutMask;
+  }
+
+  /**
+   * Returns a diagnostic when decoded PCM no longer matches the format reported
+   * for this stream, or {@code null} when it is unchanged.
+   */
+  @Nullable
+  public static String describeOutputChange(
+      int channels, int rate, long mask, int newChannels, int newRate, long newMask) {
+    if (channels == newChannels && rate == newRate && mask == newMask) {
+      return null;
+    }
+    return "Decoded audio changed mid-stream from "
+        + describe(channels, rate, mask)
+        + " to "
+        + describe(newChannels, newRate, newMask)
+        + "; the output was configured for the first layout";
+  }
+
+  private static String describe(int channels, int rate, long mask) {
+    return channels + " ch/" + rate + " Hz (mask 0x" + Long.toHexString(mask) + ")";
+  }
 
   /** Returns the sample rate of output audio. */
   public int getSampleRate() {

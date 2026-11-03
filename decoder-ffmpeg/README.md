@@ -91,3 +91,19 @@ Build a host JNI decoder using `--target host --jdk /path/to/jdk17`, then run
 `:dsp:testDebugUnitTest` with `rtensorFfmpegHostLibraryDir=<output>/host` and the
 existing `rtensorDspHostLibraryDir`. The tests use the actual codec and original
 DMR JNI libraries. Device playback still needs validation with a user's local file.
+
+### Native decoder checks (no Android SDK needed)
+
+`tools/native_test.py` compiles `src/main/jni/ffmpeg_jni.cc` together with
+`src/test/native/decode_packet_test.cc` against a host FFmpeg 6.x/7.x prefix
+(`include/` and `lib/` with libavcodec, libavutil, libswresample), with
+AddressSanitizer and UndefinedBehaviorSanitizer, and runs it on the fixtures above:
+
+    python3 decoder-ffmpeg/tools/native_test.py --ffmpeg-prefix /path/to/ffmpeg --jdk "$JAVA_HOME"
+
+It checks that one packet holding several E-AC-3 syncframes decodes to the
+same bytes as separate packets (float and s16), that growing the output buffer
+keeps earlier frames, that an exactly sized buffer is never overrun, that a
+5.1 → stereo change rebuilds the converter, and that invalid data produces no
+output. Before the fix the multi-frame cases differed at byte 36864 (float) or
+18432 (s16), and the growth case crashed.

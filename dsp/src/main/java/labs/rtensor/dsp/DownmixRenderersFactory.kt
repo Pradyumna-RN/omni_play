@@ -31,6 +31,7 @@ open class DownmixRenderersFactory(
     private val onReport: (DownmixReport?) -> Unit = {},
 ) : DefaultRenderersFactory(context) {
     private var positions: List<SpeakerPosition>? = null
+    private var layoutError: Throwable? = null
     init { setEnableAudioFloatOutput(true) }
 
     override fun buildAudioSink(context: Context, enableFloatOutput: Boolean, enableAudioTrackPlaybackParams: Boolean): AudioSink {
@@ -39,8 +40,10 @@ open class DownmixRenderersFactory(
             .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
             .build()
         return DownmixAudioSink(delegate, decodedPositions = { channels ->
-            val decoded = positions ?: error("The decoder did not expose a supported speaker layout; refusing an unverified downmix")
-            require(decoded.size == channels) { "Decoder speaker layout changed without a format notification" }
+            val decoded = positions ?: throw (layoutError as? DownmixException ?: DownmixException(DownmixStage.LAYOUT,
+                "The decoder did not expose a supported speaker layout for $channels channels; refusing an unverified downmix", layoutError))
+            if (decoded.size != channels) throw DownmixException(DownmixStage.LAYOUT,
+                "Decoder speaker layout changed from ${decoded.size} to $channels channels without a format notification")
             decoded
         }, onReport = onReport, processingEnabled = processingEnabled)
     }
@@ -69,7 +72,9 @@ open class DownmixRenderersFactory(
                     return super.createDecoder(format, cryptoConfig)
                 }
                 override fun getOutputFormat(decoder: FfmpegAudioDecoder): Format {
-                    positions = runCatching { FfmpegSpeakerLayout.positions(decoder.channelLayoutMask, decoder.channelCount) }.getOrNull()
+                    val layout = runCatching { FfmpegSpeakerLayout.positions(decoder.channelLayoutMask, decoder.channelCount) }
+                    positions = layout.getOrNull()
+                    layoutError = layout.exceptionOrNull()
                     return super.getOutputFormat(decoder)
                 }
             })
@@ -84,6 +89,7 @@ open class DownmixRenderersFactory(
                     require(!multichannelRequired || count > 2) { "The decoder folded the multichannel recording to stereo before DSP" }
                     val mask = if (mediaFormat?.containsKey(MediaFormat.KEY_CHANNEL_MASK) == true)
                         mediaFormat.getInteger(MediaFormat.KEY_CHANNEL_MASK).takeIf { it != 0 && it != 1 } else null
+                    layoutError = null
                     positions = if (count <= 2) null else if (mask != null)
                         AndroidSpeakerLayout.fromMask(mask, count)
                     else if (format.sampleMimeType == MimeTypes.AUDIO_FLAC && count == format.channelCount)

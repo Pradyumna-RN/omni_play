@@ -261,6 +261,16 @@ class DownmixAudioSinkTest {
         assertTrue(h.engines.isEmpty())
         assertThrows(AudioSink.ConfigurationException::class.java) { wrapper(h).configure(format(), 0, intArrayOf(0, 1)) }
     }
+    @Test fun aLayoutFailureReachesPlaybackDiagnosticsWithItsMask() {
+        val h = Harness()
+        val sink = wrapper(h) { FfmpegSpeakerLayout.positions(0x13f, it) }
+        val error = assertThrows(AudioSink.ConfigurationException::class.java) { sink.configure(format(7), 0, null) }
+        val cause = error.cause as DownmixException
+        assertEquals(DownmixStage.LAYOUT, cause.stage)
+        val failure = PlaybackDiagnostics.describe(error)!!
+        assertEquals(DownmixStage.LAYOUT, failure.stage); assertTrue(failure.message, "0x13f" in failure.message)
+        assertTrue(h.engines.isEmpty()); assertNull(h.reports.last())
+    }
     @Test fun unsupportedRateAndFloatOutputDoNotSilentlyBecomePcm16() {
         val h = Harness(); h.output.floatSupported = false
         val sink = wrapper(h)

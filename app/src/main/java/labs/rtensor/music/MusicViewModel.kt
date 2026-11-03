@@ -166,8 +166,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             syncPlayer(includeQueue = true)
             val sourceError = generateSequence(error as Throwable) { it.cause }.filterIsInstance<SourceException>().firstOrNull()
             val provider = youtube.runtime.problem.value?.takeIf { it.videoId == mutable.value.current?.id?.removePrefix("yt:") }
-            mutable.update { it.copy(error = sourceError?.message ?: provider?.message ?: "Playback stopped. Check your connection and tap Retry to refresh the audio link.",
-                errorDiagnostic = sourceError?.diagnostic ?: provider?.let { p -> "${p.code}: ${p.diagnostic}" } ?: error.errorCodeName,
+            // The service classified the full cause chain before this callback arrived.
+            val audio = AudioPipeline.state.value.failure
+            mutable.update { it.copy(error = sourceError?.message ?: provider?.message ?: audio?.message ?: playbackErrorMessage(error),
+                errorDiagnostic = sourceError?.diagnostic ?: provider?.let { p -> "${p.code}: ${p.diagnostic}" } ?: audio?.detail ?: error.errorCodeName,
                 resolving = false, buffering = false) }
         }
     }
@@ -647,4 +649,14 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         MediaController.releaseFuture(controllerFuture)
         super.onCleared()
     }
+}
+
+/** Only network and source failures are worth a connection hint; decoding and
+ * output failures need the format, not a retry. */
+internal fun playbackErrorMessage(error: PlaybackException): String = when (error.errorCode / 1000) {
+    3 -> "This file could not be read. It may be damaged or in an unsupported container."
+    4 -> "This audio format could not be decoded on this device."
+    5 -> "The audio output rejected this format."
+    6 -> "This audio is protected and cannot be played here."
+    else -> "Playback stopped. Check your connection and tap Retry to refresh the audio link."
 }

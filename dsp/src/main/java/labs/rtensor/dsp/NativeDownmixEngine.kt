@@ -4,10 +4,15 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 internal object NativeBindings {
-    val available: Boolean = runCatching {
+    /** Why the private library could not be used, kept for diagnostics rather than
+     * collapsed into a boolean. Null when it loaded with the expected ABI. */
+    val loadError: Throwable? = runCatching {
         System.loadLibrary("rtensor_downmix")
-        check(abiVersion() == 2) { "Unsupported private DSP ABI" }
-    }.isSuccess
+        val abi = abiVersion()
+        check(abi == ABI) { "Unsupported private DSP ABI $abi (expected $ABI)" }
+    }.exceptionOrNull()
+    val available: Boolean get() = loadError == null
+    const val ABI = 2
     external fun abiVersion(): Int
     external fun create(rate: Int, positions: IntArray, layout: Int, maxFrames: Int, preampDb: Float): Long
     external fun process(handle: Long, input: ByteBuffer, inputOffset: Int, output: ByteBuffer, outputOffset: Int, frames: Int): Int
@@ -23,9 +28,10 @@ class NativeDownmixEngine(override val format: DownmixFormat) : DownmixEngine {
     override val latencyFrames: Int
     override val drainFrames: Int get() = latencyFrames + format.sampleRate / 20
     init {
-        check(isAvailable) { "The private Android DSP library is not included in this build" }
+        NativeBindings.loadError?.let { throw DownmixException(DownmixStage.DSP_LIBRARY, unavailableReason ?: "The private DSP is unavailable", it) }
         handle = NativeBindings.create(format.sampleRate, format.positions.map { it.id }.toIntArray(), format.layout.id, format.maxBlockFrames, format.preampDb)
-        check(handle != 0L) { "The private DSP could not configure this format" }
+        if (handle == 0L) throw DownmixException(DownmixStage.FORMAT,
+            "The private DSP could not configure ${format.inputChannels} channels at ${format.sampleRate} Hz (${format.positions.joinToString(" ")}, ${format.layout})")
         latencyFrames = NativeBindings.latency(handle)
     }
 
@@ -39,7 +45,7 @@ class NativeDownmixEngine(override val format: DownmixFormat) : DownmixEngine {
         val outputBytes = Math.multiplyExact(frames, 8)
         require(input.remaining() >= inputBytes && output.remaining() >= outputBytes) { "DSP buffer is too small" }
         val status = NativeBindings.process(handle, input, input.position(), output, output.position(), frames)
-        check(status == 0) { "Private DSP rejected the audio block (status $status)" }
+        if (status != 0) throw DownmixException(DownmixStage.DSP, "Private DSP rejected the audio block (status $status)")
         input.position(input.position() + inputBytes)
         output.position(output.position() + outputBytes)
     }
@@ -64,6 +70,11 @@ class NativeDownmixEngine(override val format: DownmixFormat) : DownmixEngine {
 
     companion object {
         val isAvailable: Boolean get() = NativeBindings.available
+        /** Null when available; otherwise whether it was left out of the build or failed to load. */
+        val unavailableReason: String? get() = NativeBindings.loadError?.let { error ->
+            if (!wasPackaged) "The private Android DSP library is not included in this build"
+            else "The private Android DSP library failed to load: ${error.javaClass.simpleName}: ${error.message}"
+        }
         val wasPackaged: Boolean get() = BuildConfig.PRIVATE_DSP_INCLUDED
     }
 }

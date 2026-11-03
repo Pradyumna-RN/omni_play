@@ -37,4 +37,9 @@ class LocalAudioImportTest {
         assertEquals("Owned title", track.title); assertEquals("Owned artist", track.artist)
         assertEquals(123000L, track.durationMs); assertEquals(Source.LOCAL, track.source)
     }
+    @Test fun thePickerOffersAudioMp4VideoContainersAndUntypedFiles() {
+        val types = LocalAudioImporter.PICKER_TYPES.toList()
+        assertTrue("audio/*" in types); assertTrue("video/mp4" in types); assertTrue("application/octet-stream" in types)
+        assertEquals(types.size, types.distinct().size)
+    }
 }
