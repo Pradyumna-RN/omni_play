@@ -6,12 +6,13 @@ import java.nio.ByteOrder
 internal object NativeBindings {
     val available: Boolean = runCatching {
         System.loadLibrary("rtensor_downmix")
-        check(abiVersion() == 1) { "Unsupported private DSP ABI" }
+        check(abiVersion() == 2) { "Unsupported private DSP ABI" }
     }.isSuccess
     external fun abiVersion(): Int
     external fun create(rate: Int, positions: IntArray, layout: Int, maxFrames: Int, preampDb: Float): Long
     external fun process(handle: Long, input: ByteBuffer, inputOffset: Int, output: ByteBuffer, outputOffset: Int, frames: Int): Int
     external fun reset(handle: Long): Int
+    external fun setCompareMode(handle: Long, original: Boolean): Int
     external fun latency(handle: Long): Int
     external fun destroy(handle: Long)
 }
@@ -46,6 +47,11 @@ class NativeDownmixEngine(override val format: DownmixFormat) : DownmixEngine {
     @Synchronized override fun reset() {
         check(handle != 0L) { "DSP stream is closed" }
         check(NativeBindings.reset(handle) == 0)
+    }
+
+    @Synchronized override fun setCompareMode(original: Boolean) {
+        check(handle != 0L) { "DSP stream is closed" }
+        check(NativeBindings.setCompareMode(handle, original) == 0) { "The DSP comparison mode could not change" }
     }
 
     @Synchronized override fun close() {

@@ -71,7 +71,26 @@ class NativeDownmixEngineTest {
     @Test fun closeIsIdempotentAndPreventsFurtherNativeCalls() {
         val e = NativeDownmixEngine(DownmixFormat(48000, roles)); e.close(); e.close()
         assertThrows(IllegalStateException::class.java) { e.reset() }
+        assertThrows(IllegalStateException::class.java) { e.setCompareMode(true) }
         assertThrows(IllegalStateException::class.java) { e.process(input(128), buffer(1024), 128) }
+    }
+    @Test fun realJniProcessesStereoAndOriginalComparisonIsARealDifferentSignal() {
+        val frames = 8192
+        val format = DownmixFormat(48000, listOf(SpeakerPosition.FL, SpeakerPosition.FR), maxBlockFrames = frames)
+        fun source() = buffer(frames * 8).apply {
+            repeat(frames) { i -> putFloat((kotlin.math.sin(i * .057) * .1).toFloat()); putFloat((kotlin.math.sin(i * .091) * .1).toFloat()) }; flip()
+        }
+        NativeDownmixEngine(format).use { wet -> NativeDownmixEngine(format).use { dry ->
+            dry.setCompareMode(true)
+            val a = buffer(frames * 8); val b = buffer(frames * 8)
+            wet.process(source(), a, frames); dry.process(source(), b, frames)
+            a.flip(); b.flip(); var difference = 0f
+            repeat(frames * 2) { difference = maxOf(difference, kotlin.math.abs(a.float - b.float)) }
+            assertTrue("Stereo processing must change the signal, not just its label", difference > .0001f)
+            wet.setCompareMode(true); wet.reset()
+            val original = buffer(frames * 8); wet.process(source(), original, frames); original.flip(); b.rewind()
+            assertEquals(b, original)
+        } }
     }
     @Test fun processingAndCloseCannotRaceIntoFreedMemory() {
         val engine = NativeDownmixEngine(DownmixFormat(48000, roles))

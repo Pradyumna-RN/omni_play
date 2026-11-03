@@ -3,7 +3,25 @@
 Temporary name: **Music**. Native Android player from RTensorLabs with the approved
 Margin visual direction: warm paper, DM Sans, original provider artwork and raspberry controls.
 
-## Version 0.3.11 — DSP built into Music and delivered through OTA
+## Version 0.3.12 — compare Original and Processed while listening
+
+Now Playing has an **Original / Processed** control. It switches the existing
+renderer during playback with a short fade, without seeking, loading another
+stream or resetting its filter history. Your choice is saved.
+
+YouTube's decoded stereo can use the original renderer's optional stereo monitor
+upmix. This creates spatial ambience from stereo; it does not recover an Atmos
+mix or lossless source. Common 44.1 kHz stereo is explicitly converted to 48 kHz
+before the fixed-rate core; 48/96/192 kHz uses its own rate. Original bypasses
+the native upmix/matrix while retaining the same rate conversion, delay and gain
+for comparison. For multichannel recordings, Original keeps only FL/FR, matching
+the desktop renderer's comparison. The player identifies that front-pair mode.
+
+Playback settings now contain the Autoplay control and Import audio action. The
+four descriptive feature rows and the hard-coded processing status were removed.
+DSP remains inside the normal Music APK and is distributed through OTA.
+
+## Previous release: 0.3.11 — integrated DSP and OTA
 
 The normal Music APK now bundles the original native DSP and its player adapter.
 Install it through Settings → Updates; no separate DSP application or library

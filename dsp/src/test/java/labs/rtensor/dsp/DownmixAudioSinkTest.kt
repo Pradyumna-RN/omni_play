@@ -65,6 +65,8 @@ class DownmixAudioSinkTest {
     }
     private class CountingEngine(override val format: DownmixFormat, override val latencyFrames: Int = 4) : DownmixEngine {
         var processed = 0; var resets = 0; var closes = 0
+        val comparisons = mutableListOf<Boolean>()
+        override fun setCompareMode(original: Boolean) { comparisons += original }
         override fun process(input: ByteBuffer, output: ByteBuffer, frames: Int) {
             processed++
             repeat(frames) {
@@ -82,13 +84,13 @@ class DownmixAudioSinkTest {
     private fun wrapper(h: Harness, layout: (Int) -> List<SpeakerPosition> = { roles }) = DownmixAudioSink(h.output.sink, layout,
         engineFactory = { CountingEngine(it).also(h.engines::add) }, onReport = h.reports::add)
 
-    @Test fun stereoLosslessBypassesWithoutChangingFormatOrBytes() {
-        val h = Harness(); val sink = wrapper(h); val f = format(2, C.ENCODING_PCM_24BIT, 44100)
+    @Test fun unsupportedStereoRateBypassesWithoutChangingFormatOrBytes() {
+        val h = Harness(); val sink = wrapper(h); val f = format(2, C.ENCODING_PCM_24BIT, 88200)
         sink.configure(f, 1234, null)
         val samples = ByteArray(120) { it.toByte() }; val b = buffer(120).apply { put(samples); flip() }
         assertTrue(sink.handleBuffer(b, 0, 1)); assertArrayEquals(samples, h.output.bytes.toByteArray())
         assertSame(f, h.output.configured); assertEquals(1234, h.output.configuredBufferSize)
-        assertTrue(h.engines.isEmpty()); assertNull(h.reports.single())
+        assertTrue(h.engines.isEmpty()); assertFalse(h.reports.single()!!.comparisonAvailable)
     }
     @Test fun floatMultichannelIsProcessedAndDeliveredAsFloatStereo() {
         val h = Harness(); val sink = wrapper(h); sink.configure(format(), 64000, null)
@@ -99,6 +101,82 @@ class DownmixAudioSinkTest {
         assertEquals(0, h.output.configuredBufferSize)
         val report = h.reports.single()!!
         assertEquals(roles, report.inputPositions); assertFalse(report.bitPerfect); assertFalse(report.atmosVerified)
+    }
+    @Test fun decodedYoutubeStereoUsesTheSameNativeAdapterAndItsRealInputLayout() {
+        val h = Harness(); val sink = wrapper(h)
+        sink.configure(format(2), 0, null)
+        assertTrue(sink.handleBuffer(input(1024, 2), 0, 1))
+        assertEquals(2, h.engines.single().format.inputChannels)
+        assertEquals(listOf(SpeakerPosition.FL, SpeakerPosition.FR), h.engines.single().format.positions)
+        assertEquals(0f, h.engines.single().format.preampDb, 0f)
+        assertEquals(1024 * 8, h.output.bytes.size())
+        assertEquals("Stereo enhancement", h.reports.single()!!.processing)
+    }
+    @Test fun liveComparisonDoesNotReloadReconfigureOrReprocessBlockedAudio() {
+        val h = Harness(); var processed = true
+        val sink = DownmixAudioSink(h.output.sink, { roles },
+            engineFactory = { CountingEngine(it).also(h.engines::add) },
+            onReport = h.reports::add, processingEnabled = { processed })
+        sink.configure(format(), 0, null)
+        val first = input(256); h.output.blockNext = true
+        assertFalse(sink.handleBuffer(first, 0, 1))
+        processed = false
+        assertTrue(sink.handleBuffer(first, 0, 1))
+        assertEquals(1, h.engines.single().processed)
+        assertTrue(sink.handleBuffer(input(512), 5333, 1))
+        assertTrue(sink.handleBuffer(input(512), 16000, 1))
+        val e = h.engines.single()
+        assertEquals(listOf(false, true), e.comparisons)
+        assertEquals(3, e.processed); assertEquals(0, e.resets); assertEquals(0, e.closes)
+        assertEquals((256 + 1024) * 8, h.output.bytes.size())
+        assertFalse(h.reports.last()!!.processingEnabled)
+    }
+    @Test fun actualJniStereoFlowsThroughTheSinkWithLiveComparisonAndSeeking() {
+        if (System.getProperty("rtensor.dsp.expectNative") == "true") assertTrue(NativeDownmixEngine.isAvailable)
+        else org.junit.Assume.assumeTrue(NativeDownmixEngine.isAvailable)
+        for (rate in listOf(44100, 48000)) {
+            val h = Harness(); var processed = true
+            val sink = DownmixAudioSink(h.output.sink, { roles }, onReport = h.reports::add, processingEnabled = { processed })
+            sink.configure(format(2, rate = rate), 0, null)
+            assertTrue(sink.handleBuffer(input(1024, 2), 0, 1))
+            processed = false
+            assertTrue(sink.handleBuffer(input(1024, 2), 1024L * 1_000_000 / rate, 1))
+            assertFalse(h.reports.last()!!.processingEnabled)
+            sink.flush()
+            assertTrue(sink.handleBuffer(input(1024, 2), 1_000_000, 1))
+            sink.playToEndOfStream(); assertTrue(sink.isEnded)
+            val output = ByteBuffer.wrap(h.output.bytes.toByteArray()).order(ByteOrder.nativeOrder())
+            var heard = false
+            while (output.hasRemaining()) { val sample = output.float; assertTrue(sample.isFinite()); heard = heard || sample != 0f }
+            assertTrue(heard); sink.release()
+        }
+    }
+    @Test fun youtubeAacRateIsConvertedBeforeTheFixedRateCoreWithoutChangingPlaybackDuration() {
+        val h = Harness(); val sink = wrapper(h)
+        sink.configure(format(2, rate = 44100), 0, null)
+        assertTrue(sink.handleBuffer(input(44100, 2), 0, 1))
+        assertEquals(48000, h.engines.single().format.sampleRate)
+        assertEquals(48000, h.output.configured!!.sampleRate)
+        assertEquals(48000 * 8, h.output.bytes.size())
+        assertEquals(44100, h.reports.single()!!.sampleRate)
+        assertEquals(48000, h.reports.single()!!.renderSampleRate)
+        h.output.position = 501541
+        assertEquals(500000, sink.getCurrentPositionUs(false))
+        sink.playToEndOfStream(); assertTrue(sink.isEnded)
+        h.output.position = 2_000_000
+        assertEquals(1_000_000, sink.getCurrentPositionUs(true))
+        sink.flush(); assertTrue(sink.handleBuffer(input(44100, 2), 2_000_000, 1))
+        assertEquals(48000 * 8, h.output.bytes.size())
+    }
+    @Test fun rateConversionDoesNotRunAgainWhenTheOutputOnlyAcceptedPartOfABuffer() {
+        val h = Harness(); val sink = wrapper(h)
+        sink.configure(format(2, rate = 44100), 0, null)
+        val samples = input(4410, 2); h.output.blockNext = true
+        assertFalse(sink.handleBuffer(samples, 0, 1))
+        assertEquals(470 * 8, samples.position())
+        assertTrue(sink.handleBuffer(samples, 0, 1))
+        assertEquals(4800 * 8, h.output.bytes.size())
+        assertEquals(0L, h.output.timestamps[0]); assertEquals(0L, h.output.timestamps[1])
     }
     @Test fun pcm24LowBitsReachTheFloatProcessor() {
         val h = Harness(); val sink = wrapper(h); sink.configure(format(6, C.ENCODING_PCM_24BIT), 0, null)
@@ -197,7 +275,7 @@ class DownmixAudioSinkTest {
         val original = AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build()
         sink.setAudioAttributes(original); sink.configure(format(), 0, null)
         assertEquals(C.SPATIALIZATION_BEHAVIOR_NEVER, h.output.attributes!!.spatializationBehavior)
-        sink.configure(format(2), 0, null)
+        sink.configure(format(2, rate = 88200), 0, null)
         assertSame(original, h.output.attributes)
     }
 }

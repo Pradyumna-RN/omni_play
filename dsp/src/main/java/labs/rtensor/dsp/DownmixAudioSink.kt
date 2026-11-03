@@ -12,7 +12,8 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 /** Intercepts decoded PCM before Android output. Unlike setAudioProcessors alone,
- * this wrapper also sees the float PCM path. Stereo bypass stays with the delegate.
+ * this wrapper also sees the float PCM path. Supported stereo can use the
+ * original renderer's optional stereo upmix; other stereo stays with the delegate.
  * A provider-owned/protected player cannot be processed through this interface.
  */
 @UnstableApi
@@ -21,6 +22,7 @@ class DownmixAudioSink(
     private val decodedPositions: (Int) -> List<SpeakerPosition>,
     private val engineFactory: (DownmixFormat) -> DownmixEngine = { NativeDownmixEngine(it) },
     private val onReport: (DownmixReport?) -> Unit = {},
+    private val processingEnabled: () -> Boolean = { true },
 ) : ForwardingAudioSink(delegate) {
     private var engine: DownmixEngine? = null
     private var inputFormat: Format? = null
@@ -39,14 +41,21 @@ class DownmixAudioSink(
     private var wroteAudio = false
     private var requestedAttributes = AudioAttributes.DEFAULT
     private var inputEndPts = 0L
+    private var transition: ProcessingTransition? = null
+    private var report: DownmixReport? = null
+    private var rateAdapter: StereoRateAdapter? = null
+    private var resampledInput: ByteBuffer = EMPTY
+    private var sourceBlockFrames = 512
+    private var renderedFrames = 0L
 
     override fun supportsFormat(format: Format): Boolean = getFormatSupport(format) != AudioSink.SINK_FORMAT_UNSUPPORTED
     override fun getFormatSupport(format: Format): Int {
         // Decode compressed input rather than bypassing the custom PCM stage.
         if (format.sampleMimeType != MimeTypes.AUDIO_RAW) return AudioSink.SINK_FORMAT_UNSUPPORTED
-        if (format.channelCount <= 2) return delegate.getFormatSupport(format)
         val encodingSupported = runCatching { PcmFloatConverter.bytesPerSample(format.pcmEncoding) }.isSuccess
-        return if (format.channelCount in 3..16 && format.sampleRate in DownmixFormat.SUPPORTED_SAMPLE_RATES && encodingSupported)
+        val processable = format.channelCount in 2..16 && (format.sampleRate in DownmixFormat.SUPPORTED_SAMPLE_RATES || (format.channelCount == 2 && format.sampleRate == 44100)) && encodingSupported
+        if (format.channelCount <= 2 && !processable) return delegate.getFormatSupport(format)
+        return if (processable)
             AudioSink.SINK_FORMAT_SUPPORTED_DIRECTLY else AudioSink.SINK_FORMAT_UNSUPPORTED
     }
     override fun getFormatOffloadSupport(format: Format): AudioOffloadSupport = AudioOffloadSupport.DEFAULT_UNSUPPORTED
@@ -55,32 +64,45 @@ class DownmixAudioSink(
         check(pending == null) { "The previous decoded audio buffer has not drained" }
         engine?.close(); engine = null
         clearStream()
+        transition = null; report = null; rateAdapter = null
         inputFormat = format
-        if (format.channelCount <= 2) {
+        val convertible = format.channelCount == 2 && format.sampleRate == 44100
+        val encodingSupported = runCatching { PcmFloatConverter.bytesPerSample(format.pcmEncoding) }.isSuccess
+        if (format.channelCount < 2 || (format.channelCount == 2 && ((!convertible && format.sampleRate !in DownmixFormat.SUPPORTED_SAMPLE_RATES) || !encodingSupported))) {
             delegate.setAudioAttributes(requestedAttributes)
             delegate.configure(format, specifiedBufferSize, outputChannels)
-            onReport(null)
+            report = DownmixReport(format.sampleRate, if (format.channelCount == 2) listOf(SpeakerPosition.FL, SpeakerPosition.FR) else emptyList(),
+                processing = "Original audio", processingEnabled = false, comparisonAvailable = false,
+                unavailableReason = if (format.channelCount == 2) "Unsupported processing format" else "Mono source")
+            onReport(report)
             return
         }
         var created: DownmixEngine? = null
         try {
             require(format.sampleMimeType == MimeTypes.AUDIO_RAW) { "Downmix requires decoded PCM" }
-            require(outputChannels == null) { "A decoder channel-remapping array needs explicit layout reconciliation" }
-            val positions = decodedPositions(format.channelCount)
+            require(outputChannels == null || (format.channelCount == 2 && outputChannels.contentEquals(intArrayOf(0, 1)))) { "A decoder channel-remapping array needs explicit layout reconciliation" }
+            val positions = if (format.channelCount == 2) listOf(SpeakerPosition.FL, SpeakerPosition.FR) else decodedPositions(format.channelCount)
             require(positions.size == format.channelCount)
-            val specification = DownmixFormat(format.sampleRate, positions)
+            val specification = DownmixFormat(if (convertible) 48000 else format.sampleRate, positions)
             frameBytes = PcmFloatConverter.bytesPerSample(format.pcmEncoding) * format.channelCount
             inputChannels = format.channelCount
             created = engineFactory(specification)
+            val processed = processingEnabled()
+            created.setCompareMode(!processed)
+            transition = ProcessingTransition(specification.sampleRate, processed)
+            rateAdapter = if (convertible) StereoRateAdapter() else null
+            sourceBlockFrames = rateAdapter?.inputFramesPerBlock(specification.maxBlockFrames) ?: specification.maxBlockFrames
             floatInput = ByteBuffer.allocateDirect(specification.maxBlockFrames * inputChannels * 4).order(ByteOrder.nativeOrder())
+            resampledInput = if (convertible) ByteBuffer.allocateDirect(specification.maxBlockFrames * 8).order(ByteOrder.nativeOrder()) else EMPTY
             floatOutput = ByteBuffer.allocateDirect(specification.maxBlockFrames * 8).order(ByteOrder.nativeOrder())
-            val stereo = format.buildUpon().setChannelCount(2).setPcmEncoding(C.ENCODING_PCM_FLOAT).build()
+            val stereo = format.buildUpon().setChannelCount(2).setSampleRate(specification.sampleRate).setPcmEncoding(C.ENCODING_PCM_FLOAT).build()
             require(delegate.getFormatSupport(stereo) != AudioSink.SINK_FORMAT_UNSUPPORTED) { "The output cannot accept float PCM" }
             // A buffer size calculated for multichannel bytes cannot be reused for stereo.
             delegate.setAudioAttributes(renderedAttributes())
             delegate.configure(stereo, 0, null)
             engine = created
-            onReport(DownmixReport(format.sampleRate, positions))
+            report = DownmixReport(format.sampleRate, positions, processing = if (format.channelCount == 2) "Stereo enhancement" else "Multichannel render", processingEnabled = processed, renderSampleRate = specification.sampleRate)
+            onReport(report)
         } catch (error: Exception) {
             created?.close()
             engine = null
@@ -100,17 +122,17 @@ class DownmixAudioSink(
             require(buffer.order() == ByteOrder.nativeOrder())
             if (firstPts == null) firstPts = presentationTimeUs
             while (buffer.hasRemaining()) {
-                val frames = minOf(buffer.remaining() / frameBytes, active.format.maxBlockFrames)
+                val frames = minOf(buffer.remaining() / frameBytes, sourceBlockFrames)
                 floatInput.clear()
                 PcmFloatConverter.convert(buffer, floatInput, frames * inputChannels, format.pcmEncoding)
-                floatInput.flip(); floatOutput.clear()
-                active.process(floatInput, floatOutput, frames)
-                floatOutput.flip()
+                floatInput.flip()
+                val outputFrames = renderBlock(active, frames)
                 pending = floatOutput
-                pendingPts = presentationTimeUs + inputFrames * 1_000_000L / format.sampleRate
+                pendingPts = firstPts!! + renderedFrames * 1_000_000L / active.format.sampleRate
+                renderedFrames += outputFrames
                 inputFrames += frames
-                nextPts = presentationTimeUs + inputFrames * 1_000_000L / format.sampleRate
-                inputEndPts = nextPts
+                nextPts = firstPts!! + renderedFrames * 1_000_000L / active.format.sampleRate
+                inputEndPts = presentationTimeUs + inputFrames * 1_000_000L / format.sampleRate
                 wroteAudio = true
                 if (!drainPending()) return false
             }
@@ -130,18 +152,44 @@ class DownmixAudioSink(
         return true
     }
 
+    private fun prepareProcessing(active: DownmixEngine) {
+        val mode = transition ?: return
+        if (mode.prepare(processingEnabled())) {
+            active.setCompareMode(!mode.processed)
+            report = report?.copy(processingEnabled = mode.processed)
+            onReport(report)
+        }
+    }
+
+    private fun renderBlock(active: DownmixEngine, frames: Int): Int {
+        val adapter = rateAdapter
+        val pcm = if (adapter == null) floatInput else resampledInput.apply {
+            clear(); adapter.process(floatInput, this, frames); flip()
+        }
+        val outputFrames = pcm.remaining() / (inputChannels * 4)
+        floatOutput.clear(); prepareProcessing(active)
+        active.process(pcm, floatOutput, outputFrames); floatOutput.flip()
+        transition?.apply(floatOutput, outputFrames)
+        return outputFrames
+    }
+
     override fun playToEndOfStream() {
         val active = engine ?: return delegate.playToEndOfStream()
-        if (!tailStarted) { tailStarted = true; tailRemaining = if (wroteAudio) active.drainFrames else 0 }
+        if (!tailStarted) {
+            tailStarted = true
+            val outputPadding = active.drainFrames + (rateAdapter?.latencyOutputFrames ?: 0)
+            tailRemaining = if (wroteAudio) ((outputPadding.toLong() * checkNotNull(inputFormat).sampleRate + active.format.sampleRate - 1) / active.format.sampleRate).toInt() else 0
+        }
         if (!drainPending()) return
         while (tailRemaining > 0) {
-            val frames = minOf(tailRemaining, active.format.maxBlockFrames)
+            val frames = minOf(tailRemaining, sourceBlockFrames)
             floatInput.clear()
             repeat(frames * inputChannels) { floatInput.putFloat(0f) }
-            floatInput.flip(); floatOutput.clear()
-            active.process(floatInput, floatOutput, frames); floatOutput.flip()
+            floatInput.flip()
+            val outputFrames = renderBlock(active, frames)
             pending = floatOutput; pendingPts = nextPts
-            nextPts += frames * 1_000_000L / active.format.sampleRate
+            renderedFrames += outputFrames
+            nextPts = firstPts!! + renderedFrames * 1_000_000L / active.format.sampleRate
             tailRemaining -= frames
             if (!drainPending()) return
         }
@@ -155,7 +203,8 @@ class DownmixAudioSink(
         val position = delegate.getCurrentPositionUs(sourceEnded)
         val active = engine ?: return position
         if (position == AudioSink.CURRENT_POSITION_NOT_SET) return position
-        val adjusted = (position - active.latencyFrames * 1_000_000L / active.format.sampleRate).coerceAtLeast(firstPts ?: position)
+        val delay = active.latencyFrames + (rateAdapter?.latencyOutputFrames ?: 0)
+        val adjusted = (position - delay * 1_000_000L / active.format.sampleRate).coerceAtLeast(firstPts ?: position)
         return if (tailStarted && wroteAudio) adjusted.coerceAtMost(inputEndPts) else adjusted
     }
     override fun setAudioAttributes(audioAttributes: AudioAttributes) {
@@ -174,17 +223,21 @@ class DownmixAudioSink(
     }
     override fun reset() {
         clearStream(); engine?.close(); engine = null; inputFormat = null
-        floatInput = EMPTY; floatOutput = EMPTY
+        transition = null; report = null
+        floatInput = EMPTY; floatOutput = EMPTY; resampledInput = EMPTY; rateAdapter = null
         delegate.reset(); onReport(null)
     }
     override fun release() {
         clearStream(); engine?.close(); engine = null
+        transition = null; report = null; rateAdapter = null; resampledInput = EMPTY
         delegate.release(); onReport(null)
     }
     private fun clearStream() {
         pending = null; inputBuffer = null; inputFrames = 0; nextPts = 0
         firstPts = null; tailRemaining = 0; tailStarted = false; wroteAudio = false
         inputEndPts = 0
+        transition?.reset()
+        rateAdapter?.reset(); renderedFrames = 0
     }
     private companion object { val EMPTY: ByteBuffer = ByteBuffer.allocateDirect(0).order(ByteOrder.nativeOrder()) }
 }

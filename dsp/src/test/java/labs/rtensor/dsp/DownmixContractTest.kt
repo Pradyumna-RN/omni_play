@@ -7,6 +7,12 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 class DownmixContractTest {
+    @Test fun stereoRequiresARealFrontPairAndItsOwnInputLayout() {
+        val stereo = listOf(SpeakerPosition.FL, SpeakerPosition.FR)
+        assertEquals(2, DownmixFormat(48000, stereo).inputChannels)
+        assertThrows(IllegalArgumentException::class.java) { DownmixFormat(48000, listOf(SpeakerPosition.FL, SpeakerPosition.FC)) }
+        assertThrows(IllegalArgumentException::class.java) { DownmixFormat(48000, stereo, layout = RenderLayout.SHARUR_916) }
+    }
     @Test fun decoderMaskDistinguishesBackAndSideSurrounds() {
         val back = AndroidSpeakerLayout.fromMask(4 or 8 or 16 or 32 or 64 or 128, 6)
         val side = AndroidSpeakerLayout.fromMask(4 or 8 or 16 or 32 or 2048 or 4096, 6)
