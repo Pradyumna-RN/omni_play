@@ -211,9 +211,9 @@ function normalizePlayerError(client, error) {
 }
 /** Media requests must look like the client that asked for the stream. */
 function mediaHeaders(api, client) {
-  const agent = GUEST_CLIENTS.includes(client) && Constants.CLIENTS[client]?.USER_AGENT;
-  if (client === 'ANDROID_VR') return { 'User-Agent': agent };
-  return { 'User-Agent': agent || api.session.context.client.userAgent, 'Origin': 'https://www.youtube.com', 'Referer': 'https://www.youtube.com/' };
+  // visionOS streams are fetched like the native app: its own agent, no web origin.
+  if (client === 'VISIONOS') return { 'User-Agent': Constants.CLIENTS.VISIONOS.USER_AGENT };
+  return { 'User-Agent': api.session.context.client.userAgent, 'Origin': 'https://www.youtube.com', 'Referer': 'https://www.youtube.com/' };
 }
 async function streamFromInfo(api, id, client, info, tokens) {
   if (info.playability_status?.status !== 'OK') throw playerFailure(client, info);
@@ -245,12 +245,60 @@ async function streamFromInfo(api, id, client, info, tokens) {
   }
   throw lastError;
 }
-// Clients whose audio URLs YouTube serves without a BotGuard proof. They play the same
-// ad-free adaptive audio streams, so they back up the web clients when attestation is
-// rejected on a device. They run as a separate signed-out session: these clients do not
-// accept web cookies, and an account must never be presented under another client's name.
-const GUEST_CLIENTS = ['ANDROID_VR', 'TV', 'WEB_EMBEDDED'];
+// Clients whose audio URLs YouTube serves without a BotGuard proof, as chosen by the
+// open-source YouTube Music players that benchmark them (Metrolist / innertubex): the
+// visionOS 0.1 app and the embedded web player. TV clients and Android VR are not used:
+// TV playback is unreliable, and VR audio is refused by the media server after 1 MiB.
+// They run as a separate signed-out session: these clients do not accept web cookies,
+// and an account must never be presented under another client's name.
+const GUEST_CLIENTS = ['VISIONOS', 'WEB_EMBEDDED'];
+const SAFARI_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15';
+// The visionOS profile that serves plain audio URLs (youtubei.js ships a newer one that does not).
+Object.assign(Constants.CLIENTS.VISIONOS, { VERSION: '0.1', DEVICE_MODEL: 'RealityDevice14,1', OS_NAME: 'VISION_OS', OS_VERSION: '1.3', USER_AGENT: SAFARI_UA });
+const EMBED_REFERER = 'https://www.reddit.com/';
 const guestMarker = 'X-Music-Anonymous';
+// Per-recording embed context: encryptedHostFlags are only honoured together with the
+// visitor that fetched the embed page.
+const embedContexts = new Map();
+async function embedContext(api, id) {
+  const cached = embedContexts.get(id);
+  if (cached && Date.now() - cached.at < 600_000) return cached;
+  const response = await transportFetch(`https://www.youtube.com/embed/${id}?html5=1`, { headers: {
+    [guestMarker]: '1', 'X-Music-User-Agent': api.session.context.client.userAgent, 'Referer': EMBED_REFERER, 'Accept-Language': `${api.session.context.client.hl || 'en'};q=0.9` } });
+  if (!response.ok) throw failure('PLAYER_REJECTED', 'YouTube did not open the embedded player.', `WEB_EMBEDDED_PLAYER: embed page HTTP ${response.status}`);
+  const html = await response.text();
+  const flags = html.match(/"encryptedHostFlags"\s*:\s*"([^"]+)"/)?.[1];
+  const visitor = html.match(/"VISITOR_DATA"\s*:\s*"([^"]+)"/)?.[1];
+  if (!flags || !visitor) throw failure('PLAYER_REJECTED', 'YouTube did not open the embedded player.', 'WEB_EMBEDDED_PLAYER: no embed host flags');
+  const context = { flags, visitor, at: Date.now() };
+  embedContexts.set(id, context);
+  if (embedContexts.size > 32) embedContexts.delete(embedContexts.keys().next().value);
+  return context;
+}
+/** Shapes a guest player request the way the named client's own app sends it. */
+function guestRequest(input, init, headers) {
+  const url = new URL(String(input instanceof Request ? input.url : input));
+  if (url.pathname !== '/youtubei/v1/player' || typeof init.body !== 'string') return { url: url.toString(), body: init.body };
+  let body; try { body = JSON.parse(init.body); } catch { return { url: url.toString(), body: init.body }; }
+  const client = body.context?.client || {};
+  if (client.clientName === 'VISIONOS') {
+    // The visionOS app asks YouTube Music's player endpoint, with no signature timestamp.
+    url.host = 'music.youtube.com';
+    headers.set('Origin', 'https://music.youtube.com'); headers.set('X-Origin', 'https://music.youtube.com'); headers.set('Referer', 'https://music.youtube.com/');
+    headers.set('X-Music-User-Agent', SAFARI_UA);
+    if (body.playbackContext?.contentPlaybackContext) delete body.playbackContext.contentPlaybackContext.signatureTimestamp;
+  } else if (client.clientName === Constants.CLIENTS.WEB_EMBEDDED.NAME) {
+    const embed = embedContexts.get(body.videoId);
+    if (embed) {
+      client.visitorData = embed.visitor; headers.set('X-Goog-Visitor-Id', embed.visitor);
+      body.playbackContext = body.playbackContext || {};
+      body.playbackContext.contentPlaybackContext = { ...body.playbackContext.contentPlaybackContext, encryptedHostFlags: embed.flags };
+    }
+    body.context.thirdParty = { embedUrl: EMBED_REFERER };
+    headers.set('Referer', EMBED_REFERER);
+  }
+  return { url: url.toString(), body: JSON.stringify(body) };
+}
 let guestPromise;
 function guestTube(api) {
   if (!guestPromise) guestPromise = (async () => {
@@ -258,11 +306,8 @@ function guestTube(api) {
       const headers = new Headers(init.headers || (input instanceof Request ? input.headers : undefined));
       for (const name of ['Authorization', 'X-Goog-Authuser', 'X-Goog-PageId', 'Cookie']) headers.delete(name);
       headers.set(guestMarker, '1');
-      // The native transport otherwise sends the WebView's user agent with every request.
-      const body = typeof init.body === 'string' ? init.body : '';
-      const client = Object.values(Constants.CLIENTS).find(c => c.USER_AGENT && body.includes(`"clientName":"${c.NAME}"`));
-      if (client) headers.set('X-Music-User-Agent', client.USER_AGENT);
-      return transportFetch(input, { ...init, headers });
+      const request = guestRequest(input, init, headers);
+      return transportFetch(request.url, { ...init, method: init.method || (input instanceof Request ? input.method : 'GET'), body: request.body, headers });
     };
     const guest = await Innertube.create({ fetch: guestFetch, cache: { get: async () => undefined, set: async () => {}, remove: async () => {} },
       visitor_data: api.session.context.client.visitorData, client_type: ClientType.WEB, generate_session_locally: true,
@@ -284,6 +329,7 @@ async function resolve(api, id, forceProof = false) {
   const attempt = async (client, verified) => {
     if (GUEST_CLIENTS.includes(client)) {
       const guest = await guestTube(api);
+      if (client === 'WEB_EMBEDDED') await embedContext(api, id);
       if (api.session.player) guest.session.player = api.session.player;
       const info = await guest.getBasicInfo(id, { client });
       const stream = await streamFromInfo(guest, id, client, info);
@@ -328,9 +374,14 @@ async function resolve(api, id, forceProof = false) {
   const pick = list => list.find(e => e.code === 'AUTH_REQUIRED') || list.find(e => e.code?.startsWith('MEDIA_HTTP')) || list.find(e => e.code === 'PLAYER_REJECTED') || list.find(e => e.code === 'SABR_UNSUPPORTED') || list.at(-1);
   const useful = pick(errors) || pick(guestErrors);
   const result = safeError(useful);
-  throw failure(result.code, result.message, [...new Set([...errors.map(e => safeError(e).diagnostic || safeError(e).code),
-    // Diagnostics are capped at 200 characters: keep the web reasons, and only the guest status.
-    ...guestErrors.map(e => (safeError(e).diagnostic || safeError(e).code).split('. ')[0])])].join(' | ').slice(0, 800));
+  // Diagnostics are capped at 200 characters: keep the web reasons, only the guest status,
+  // and name clients that failed the same way once ("YTMUSIC, WEB: LOGIN_REQUIRED. …").
+  const reasons = new Map();
+  for (const text of [...errors.map(e => safeError(e).diagnostic || safeError(e).code), ...guestErrors.map(e => (safeError(e).diagnostic || safeError(e).code).split('. ')[0])]) {
+    const [, client, rest] = text.match(/^([A-Z0-9_]+): (.*)$/s) || [, '', text];
+    reasons.set(rest, [...(reasons.get(rest) || []), client].filter(Boolean));
+  }
+  throw failure(result.code, result.message, [...reasons].map(([rest, clients]) => clients.length ? `${[...new Set(clients)].join(', ')}: ${rest}` : rest).join(' | ').slice(0, 800));
 }
 
 function emitMetadata(id, info) {

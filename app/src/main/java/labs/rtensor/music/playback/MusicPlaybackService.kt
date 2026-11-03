@@ -96,11 +96,14 @@ class MusicPlaybackService : MediaSessionService() {
         }
         val player = ExoPlayer.Builder(this, renderers)
             .setMediaSourceFactory(DefaultMediaSourceFactory(cachedData))
-            .setLoadControl(DefaultLoadControl.Builder().setBufferDurationsMs(15_000, 30_000, 500, 1500)
+            // A deeper forward buffer (as in open-source YouTube Music players) rides out
+            // slow media-server ranges; 50 s of audio is well under 1 MB.
+            .setLoadControl(DefaultLoadControl.Builder().setBufferDurationsMs(50_000, 50_000, 750, 2_000)
                 .setPrioritizeTimeOverSizeThresholds(true).build())
             .setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(), true)
             .setHandleAudioBecomingNoisy(true)
-            .setWakeMode(C.WAKE_MODE_LOCAL)
+            // Keep Wi-Fi awake too, so the screen-off buffer refills without stalling.
+            .setWakeMode(C.WAKE_MODE_NETWORK)
             .build()
         player.addListener(object : androidx.media3.common.Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {

@@ -51,7 +51,9 @@ internal class ProviderTransport(private val proofOnly: Boolean = false, client:
         headers.keys().forEach { key ->
             val lower = key.lowercase()
             if (lower !in setOf("host", "connection", "content-length", "cookie", "user-agent", ANONYMOUS_HEADER.lowercase(), CLIENT_AGENT_HEADER.lowercase()) &&
-                (!(proofOnly || media || anonymous) || lower !in setOf("authorization", "x-goog-authuser", "x-goog-pageid", "x-goog-visitor-id"))) request.header(key, headers.getString(key))
+                (!(proofOnly || media) || lower !in setOf("authorization", "x-goog-authuser", "x-goog-pageid", "x-goog-visitor-id")) &&
+                // A signed-out player request keeps its visitor (the embedded player needs the embed page's).
+                (!anonymous || lower !in setOf("authorization", "x-goog-authuser", "x-goog-pageid", "x-goog-session-index", "x-youtube-identity-token"))) request.header(key, headers.getString(key))
         }
         if (!proofOnly && !media && !anonymous && session != null) request.header("Cookie", session.cookie)
         return request.build()
