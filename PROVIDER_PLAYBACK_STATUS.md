@@ -1,7 +1,9 @@
 # Provider playback checkpoint
 
-This branch is work in progress, not a released provider integration. Version
-0.3.14 / code 17 is reserved for the next build. No new release has been published.
+This remains work in progress, not a released native provider integration. The
+separate local E-AC-3 prototype uses version 0.3.14 / code 17; it is a manual test
+build, excluded from normal OTA. The next distributed update needs a versionCode
+greater than 17.
 
 ## Implemented
 
@@ -23,6 +25,10 @@ This branch is work in progress, not a released provider integration. Version
   forwarded to returned audio URLs. A compact settings row opens an inline editor.
 - The original private DSP implementation and compiled native libraries are
   unchanged. No private processing source or coefficients were added here.
+- The local decoder prototype adds clear AC-3/E-AC-3 bed PCM decoding into DMR,
+  with explicit native speaker masks. It adds no Atmos object renderer or new
+  provider credentials. Explicit import can retain files whose platform metadata
+  reader lacks codec support.
 
 ## Incomplete
 
@@ -33,23 +39,22 @@ This branch is work in progress, not a released provider integration. Version
   that do not require each listener to register an application.
 - No free commercial catalogue is bundled. Imported files work independently of
   subscriptions; server/addon access depends on that source's requirements.
-- Live commercial playback, device lossless output and Atmos decoding into DMR
-  are unverified. Protected provider SDK playback does not establish a raw-PCM hook.
+- Live commercial playback, device lossless output and phone E-AC-3 playback into
+  DMR are unverified. Host JNI bed decoding is tested. Protected provider SDK
+  playback does not establish a raw-PCM hook.
 
 ## Validation status
 
-- An earlier full checkpoint passed 117 app tests and 49 DSP tests, fatal lint and
-  the non-debuggable APK/native packaging guard.
-- After final caching/matching and UI test additions, the full run had 120 app
-  tests with two failures. One was an Android JSON assertion in a plain JVM test;
-  that assertion was moved to the Robolectric suite. The subsequent focused run
-  passed the 17 matching/source tests.
-- The new `SourceSettingsUiTest` still fails to find `HTTPS server URL` after
-  activating Playback sources. It previously timed out with automatic animation
-  advancement; manual-clock and inline-editor variants still need investigation.
-  Do not assume this is only a harness issue: verify the interaction on a device.
-- The current source compiles. The complete suite and final APK packaging must be
-  run again after the settings interaction is fixed. No current APK is promoted.
+- The complete final run passes **123 app tests and 52 DSP tests**, with no failures,
+  errors or skips, plus fatal lint and both native APK packaging guards.
+- SourceSettingsUiTest passes against Claude's inline editor using the automatic
+  animation clock. The navigation test now targets the clickable About tab,
+  matching the current settings design. Product UI remains unchanged.
+- Real host JNI checks decode six distinct E-AC-3 channels into the original DMR;
+  stereo bypass is byte-identical. These are synthetic fixtures, not live provider
+  recordings or physical-device playback.
+- A manual prototype APK is supplied separately; it does not promote these server
+  connectors to verified Apple Music/TIDAL/Qobuz subscription integrations.
 
 ## UI handoff
 

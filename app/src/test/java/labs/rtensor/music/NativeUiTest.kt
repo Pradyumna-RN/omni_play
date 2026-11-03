@@ -208,11 +208,11 @@ class NativeUiTest {
         capture("mini-player")
     }
 
-    @Test fun settingsJumpBarNavigatesToUpdates() {
+    @Test fun settingsJumpBarNavigatesToAboutAndItsUpdateAction() {
         compose.setContent { MusicApp(MusicState(reducedMotion = true, theme = "light"), initialPage = "settings") }
-        compose.onNodeWithText("Updates").performScrollTo().performClick()
+        compose.onNode(hasText("About") and hasClickAction()).performScrollTo().performClick()
         compose.onNodeWithText("Check updates").assertIsDisplayed()
-        capture("settings-updates-jump")
+        capture("settings-about-jump")
     }
 
     @Test fun settingsImportActionOpensTheFilePickerCallback() {

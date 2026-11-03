@@ -4,7 +4,6 @@ import android.app.Application
 import android.content.ComponentName
 import android.net.Uri
 import android.os.Bundle
-import android.provider.OpenableColumns
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -29,6 +28,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import labs.rtensor.music.data.LibraryStore
+import labs.rtensor.music.data.LocalAudioImporter
 import labs.rtensor.music.data.LocalMasters
 import labs.rtensor.music.data.PlaybackRoute
 import labs.rtensor.music.data.ListeningHistory
@@ -568,17 +568,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             mutable.update { it.copy(importMessage = "Importing audio…") }
             try {
                 val track = withContext(Dispatchers.IO) {
-                    val app = getApplication<Application>()
-                    val filename = app.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
-                        if (it.moveToFirst()) it.getString(0) else null
-                    } ?: "Local recording"
-                    val reader = android.media.MediaMetadataRetriever()
-                    try {
-                        reader.setDataSource(app, uri)
-                        Track("local:$uri", reader.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_TITLE)?.takeIf { it.isNotBlank() } ?: filename.substringBeforeLast('.', filename),
-                            reader.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_ARTIST).orEmpty(), uri.toString(),
-                            durationMs = reader.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0, source = Source.LOCAL)
-                    } finally { reader.release() }
+                    LocalAudioImporter.read(getApplication<Application>(), uri)
                 }
                 val saved = listOf(track) + mutable.value.saved.filterNot { it.id == track.id }
                 library.writeTracks("saved", saved)

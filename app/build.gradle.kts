@@ -135,3 +135,27 @@ tasks.register("verifyOtaDspBundle") {
         logger.lifecycle("Verified: Music OTA APK bundles the supplied ARM64 and x86-64 DSP libraries")
     }
 }
+
+// Prototype builds opt in explicitly. Prevent an APK with only one ABI or a
+// loader missing one of its shared LGPL libraries from passing verification.
+tasks.register("verifyEac3DecoderBundle") {
+    dependsOn("assembleDebug")
+    doLast {
+        val directory = providers.gradleProperty("rtensorFfmpegJniDir").orNull
+            ?: error("Pass -PrtensorFfmpegJniDir for the E-AC-3 prototype")
+        val artifact = layout.buildDirectory.file("outputs/apk/debug/app-debug.apk").get().asFile
+        ZipFile(artifact).use { zip ->
+            listOf("arm64-v8a", "x86_64").forEach { abi ->
+                val root = file(directory).resolve(abi)
+                val build = JsonSlurper().parse(root.resolve("build-info.json")) as Map<*, *>
+                check(build["license"] == "LGPL-2.1-or-later" && build["ffmpeg"] == "n6.1.6")
+                check(build["sourceSha256"] == "7481306bddb81f4d4b42bfde4b39ea4fa097d7fa5b8cdba377142c88172b4af9")
+                listOf("libavcodec.so", "libavutil.so", "libswresample.so", "libffmpegJNI.so").forEach { name ->
+                    val entry = zip.getEntry("lib/$abi/$name") ?: error("Missing $abi/$name")
+                    check(zip.getInputStream(entry).use { it.readBytes() }.contentEquals(root.resolve(name).readBytes())) { "Decoder artifact changed: $abi/$name" }
+                }
+            }
+        }
+        logger.lifecycle("Verified: shared LGPL AC-3/E-AC-3 decoder and JNI packaged for ARM64 and x86-64")
+    }
+}

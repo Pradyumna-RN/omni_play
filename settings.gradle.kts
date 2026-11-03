@@ -15,3 +15,4 @@ dependencyResolutionManagement {
 rootProject.name = "Music"
 include(":app")
 include(":dsp")
+include(":decoder-ffmpeg")

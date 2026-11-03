@@ -12,14 +12,20 @@ import androidx.media3.exoplayer.Renderer
 import androidx.media3.exoplayer.audio.AudioRendererEventListener
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
+import androidx.media3.exoplayer.audio.ForwardingAudioSink
 import androidx.media3.exoplayer.audio.MediaCodecAudioRenderer
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
+import androidx.media3.decoder.CryptoConfig
+import androidx.media3.decoder.ffmpeg.FfmpegAudioDecoder
+import androidx.media3.decoder.ffmpeg.FfmpegAudioRenderer
+import androidx.media3.decoder.ffmpeg.FfmpegLibrary
 
-/** Uses the device decoder, then the app-owned PCM render. No Apple Music SDK
+/** Uses the software E-AC-3 bed decoder when packaged, otherwise the device decoder,
+ * then the app-owned PCM render. No Apple Music SDK
  * capture, Atmos object decoder or system loopback is implemented. Stereo
  * bypasses DMR without upmixing or rate conversion. */
 @UnstableApi
-class DownmixRenderersFactory(
+open class DownmixRenderersFactory(
     context: Context,
     private val processingEnabled: () -> Boolean = { true },
     private val onReport: (DownmixReport?) -> Unit = {},
@@ -42,6 +48,32 @@ class DownmixRenderersFactory(
     override fun buildAudioRenderers(context: Context, extensionRendererMode: Int, mediaCodecSelector: MediaCodecSelector,
         enableDecoderFallback: Boolean, audioSink: AudioSink, eventHandler: Handler,
         eventListener: AudioRendererEventListener, out: ArrayList<Renderer>) {
+        if (FfmpegLibrary.isAvailable()) {
+            var multichannelRequired = false
+            val guarded = object : ForwardingAudioSink(audioSink) {
+                override fun configure(format: Format, specifiedBufferSize: Int, outputChannels: IntArray?) {
+                    if (multichannelRequired && format.channelCount <= 2) throw AudioSink.ConfigurationException(
+                        IllegalArgumentException("The software decoder returned stereo for a multichannel source"), format)
+                    super.configure(format, specifiedBufferSize, outputChannels)
+                }
+            }
+            out.add(object : FfmpegAudioRenderer(eventHandler, eventListener, guarded) {
+                override fun getName() = "MusicFfmpegBedAudioRenderer"
+                override fun supportsFormatInternal(format: Format): Int = when {
+                    format.sampleMimeType !in setOf(MimeTypes.AUDIO_AC3, MimeTypes.AUDIO_E_AC3, MimeTypes.AUDIO_E_AC3_JOC) -> androidx.media3.common.C.FORMAT_UNSUPPORTED_TYPE
+                    format.drmInitData != null || format.cryptoType != androidx.media3.common.C.CRYPTO_TYPE_NONE -> androidx.media3.common.C.FORMAT_UNSUPPORTED_DRM
+                    else -> super.supportsFormatInternal(format)
+                }
+                override fun createDecoder(format: Format, cryptoConfig: CryptoConfig?): FfmpegAudioDecoder {
+                    multichannelRequired = format.channelCount > 2 || format.sampleMimeType == MimeTypes.AUDIO_E_AC3_JOC
+                    return super.createDecoder(format, cryptoConfig)
+                }
+                override fun getOutputFormat(decoder: FfmpegAudioDecoder): Format {
+                    positions = runCatching { FfmpegSpeakerLayout.positions(decoder.channelLayoutMask, decoder.channelCount) }.getOrNull()
+                    return super.getOutputFormat(decoder)
+                }
+            })
+        }
         out.add(object : MediaCodecAudioRenderer(context, codecAdapterFactory, mediaCodecSelector,
             enableDecoderFallback, eventHandler, eventListener, audioSink) {
             override fun onOutputFormatChanged(format: Format, mediaFormat: MediaFormat?) {

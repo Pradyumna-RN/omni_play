@@ -3,6 +3,15 @@
 Temporary name: **Music**. Native Android player from RTensorLabs with the approved
 Margin visual direction: warm paper, DM Sans, original provider artwork and raspberry controls.
 
+## Local E-AC-3 decoder prototype
+
+An optional software decoder now sends clear AC-3/E-AC-3 multichannel bed PCM
+into the original DMR inside Music. Stereo bypasses DMR unchanged. This is not
+full Atmos object rendering or new provider account access. The separate manual
+test build includes corresponding decoder source and a generated 5.1 sample.
+See [testing and limitations](LOCAL_EAC3_PROTOTYPE.md) and
+[decoder build instructions](decoder-ffmpeg/README.md).
+
 ## In progress: 0.3.14 — playback source connections and stereo bypass
 
 This is an unpublished development checkpoint. See

@@ -141,16 +141,21 @@ the sole issue.
 reference. Its provider implementation must be considered together with the
 separate [TrypT-hifi](https://github.com/tryptz/trypt-hifi) backend.
 
-- `data/api/ApiServer.kt` defines user-added servers and detects TIDAL through
+- `app/src/main/java/tf/monochrome/android/data/api/ApiServer.kt` defines user-added servers and detects TIDAL through
   `/search/`, Qobuz through `/api/get-music`, and Apple through
-  `/api/apple/get-music`. This is server-backed provider access, not native
+  `/api/apple/get-music`, plus Deezer through `/api/deezer/get-music`. This is server-backed provider access, not native
   provider subscription login in the Android client.
-- `HiFiApiClient.kt` resolves TIDAL stereo through `/track/`. Its Atmos path
+- `HiFiApiClient.kt` resolves TIDAL stereo through
+  `/api/tidal/download-music?track_id=...&quality=...`, with `/track/` as a fallback. Its Atmos path
   uses `/api/tidal/download-music?track_id=...&atmos=true`, checks the returned
   stream extension, and consumes a progressively served, range-capable file.
 - TrypT-hifi can act as the TIDAL HiFi server using an account refresh token and
   client configuration, or use another HiFi instance. Qobuz needs an account
-  token plus web-player app/signing configuration. These are account-backed
+  token plus an app ID and secret obtained by extracting Qobuz's app credentials
+  (the README links Qobuz-AppID-Secret-Tool). Calling that merely "configuration"
+  understated the credential provenance. TIDAL setup refers to hifi-api's auth
+  script for its client ID/secret; no provider permission to reuse those identities
+  was established in this review. These are account-backed
   unofficial interfaces; the listener does not purchase a developer membership
   as part of those setup instructions.
 - The backend README says TIDAL Atmos uses `/trackManifests/` and assembles DASH
@@ -161,11 +166,19 @@ separate [TrypT-hifi](https://github.com/tryptz/trypt-hifi) backend.
   an owner-created MusicKit token. ALAC/Atmos additionally needs a wrapper;
   the Apple on-device integration document is explicitly a design document.
   Do not confuse it with a completed Apple native sign-in path.
-- Tryptify's current `cpp/atmos/README.md` includes an **as-shipped** pipeline:
-  NextLib/FFmpeg decodes the E-AC-3 bed; `AtmosTapMediaSourceFactory` preserves
-  raw access units keyed by presentation time; its renderer uses JOC/OAMD
-  metadata separately. Android source wiring exists, beyond a badge or a
-  Windows-only renderer. Upstream source presence is not our device validation.
+- Tryptify's `app/src/main/cpp/atmos/README.md` is internally inconsistent: its
+  foundation section says "no runtime consumers yet", while a later section is
+  headed "Render pipeline — as shipped" and describes `AtmosAudioProcessor`.
+  The separate `audio/atmos/AtmosTapMediaSourceFactory.kt` exists in source;
+  that class name was from the implementation, not a quote from the README.
+  `player/PlaybackService.kt` references both it and `AtmosAudioProcessor`, and
+  configures NextLib. Thus source wiring exists; the README alone does not prove
+  a working shipped renderer, nor have we independently validated it on a device.
+
+Tryptify is GPL-3.0-or-later and its Cavern subtree has additional non-commercial
+terms; TrypT-hifi is MIT. No implementation was copied into Music. The local
+decoder prototype uses the Apache-2.0 Media3 adapter and a separately linked,
+minimal LGPL-2.1-or-later FFmpeg build instead of NextLib's GPL implementation.
 
 For Music, the most relevant architecture is the real server protocol plus an
 Android decoder that exposes multichannel PCM to the original DMR. Tryptify's

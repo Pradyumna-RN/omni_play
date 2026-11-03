@@ -1,9 +1,35 @@
-# Current development checkpoint: provider sources
+# Current verification: local E-AC-3 → original DMR prototype
 
-The unpublished 0.3.14 work is **not release-ready**. Its implementation and
-passing/failing check history are documented in
-[PROVIDER_PLAYBACK_STATUS.md](PROVIDER_PLAYBACK_STATUS.md). The new settings form
-test still fails, and live provider account playback remains unverified.
+- **123 app checks and 52 DSP checks pass**, with no failures, errors or skips.
+  The complete final run includes player motion, compare status, source matching,
+  imports and settings interaction. The source editor uses Compose's automatic
+  clock; the navigation test targets the current clickable About tab, which now
+  contains updates. No product UI was changed for these test corrections.
+- Three new checks load the actual FFmpeg JNI decoder. Synthetic E-AC-3 decodes
+  into six independently checked channels at 48 kHz, with a `5.1(side)` mask;
+  flushing/seeking continues decoding. That PCM runs through the actual original
+  DMR JNI. Stereo remains byte-identical and creates no DSP engine. Codec/DRM
+  selection and conservative speaker-mask mapping are checked too.
+- The private DSP source and supplied ARM64/x86-64 native binaries are unchanged.
+  The new decoder uses the Apache-2.0 Media3 adapter and a minimal, shared
+  LGPL-2.1-or-later FFmpeg n6.1.6 build. GPL/nonfree components are disabled. The
+  release includes corresponding decoder source and public Music source.
+- Android fatal lint and both packaging guards pass. The non-debuggable APK
+  includes the original DMR and all four decoder libraries for both 64-bit ABIs.
+  Release validation checks signing identity and APK/ELF 16 KiB alignment.
+- Explicit file import now tolerates missing platform codec metadata, while
+  rejecting empty/unreadable files. Three import checks cover both paths.
+
+This is a separate manual test release of 0.3.14 / code 17. It is excluded from
+normal OTA selection by its non-version tag and prototype APK asset name. The next
+distributed update must use a versionCode greater than 17. No physical Android
+device is attached; phone playback, audible output, seek latency and performance
+remain unverified. The fixture is ordinary E-AC-3, not an Atmos object test.
+JOC decoding supplies a channel bed, not the complete Atmos scene. No provider
+subscription integration or protected-audio decoder is added.
+
+See [prototype testing](LOCAL_EAC3_PROTOTYPE.md) and
+[provider implementation status](PROVIDER_PLAYBACK_STATUS.md).
 
 # Last published verification: Music 0.3.13 / pending mode and player UI work
 

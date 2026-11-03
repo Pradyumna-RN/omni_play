@@ -88,7 +88,7 @@ class MainActivity : ComponentActivity() {
                 onPrevious = model::previous, onNext = model::next, onSkipTo = model::skipTo,
                 onSeek = model::seek, onSave = model::save,
                 onTheme = model::theme, onReducedMotion = model::reducedMotion,
-                onOpenLocal = { local.launch(arrayOf("audio/*")) },
+                onOpenLocal = { local.launch(arrayOf("audio/*", "application/octet-stream")) },
                 onChooseMasters = { mastersFolder.launch(null) }, onClearMasters = model::clearMasters,
                 onConnectSource = model::connectSource, onRemoveSource = model::removeSource,
                 onClearHistory = model::clearHistory, onRetry = model::retry, onDismissError = model::clearError,
