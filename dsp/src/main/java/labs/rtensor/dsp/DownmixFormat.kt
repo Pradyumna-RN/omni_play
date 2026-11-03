@@ -11,6 +11,16 @@ enum class SpeakerPosition(val id: Int) {
 
 enum class RenderLayout(val id: Int) { WINDOWS_71(0), SHARUR_916(1) }
 
+/** What the listener hears from a multichannel source. */
+enum class ListeningMode {
+    /** The source's front left/right pair only. */
+    ORIGINAL,
+    /** The private renderer's speaker downmix. */
+    PROCESSED,
+    /** Headphone (binaural) render of every speaker channel. */
+    SPATIAL,
+}
+
 class DownmixFormat(
     val sampleRate: Int,
     positions: List<SpeakerPosition>,
@@ -43,6 +53,13 @@ interface DownmixEngine : AutoCloseable {
     /** Live desktop comparison: original keeps FL/FR, with the same delay/gain. */
     fun setCompareMode(original: Boolean)
     fun reset()
+    /** True when [processField] can return the renderer's speaker field. */
+    val providesField: Boolean get() = false
+    /** True when missing 9.1.6 speakers are generated (synthetic upmix, not decoded objects). */
+    val upmix916: Boolean get() = false
+    /** The same stream step as [process], returning the 16-speaker field (positions in
+     * [SpeakerPosition.id] order, preamp applied) instead of the stereo downmix. */
+    fun processField(input: ByteBuffer, field: ByteBuffer, frames: Int): Unit = throw UnsupportedOperationException("This DSP does not expose its speaker field")
 }
 
 data class DownmixReport(
@@ -51,6 +68,11 @@ data class DownmixReport(
     val outputChannels: Int = 2,
     val processing: String = "Downmix DSP",
     val processingEnabled: Boolean = true,
+    val listeningMode: ListeningMode = if (processingEnabled) ListeningMode.PROCESSED else ListeningMode.ORIGINAL,
+    /** Whether a headphone (binaural) render can be selected for this stream. */
+    val spatialAvailable: Boolean = false,
+    /** Whether the speaker field includes generated 9.1.6 channels. */
+    val upmix916: Boolean = false,
     val comparisonAvailable: Boolean = true,
     val unavailableReason: String? = null,
     val renderSampleRate: Int = sampleRate,

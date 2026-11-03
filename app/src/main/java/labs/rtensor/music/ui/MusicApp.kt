@@ -102,6 +102,7 @@ import coil.compose.AsyncImage
 import coil.imageLoader
 import coil.request.ImageRequest
 import kotlinx.coroutines.launch
+import labs.rtensor.dsp.ListeningMode
 import labs.rtensor.music.MusicState
 import labs.rtensor.music.R
 import labs.rtensor.music.data.ArtworkUrl
@@ -205,6 +206,7 @@ fun MusicApp(
     onCheckUpdates: () -> Unit = {}, onDownloadUpdate: () -> Unit = {}, onInstallUpdate: () -> Unit = {},
     onAutoplay: (Boolean) -> Unit = {}, onTrackHistory: (Boolean) -> Unit = {}, onRemovePlay: (PlayEvent) -> Unit = {}, onRefreshForYou: () -> Unit = {},
     onProcessing: (Boolean) -> Unit = {},
+    onSpatial: (Boolean) -> Unit = {},
     playbackPosition: StateFlow<Long>? = null,
 ) {
     val startPage = if (initialPage == "saved") "library" else initialPage
@@ -290,7 +292,7 @@ fun MusicApp(
                             "search" -> SearchResults(state, ::play, onSave)
                             "explore" -> ProviderHome(state.copy(feed = state.explore, feedBusy = state.exploreBusy, feedError = state.exploreError, feedHasMore = false), ::openEntry, onRefreshExplore, {}, "Explore")
                             "library" -> LibraryScreen(state, ::play, onSave, ::focusSearch, onRemovePlay)
-                            "now" -> NowScreen(state, onToggle, onPrevious, onNext, onSeek, onSave, onSkipTo, onProcessing, playbackPosition)
+                            "now" -> NowScreen(state, onToggle, onPrevious, onNext, onSeek, onSave, onSkipTo, onProcessing, onSpatial, playbackPosition)
                             "collection" -> CollectionScreen(state, ::play, onSave)
                             "settings" -> SettingsScreen(state, onTheme, onReducedMotion, onOpenLocal, onChooseMasters, onClearMasters, onClearHistory,
                                 onConnect, onWebSignIn, onDisconnect, onCancelConnect, onGoogleSignIn, onGoogleSignOut, onCancelGoogle, onCheckUpdates, onDownloadUpdate, onInstallUpdate,
@@ -816,7 +818,7 @@ private const val SwapMs = 180
 
 @Composable
 private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () -> Unit, onNext: () -> Unit, onSeek: (Long) -> Unit,
-    onSave: (Track) -> Unit, onSkipTo: (Int) -> Unit, onProcessing: (Boolean) -> Unit, playbackPosition: StateFlow<Long>?) {
+    onSave: (Track) -> Unit, onSkipTo: (Int) -> Unit, onProcessing: (Boolean) -> Unit, onSpatial: (Boolean) -> Unit, playbackPosition: StateFlow<Long>?) {
     val track = state.loadingTrack ?: state.current
     if (track == null) {
         Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) { Text("Choose a recording to start listening.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -889,7 +891,7 @@ private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () ->
                         LabelledControl(if (saved) "Saved" else "Save", if (saved) Icons.Outlined.Favorite else Icons.Outlined.FavoriteBorder, { onSave(track) }, highlighted = saved)
                     }
                     RouteLabel(state.routeLabel)
-                    if (showsAudioComparison(state)) AudioComparison(state, onProcessing)
+                    if (showsAudioComparison(state)) AudioComparison(state, onProcessing, onSpatial)
                     Spacer(Modifier.height(30.dp))
                     Row(Modifier.fillMaxWidth().padding(bottom = 6.dp), verticalAlignment = Alignment.Bottom) {
                         Text("Up next", fontSize = 20.sp, fontWeight = FontWeight.Medium, letterSpacing = (-.5).sp, modifier = Modifier.weight(1f))
@@ -924,18 +926,24 @@ private fun showsAudioComparison(state: MusicState): Boolean {
 }
 
 @Composable
-private fun AudioComparison(state: MusicState, onProcessing: (Boolean) -> Unit) {
+private fun AudioComparison(state: MusicState, onProcessing: (Boolean) -> Unit, onSpatial: (Boolean) -> Unit = {}) {
     val audio = state.audioProcessing
     val report = audio.report
     val waiting = audio.available && (state.loadingTrack != null || report == null)
     val ready = audio.available && report?.comparisonAvailable == true && state.loadingTrack == null
     val processed = audio.selectedProcessed && (waiting || report?.comparisonAvailable == true)
+    // Spatial is a headphone render of the multichannel speakers; stereo has nothing to place.
+    val spatialOffered = report?.spatialAvailable == true
+    val spatial = processed && audio.selectedSpatial && (waiting || spatialOffered)
     Column(Modifier.fillMaxWidth().padding(top = 14.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(selected = !processed, onClick = { onProcessing(false) }, enabled = ready,
                 label = { Text("Original") }, modifier = Modifier.semantics { contentDescription = "Original audio" })
-            FilterChip(selected = processed, onClick = { onProcessing(true) }, enabled = ready,
+            FilterChip(selected = processed && !spatial, onClick = { onSpatial(false); onProcessing(true) }, enabled = ready,
                 label = { Text("Processed") }, modifier = Modifier.semantics { contentDescription = "Processed audio" })
+            if (spatialOffered || (waiting && audio.selectedSpatial)) FilterChip(selected = spatial, onClick = { onSpatial(true); onProcessing(true) },
+                enabled = ready && spatialOffered, label = { Text("Spatial") },
+                modifier = Modifier.semantics { contentDescription = "Spatial headphone audio" })
         }
         val detail = when {
             !audio.available -> "Processing unavailable · ${audio.unavailableReason ?: "the DSP library did not load"}"
@@ -946,12 +954,19 @@ private fun AudioComparison(state: MusicState, onProcessing: (Boolean) -> Unit) 
                 else -> "${report.sourceChannels} channels · original audio" + (report.unavailableReason?.let { " · $it" } ?: "")
             }
             audio.comparisonPending -> {
-                val target = if (audio.selectedProcessed) "Processed" else "Original"
+                val target = when {
+                    !audio.selectedProcessed -> "Original"
+                    audio.selectedSpatial && report.spatialAvailable -> "Spatial"
+                    else -> "Processed"
+                }
                 if (!state.playing || state.buffering || state.resolving) "$target · ready when you play"
                 else "Switching to ${target.lowercase()}…"
             }
             !report.processingEnabled -> if (report.inputPositions.size == 2) "Stereo · original audio" else "Front L/R only · ${report.inputPositions.size}-channel source"
             report.inputPositions.size == 2 -> "Stereo enhancement · generated spatial audio"
+            report.listeningMode == ListeningMode.SPATIAL -> "${report.inputPositions.size} channels" +
+                (if (report.upmix916) " + 9.1.6 upmix" else "") + " → headphones (binaural)"
+            report.upmix916 -> "${report.inputPositions.size} channels + 9.1.6 upmix → stereo"
             else -> "${report.inputPositions.size} channels → stereo"
         }
         Text(detail, fontSize = 12.sp, lineHeight = 17.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)

@@ -10,6 +10,7 @@ import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.ForwardingAudioSink
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import kotlin.math.pow
 
 /** Intercepts decoded PCM before Android output. Unlike setAudioProcessors alone,
  * this wrapper also sees the float PCM path. Supported stereo can use the
@@ -26,6 +27,8 @@ class DownmixAudioSink(
     /** Music keeps stereo untouched. Other library consumers may explicitly opt
      * into the original renderer's optional stereo enhancement. */
     private val processStereo: Boolean = false,
+    /** Original, Processed or Spatial; defaults to the two-mode [processingEnabled] switch. */
+    private val listeningMode: () -> ListeningMode = { if (processingEnabled()) ListeningMode.PROCESSED else ListeningMode.ORIGINAL },
 ) : ForwardingAudioSink(delegate) {
     private var engine: DownmixEngine? = null
     private var inputFormat: Format? = null
@@ -44,7 +47,9 @@ class DownmixAudioSink(
     private var wroteAudio = false
     private var requestedAttributes = AudioAttributes.DEFAULT
     private var inputEndPts = 0L
-    private var transition: ProcessingTransition? = null
+    private var transition: ProcessingTransition<ListeningMode>? = null
+    private var binaural: BinauralRenderer? = null
+    private var fieldBuffer: ByteBuffer = EMPTY
     private var report: DownmixReport? = null
     private var rateAdapter: PcmRateAdapter? = null
     private var resampledInput: ByteBuffer = EMPTY
@@ -67,7 +72,7 @@ class DownmixAudioSink(
         check(pending == null) { "The previous decoded audio buffer has not drained" }
         engine?.close(); engine = null
         clearStream()
-        transition = null; report = null; rateAdapter = null
+        transition = null; report = null; rateAdapter = null; binaural = null; fieldBuffer = EMPTY
         inputFormat = format
         when {
             format.channelCount < 2 -> return bypass(format, specifiedBufferSize, outputChannels, emptyList(), "Mono source")
@@ -97,9 +102,17 @@ class DownmixAudioSink(
             frameBytes = PcmFloatConverter.bytesPerSample(format.pcmEncoding) * format.channelCount
             inputChannels = format.channelCount
             created = engineFactory(specification)
-            val processed = processingEnabled()
-            created.setCompareMode(!processed)
-            transition = ProcessingTransition(specification.sampleRate, processed)
+            binaural = if (positions.size <= 2) null else runCatching {
+                // With the field, the renderer's own LFE/delay/upmix stages and preamp feed the
+                // headphone render; without it, the decoded speakers are rendered directly.
+                if (created.providesField) BinauralRenderer(specification.sampleRate, FIELD_POSITIONS, specification.maxBlockFrames, 1f)
+                else BinauralRenderer(specification.sampleRate, positions, specification.maxBlockFrames, 10f.pow(specification.preampDb / 20f))
+            }.getOrNull()
+            fieldBuffer = if (binaural != null && created.providesField)
+                ByteBuffer.allocateDirect(specification.maxBlockFrames * FIELD_POSITIONS.size * 4).order(ByteOrder.nativeOrder()) else EMPTY
+            val mode = requestedMode()
+            created.setCompareMode(mode == ListeningMode.ORIGINAL)
+            transition = ProcessingTransition(specification.sampleRate, mode)
             rateAdapter = if (convertible) PcmRateAdapter(inputChannels) else null
             sourceBlockFrames = rateAdapter?.inputFramesPerBlock(specification.maxBlockFrames) ?: specification.maxBlockFrames
             floatInput = ByteBuffer.allocateDirect(specification.maxBlockFrames * inputChannels * 4).order(ByteOrder.nativeOrder())
@@ -111,11 +124,13 @@ class DownmixAudioSink(
             delegate.setAudioAttributes(renderedAttributes())
             delegate.configure(stereo, 0, null)
             engine = created
-            report = DownmixReport(format.sampleRate, positions, processing = if (format.channelCount == 2) "Stereo enhancement" else "Multichannel render", processingEnabled = processed, renderSampleRate = specification.sampleRate)
+            report = DownmixReport(format.sampleRate, positions, processing = if (format.channelCount == 2) "Stereo enhancement" else "Multichannel render",
+                processingEnabled = mode != ListeningMode.ORIGINAL, listeningMode = mode, spatialAvailable = binaural != null,
+                upmix916 = created.upmix916, renderSampleRate = specification.sampleRate)
             onReport(report)
         } catch (error: Exception) {
             created?.close()
-            engine = null
+            engine = null; binaural = null; fieldBuffer = EMPTY
             onReport(null)
             throw AudioSink.ConfigurationException(error, format)
         }
@@ -170,11 +185,20 @@ class DownmixAudioSink(
         return true
     }
 
+    /** Spatial needs a headphone renderer; without one the request falls back to Processed. */
+    private fun requestedMode(): ListeningMode = listeningMode().let {
+        if (it == ListeningMode.SPATIAL && binaural == null) ListeningMode.PROCESSED else it
+    }
+
     private fun prepareProcessing(active: DownmixEngine) {
         val mode = transition ?: return
-        if (mode.prepare(processingEnabled())) {
-            active.setCompareMode(!mode.processed)
-            report = report?.copy(processingEnabled = mode.processed)
+        val previous = mode.mode
+        if (mode.prepare(requestedMode())) {
+            active.setCompareMode(mode.mode == ListeningMode.ORIGINAL)
+            if (mode.mode == ListeningMode.SPATIAL) binaural?.reset()
+            // A direct headphone render bypasses the DSP, whose history is then stale.
+            if (previous == ListeningMode.SPATIAL && !active.providesField) active.reset()
+            report = report?.copy(processingEnabled = mode.mode != ListeningMode.ORIGINAL, listeningMode = mode.mode)
             onReport(report)
         }
     }
@@ -186,7 +210,16 @@ class DownmixAudioSink(
         }
         val outputFrames = pcm.remaining() / (inputChannels * 4)
         floatOutput.clear(); prepareProcessing(active)
-        active.process(pcm, floatOutput, outputFrames); floatOutput.flip()
+        val spatial = binaural?.takeIf { transition?.mode == ListeningMode.SPATIAL }
+        when {
+            spatial == null -> active.process(pcm, floatOutput, outputFrames)
+            active.providesField -> {
+                fieldBuffer.clear(); active.processField(pcm, fieldBuffer, outputFrames); fieldBuffer.flip()
+                spatial.render(fieldBuffer, floatOutput, outputFrames)
+            }
+            else -> spatial.render(pcm, floatOutput, outputFrames)
+        }
+        floatOutput.flip()
         transition?.apply(floatOutput, outputFrames)
         return outputFrames
     }
@@ -234,20 +267,20 @@ class DownmixAudioSink(
         .setFlags(requestedAttributes.flags).setAllowedCapturePolicy(requestedAttributes.allowedCapturePolicy)
         .setSpatializationBehavior(C.SPATIALIZATION_BEHAVIOR_NEVER).build()
     override fun handleDiscontinuity() {
-        clearStream(); engine?.reset(); delegate.handleDiscontinuity()
+        clearStream(); engine?.reset(); binaural?.reset(); delegate.handleDiscontinuity()
     }
     override fun flush() {
-        clearStream(); engine?.reset(); delegate.flush()
+        clearStream(); engine?.reset(); binaural?.reset(); delegate.flush()
     }
     override fun reset() {
         clearStream(); engine?.close(); engine = null; inputFormat = null
-        transition = null; report = null
+        transition = null; report = null; binaural = null; fieldBuffer = EMPTY
         floatInput = EMPTY; floatOutput = EMPTY; resampledInput = EMPTY; rateAdapter = null
         delegate.reset(); onReport(null)
     }
     override fun release() {
         clearStream(); engine?.close(); engine = null
-        transition = null; report = null; rateAdapter = null; resampledInput = EMPTY
+        transition = null; report = null; rateAdapter = null; resampledInput = EMPTY; binaural = null; fieldBuffer = EMPTY
         delegate.release(); onReport(null)
     }
     private fun clearStream() {
@@ -260,6 +293,7 @@ class DownmixAudioSink(
     private companion object {
         val EMPTY: ByteBuffer = ByteBuffer.allocateDirect(0).order(ByteOrder.nativeOrder())
         val STEREO = listOf(SpeakerPosition.FL, SpeakerPosition.FR)
+        val FIELD_POSITIONS = SpeakerPosition.entries.sortedBy { it.id }
         fun renderRate(rate: Int): Int? = if (rate in DownmixFormat.SUPPORTED_SAMPLE_RATES) rate else PcmRateAdapter.CONVERTIBLE_RATES[rate]
         fun encodingName(encoding: Int) = when (encoding) {
             C.ENCODING_PCM_8BIT -> "8-bit"; C.ENCODING_PCM_16BIT -> "16-bit"; C.ENCODING_PCM_24BIT -> "24-bit"

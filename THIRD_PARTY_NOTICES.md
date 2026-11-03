@@ -13,6 +13,7 @@ Runtime client dependencies (pinned through the lockfile):
 | @bufbuild/protobuf | 2.16.0 | (Apache-2.0 AND BSD-3-Clause) |
 | fflate | 0.8.3 | MIT |
 | meriyah | 7.4.1 | ISC |
+| Omnitone third-order ambisonic HRIRs (derived from the SADIE database, University of York) | 2.0.0 | Apache-2.0, © 2016 Google Inc. |
 
 AndroidX/Media3, Kotlin/coroutines, Coil, OkHttp and Okio use Apache-2.0 and their
 upstream notices. DM Sans uses SIL OFL 1.1. Full licence texts are bundled in
@@ -26,3 +27,8 @@ AndroidX Credentials uses Apache-2.0.
 
 Upstream: https://github.com/LuanRT/YouTube.js and https://github.com/LuanRT/BgUtils (MIT).
 Metrolist, InnerTubeX and Morphe were researched but their GPL code is not bundled.
+
+The headphone (Spatial) mode bundles the 16×256-tap third-order HRIR set from
+Omnitone 2.0.0 (https://github.com/GoogleChrome/omnitone, Apache-2.0), re-encoded as
+raw float32. Those filters are derived from the SADIE HRTF database (University of
+York). The binaural renderer code is original; see toa_hrir_48k.NOTICE.txt.

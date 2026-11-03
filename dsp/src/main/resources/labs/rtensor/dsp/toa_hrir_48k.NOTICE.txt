@@ -1,0 +1,9 @@
+toa_hrir_48k.f32: third-order ambisonic (ACN channel order, SN3D) left-ear
+head-related impulse responses, 16 x 256 float32 little-endian at 48 kHz.
+
+Extracted unchanged (16-bit PCM converted to float) from Omnitone 2.0.0
+(OmnitoneTOAHrirBase64), Copyright 2016 Google Inc., Apache License 2.0:
+https://github.com/GoogleChrome/omnitone
+
+Omnitone's filters are derived from the SADIE binaural database,
+University of York: https://www.york.ac.uk/sadie-project/

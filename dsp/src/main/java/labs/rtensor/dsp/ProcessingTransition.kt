@@ -4,20 +4,20 @@ import java.nio.ByteBuffer
 
 /** A short fade through silence changes the existing native mix without clicks,
  * a second decoder, a source reload or resetting the filter/delay history. */
-internal class ProcessingTransition(sampleRate: Int, initialProcessed: Boolean) {
-    var processed = initialProcessed
+internal class ProcessingTransition<M>(sampleRate: Int, initial: M) {
+    var mode = initial
         private set
     private var gain = 1f
     private var targetGain = 1f
     private val step = 1f / (sampleRate / 100).coerceAtLeast(1)
 
-    fun prepare(requested: Boolean): Boolean {
+    fun prepare(requested: M): Boolean {
         var changed = false
-        if (requested != processed && gain == 0f) {
-            processed = requested
+        if (requested != mode && gain == 0f) {
+            mode = requested
             changed = true
         }
-        targetGain = if (requested == processed) 1f else 0f
+        targetGain = if (requested == mode) 1f else 0f
         return changed
     }
 
@@ -35,3 +35,6 @@ internal class ProcessingTransition(sampleRate: Int, initialProcessed: Boolean) 
 
     fun reset() { gain = 1f; targetGain = 1f }
 }
+
+/** The Original/Processed switch, kept for the two-mode callers and tests. */
+internal val ProcessingTransition<Boolean>.processed: Boolean get() = mode

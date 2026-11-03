@@ -120,3 +120,50 @@ All 73 harness checks pass:
 - The real private DSP.
 
 On a phone, `adb logcat -s AudioPipeline` now prints the source channels and any reason a track was not processed.
+
+## Follow-up: 9.1.6 upmix and Spatial (binaural) mode on Android
+
+### What changed
+- **9.1.6 upmix for multichannel.** The private DSP gains ABI 3 (a patch for the
+  private repo, not in this repository). It adds `setUpmix916` and `processField`.
+  When the packaged DSP reports ABI 3 and the stream has more than two channels,
+  the app turns the upmix on. The renderer then fills a 16-speaker 9.1.6 field
+  (sides, rear centres and six heights) from the decoded bed. ABI 2 builds still
+  load; they just have no upmix and no field.
+- **Spatial mode (headphones).** A third chip next to Original/Processed. It renders
+  the speaker layout to two ears:
+  - The speakers are encoded into third-order ambisonics (ACN/SN3D).
+  - The result is convolved with the Omnitone/SADIE HRIRs (Apache-2.0), using
+    zero-latency FFT overlap-add.
+  - LFE is low-passed at 120 Hz and sent to both ears.
+  - A limiter holds the output under −0.2 dBFS.
+  - With ABI 3, the input is the 9.1.6 upmixed field. Otherwise it is the decoded
+    speakers.
+  - HRIRs are interpolated for 96 and 192 kHz.
+- Fixed an initialisation-order bug: the loaded ABI number was overwritten with 0
+  after the library loaded.
+
+### Honest limits
+- The 9.1.6 heights are a **synthetic upmix** (ambience derived from the bed), not
+  decoded Atmos objects. E-AC-3 JOC is still decoded to its 5.1/7.1 bed only. Real
+  object placement needs a JOC object decoder, and that means a Dolby licence. No
+  licensed open decoder exists for Android.
+- Spatial is a generic (non-personalised) HRTF. Externalisation varies by listener.
+  It is for headphones only.
+- 192 kHz Spatial uses a 2048-point FFT per block and costs noticeably more CPU.
+- Spatial needs the private DSP to be packaged. Without it, the chip is not shown.
+
+### Verification
+- Host JVM tests: 47 pass without the private library. 57 pass with an ABI-3 JNI
+  host build of the private DSP. These include the real 9.1.6 field having energy
+  in the height channels.
+- Renderer tests check:
+  - FFT path = direct convolution
+  - block-size independence
+  - left/right mirroring with ITD/ILD
+  - LFE handling
+  - limiter and NaN safety
+  - diffuse level within ±4 dB
+- Private DSP tests: 28/28, including under ASan/UBSan.
+- **Not verified on a phone yet.** CPU load, audible quality and the chip switching
+  live need checking on the device.

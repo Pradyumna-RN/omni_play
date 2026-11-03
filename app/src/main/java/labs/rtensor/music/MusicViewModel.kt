@@ -27,6 +27,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import labs.rtensor.dsp.ListeningMode
 import labs.rtensor.music.data.LibraryStore
 import labs.rtensor.music.data.LocalAudioImporter
 import labs.rtensor.music.data.LocalMasters
@@ -176,6 +177,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         AudioPipeline.selectProcessing(library.processedAudio)
+        AudioPipeline.selectSpatial(library.spatialAudio)
         viewModelScope.launch {
             AudioPipeline.state.collect { audio -> mutable.update { it.copy(audioProcessing = audio, routeLabel = currentRoute(audio)) } }
         }
@@ -378,7 +380,11 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         if (!sources.isRemote(key) && local != null) {
             val report = audio.report ?: return "Local file · checking decoded channels"
             if (report.inputPositions.size <= 2) return "Local file · ${report.sampleRate / 1000f} kHz · stereo unchanged"
-            return if (report.processingEnabled) "Local file · ${report.inputPositions.size} ch → DMR" else "Local file · original front L/R"
+            return when (report.listeningMode) {
+                ListeningMode.ORIGINAL -> "Local file · original front L/R"
+                ListeningMode.SPATIAL -> "Local file · ${report.inputPositions.size} ch → headphones"
+                ListeningMode.PROCESSED -> "Local file · ${report.inputPositions.size} ch → DMR"
+            }
         }
         return sources.label(key, audio.report) ?: item.mediaMetadata.extras?.getString("route").orEmpty()
     }
@@ -630,6 +636,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     fun processing(processed: Boolean) {
         library.processedAudio = processed
         AudioPipeline.selectProcessing(processed)
+    }
+    fun spatial(enabled: Boolean) {
+        library.spatialAudio = enabled
+        AudioPipeline.selectSpatial(enabled)
     }
     fun autoplay(value: Boolean) { library.autoplay = value; mutable.update { it.copy(autoplay = value) } }
     fun trackHistory(value: Boolean) { library.trackHistory = value; if (!value) listen = null; mutable.update { it.copy(trackHistory = value) } }
