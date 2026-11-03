@@ -3,18 +3,30 @@
 Temporary name: **Music**. Native Android player from RTensorLabs with the approved
 Margin visual direction: warm paper, DM Sans, original provider artwork and raspberry controls.
 
-## Local E-AC-3 decoder prototype
+## Music 0.3.15 — multiframe E-AC-3 fix and OTA
+
+Fixes corrupted audio and a buffer-growth crash when an MP4/M4A packet contains
+multiple E-AC-3 syncframes. Decoded frames are appended at the correct offsets;
+unexpected stream layout/rate changes fail explicitly. Audio failures now identify
+the failing stage, and the import picker accepts audio carried in `.mp4` files.
+
+This integrated build uses versionCode 18 and the normal OTA asset names, updating
+both 0.3.13 and the manual 0.3.14 prototype. The private DMR core and approved UI
+are unchanged. See [findings and validation](DSP_FIX_FINDINGS.md).
+
+## Local E-AC-3 decoding
 
 An optional software decoder now sends clear AC-3/E-AC-3 multichannel bed PCM
 into the original DMR inside Music. Stereo bypasses DMR unchanged. This is not
-full Atmos object rendering or new provider account access. The separate manual
-test build includes corresponding decoder source and a generated 5.1 sample.
+full Atmos object rendering or new provider account access. Decoder-enabled
+releases include corresponding decoder source. The earlier manual prototype also
+includes a generated 5.1 channel-test sample.
 See [testing and limitations](LOCAL_EAC3_PROTOTYPE.md) and
 [decoder build instructions](decoder-ffmpeg/README.md).
 
-## In progress: 0.3.14 — playback source connections and stereo bypass
+## Playback source connections and stereo bypass
 
-This is an unpublished development checkpoint. See
+Native subscription integrations remain incomplete. See
 [current implementation and test status](PROVIDER_PLAYBACK_STATUS.md).
 
 Settings now supports user-connected account gateways, HTTP audio addons and

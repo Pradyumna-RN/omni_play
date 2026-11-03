@@ -12,6 +12,9 @@
 #include <memory>
 #include <string>
 #include <vector>
+extern "C" {
+#include <libavutil/sha.h>
+}
 
 namespace {
 int failures = 0;
@@ -189,11 +192,47 @@ void invalidDataIsReportedWithoutOutput() {
   int result = decoder.decode(garbage, 1 << 20, out);
   EXPECT(result <= 0, "garbage produced %d bytes", result);
 }
+
+// Optional user-supplied clear recording: stream hashes avoid retaining minutes
+// of decoded PCM in memory. No commercial recording is bundled with the test.
+void completeRecordingMatchesAcrossPacketGroups(const std::string &path) {
+  auto frames = syncframes(path);
+  EXPECT(!frames.empty(), "recording contains no frames");
+  std::vector<uint8_t> reference;
+  int64_t referenceBytes = 0;
+  for (size_t group : {1u, 2u, 3u, 6u}) {
+    Decoder decoder(true);
+    AVSHA *hash = av_sha_alloc();
+    if (!hash || av_sha_init(hash, 256) < 0) exit(2);
+    int64_t total = 0;
+    for (size_t i = 0; i < frames.size(); i += group) {
+      Bytes pcm;
+      int bytes = decoder.decode(join(frames, i, std::min(group, frames.size() - i)), 4096, pcm);
+      if (bytes <= 0) { EXPECT(false, "decode failed at frame %zu, group %zu", i, group); break; }
+      EXPECT(decoder.context->ch_layout.nb_channels == 6 && decoder.context->sample_rate == 48000,
+             "expected reference recording's 6 channels at 48 kHz");
+      const float *samples = reinterpret_cast<const float *>(pcm.data());
+      for (size_t n = 0; n < pcm.size() / sizeof(float); n++)
+        if (!std::isfinite(samples[n])) { EXPECT(false, "non-finite PCM at frame %zu", i); break; }
+      av_sha_update(hash, pcm.data(), pcm.size());
+      total += bytes;
+    }
+    std::vector<uint8_t> digest(32);
+    av_sha_final(hash, digest.data());
+    av_free(hash);
+    if (group == 1) { reference = digest; referenceBytes = total; }
+    else EXPECT(digest == reference && total == referenceBytes, "complete recording differs for group %zu", group);
+    EXPECT(total == (int64_t)frames.size() * 1536 * 6 * 4, "incorrect complete-recording frame count");
+    printf("Complete recording: %zu packets/group, %zu syncframes, %lld PCM bytes, ", group, frames.size(), (long long)total);
+    for (uint8_t byte : digest) printf("%02x", byte);
+    printf("\n");
+  }
+}
 }  // namespace
 
 int main(int argc, char **argv) {
-  if (argc != 3) {
-    fprintf(stderr, "usage: %s owned-51.eac3 owned-stereo.eac3\n", argv[0]);
+  if (argc != 3 && argc != 4) {
+    fprintf(stderr, "usage: %s owned-51.eac3 owned-stereo.eac3 [clear-51-recording.eac3]\n", argv[0]);
     return 2;
   }
   auto surround = syncframes(argv[1]);
@@ -209,6 +248,7 @@ int main(int argc, char **argv) {
   exactCapacityNeverWritesPastTheBuffer(surround);
   aLayoutChangeRebuildsTheConverter(surround, stereo);
   invalidDataIsReportedWithoutOutput();
+  if (argc == 4) completeRecordingMatchesAcrossPacketGroups(argv[3]);
   if (failures) {
     fprintf(stderr, "%d native decoder check(s) failed\n", failures);
     return 1;

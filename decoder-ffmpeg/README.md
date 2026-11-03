@@ -107,3 +107,16 @@ keeps earlier frames, that an exactly sized buffer is never overrun, that a
 5.1 → stereo change rebuilds the converter, and that invalid data produces no
 output. Before the fix the multi-frame cases differed at byte 36864 (float) or
 18432 (s16), and the growth case crashed.
+
+To check a complete clear 48 kHz 5.1 recording without bundling it in the tests,
+stream-copy its audio to raw EC3 and pass `--recording`:
+
+```sh
+ffmpeg -i own-recording.m4a -map 0:a:0 -c:a copy -f eac3 /tmp/own-recording.eac3
+python3 decoder-ffmpeg/tools/native_test.py --ffmpeg-prefix /path/to/ffmpeg --jdk "$JAVA_HOME" --recording /tmp/own-recording.eac3
+```
+
+This streams the full recording through the real native decoder with 1/2/3/6
+syncframes per packet and compares decoded byte counts and SHA-256 hashes. It
+also rejects non-finite PCM. Output is not retained as a full PCM recording.
+The tests exercise the host decoder loop, not Android output or Atmos objects.

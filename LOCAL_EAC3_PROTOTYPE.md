@@ -1,4 +1,4 @@
-# Local multichannel decoder prototype
+# Local multichannel decoder testing
 
 This build adds a software AC-3/E-AC-3 decoder inside Music, before the existing
 original DMR. The approved UI and private renderer implementation are unchanged.
@@ -8,10 +8,12 @@ protected Apple Music playback or a decryption wrapper.
 
 ## Try it on Android
 
-1. Install `music-eac3-prototype.apk` from the separate prototype release. It uses
-   Music's existing package/signature, and includes both the decoder and DMR.
-   It is a manual test build, excluded from the normal OTA feed.
-2. Download `owned-51-channel-check.m4a` from the same release. In Music, open
+1. Update to **0.3.15 / code 18** through **Settings → About → Check updates**, or
+   install `music-debug.apk` from its release. It includes the corrected decoder
+   and the original DMR, using Music's existing package/signature. The earlier
+   manual 0.3.14 prototype is superseded; it had a multiframe decoder bug.
+2. Download `owned-51-channel-check.m4a` from the earlier prototype release, or
+   use the real Dolby test music linked below. In Music, open
    **Settings → Import audio**, select it, then play it from **Saved**.
 3. Open Now Playing. Once audio starts, the report should identify six input
    channels and DMR's stereo render. Compare **Original** and **Processed**.
@@ -30,7 +32,15 @@ still reach Media3's software decoder.
 
 Raw EC3 files may have no seek table/duration. Use a suitable container to test
 seeking. Automatic folder matching still depends on platform metadata support;
-the explicit import path is the prototype's entry point.
+the explicit import path is the recommended test entry point.
+
+For real music, Dolby provides
+[UltraViolet — Untie](https://ott.dolby.com/media/music/mp4s/UltraViolet_Untie_ddpjoc_768kbps.mp4)
+for testing: approximately 3:10 of 48 kHz, 5.1 E-AC-3 JOC at 768 kbit/s. Import
+the downloaded MP4 directly. The complete raw E-AC-3 stream was decoded on the
+host using 1/2/3/6 syncframes per packet with identical PCM hashes and sanitizer
+checks. That verifies the decoder loop, not phone AudioTrack playback or a full
+Atmos object render. Do not redistribute this recording with the app.
 
 ## What this establishes
 

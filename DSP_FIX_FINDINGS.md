@@ -31,24 +31,45 @@ and never rebuilt if the decoded layout, rate or format changed.
   logs one environment line (ABIs, FFmpeg version, DSP state).
 - The file picker also offers `video/mp4`, where many owned E-AC-3 files land.
 
-## Verified here
+## Follow-up validation and Music 0.3.15
 
-- Native decoder suite (`decoder-ffmpeg/tools/native_test.py`) on host FFmpeg
-  6.1 with ASan/UBSan: passes; the old JNI fails the multi-frame and growth cases.
+- Pulled Claude's `584beff` and rebuilt host, ARM64 and x86-64 JNI against the
+  pinned minimal shared FFmpeg n6.1.6 build. The original private DMR source and
+  native binaries are unchanged.
+- **126 app tests and 66 DSP tests pass**, with no failures, errors or skips.
+  This includes real Java/JNI multiframe buffer growth and layout-change tests,
+  original DMR JNI processing, diagnostics, imports and existing player UI tests.
+- Corrected the diagnostics test's call to a package-private FFmpeg exception
+  constructor by using the public DecoderException base type; actual FFmpeg
+  exceptions are exercised by the decoder tests. Android-dependent error tests
+  now use Robolectric. The deep-cause test expects no classification when the
+  recognised stage lies outside the documented bounded traversal.
+- Native decoder tests pass under ASan/UBSan. Added optional full-recording
+  testing without retaining a complete decoded PCM recording in memory.
+- The complete Dolby UltraViolet / Untie reference (clear 5.1 E-AC-3 JOC,
+  48 kHz, 189.856 seconds) was stream-copied to raw EC3 and decoded using
+  **1, 2, 3 and 6 syncframes per packet**. All four runs produced 5,933 decoded
+  syncframes and 218,714,112 PCM bytes with SHA-256:
+  `94ca0908f12b072d8ed312fdf2b46170e4e44878ba10d20e3fba8e2b078d3eef`.
+  This exercises the actual host native decoder loop, not Android AudioTrack or
+  a full recording through DMR. The reference music is not redistributed.
+- Fatal Android lint and both `verifyOtaDspBundle` / `verifyEac3DecoderBundle`
+  checks pass. Release validation checks the existing signing identity and 16 KiB
+  APK/ELF alignment. Corresponding decoder source accompanies the release.
+- **0.3.15 / code 18** uses normal OTA naming and supersedes both normal 0.3.13
+  and manual 0.3.14 installations. Updated the OTA test to cover version 0.3.14
+  and code 17 explicitly.
 
-## Not verified here
+## Still not verified
 
-- Kotlin/Java compilation and the Robolectric tests: the Android SDK and Google
-  Maven are not reachable from this environment. Run
-  `./gradlew :dsp:testDebugUnitTest :app:testDebugUnitTest` (with the host FFmpeg
-  and DSP library properties for the native-backed tests).
 - The phone failure itself has not been reproduced. A stereo AAC `.m4a` bypasses
   the DMR by design, so it would not exercise this path at all. To confirm, use
   `ffprobe -show_streams` output of the failing file, the exact symptom, the
   device model, and the `AudioPipeline` log lines.
 - JOC content decodes to its channel bed only; this is not the full Atmos
   object scene.
-- A distributed build needs versionCode > 17.
+- No physical phone was attached. Audible comparison, Android AudioTrack routing,
+  UI frame rate and the user's actual recording still need device validation.
 
 ## Follow-up: Original/Processed toggle with real multichannel .m4a files
 
