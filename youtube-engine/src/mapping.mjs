@@ -26,10 +26,31 @@ export function track(node) {
     artwork: item.artwork, durationMs: item.durationMs, source: 'YOUTUBE',
     url: `https://www.youtube.com/watch?v=${item.videoId}` } : null;
 }
+const musicConfig = payload => payload?.watchEndpointMusicSupportedConfigs?.watchEndpointMusicConfig?.musicVideoType;
+/** YouTube Music's own label for a playable item: ATV (audio track), OMV/UGC (video), PODCAST_EPISODE. */
+export function videoType(node) {
+  return musicConfig(node?.endpoint?.payload) || musicConfig(node?.flex_columns?.[0]?.title?.runs?.[0]?.endpoint?.payload)
+    || musicConfig(node?.overlay?.content?.endpoint?.payload) || musicConfig(node?.thumbnail_overlay?.content?.endpoint?.payload) || '';
+}
+/** Songs, albums, playlists and artists only: no music videos, podcasts, episodes or spoken audio. */
+export function isMusic(node) {
+  if (!node || node.type === 'MusicMultiRowListItem') return false; // podcast episodes
+  const page = node.endpoint?.payload?.browseEndpointContextSupportedConfigs?.browseEndpointContextMusicConfig?.pageType || '';
+  if (/PODCAST|EPISODE|NON_MUSIC/.test(page)) return false;
+  const type = videoType(node);
+  // The video type is language independent; item_type is only a fallback (it reads the subtitle text).
+  if (type) return !/UGC|OMV|PODCAST|EPISODE|SHORTS|LIVE/.test(type);
+  return !['video', 'podcast_show', 'non_music_track', 'episode'].includes(node.item_type);
+}
+/** Radio rows that come as a video with an audio counterpart (or the other way round) play the audio one. */
+export function audioVersion(node) {
+  if (node?.type !== 'PlaylistPanelVideoWrapper') return node;
+  return [node.primary, ...(node.counterpart || [])].find(v => v && videoType(v) === 'MUSIC_VIDEO_TYPE_ATV') || node.primary;
+}
 export function sections(feed) {
-  // Keep the provider's section, item and duplicate order. No app ranking.
+  // Keep the provider's section, item and duplicate order. No app ranking; music only.
   return (feed.sections || []).map(section => ({ title: text(section.header?.title || section.title) || 'From YouTube Music',
-    items: (section.contents || []).map(entry).filter(Boolean) })).filter(s => s.items.length);
+    items: (section.contents || []).filter(isMusic).map(entry).filter(Boolean) })).filter(s => s.items.length);
 }
 export function largestArtwork(thumbs = []) {
   return [...thumbs].filter(t => t.url?.startsWith('https://')).sort((a, b) => (b.width || 0) * (b.height || 0) - (a.width || 0) * (a.height || 0))[0]?.url || '';

@@ -1,5 +1,5 @@
 import { Innertube, Player, Platform, Log, Constants, ClientType } from 'youtubei.js/web';
-import { track, sections, safeError, largestArtwork } from './mapping.mjs';
+import { track, sections, safeError, largestArtwork, isMusic, audioVersion } from './mapping.mjs';
 import { evaluatePlayer } from './evaluator.mjs';
 import { nativeTransport } from './transport.mjs';
 import { readYtConfig, playerFailure } from './web-config.mjs';
@@ -477,7 +477,7 @@ globalThis.musicCall = async (id, method, args) => {
         if (!/^[A-Za-z0-9_-]{11}$/.test(args.videoId)) throw failure('LINK', 'Choose a valid YouTube recording.');
         const panel = await api.music.getUpNext(args.videoId, true);
         const seen = new Set([args.videoId]);
-        result = { tracks: (panel?.contents || []).map(track).filter(t => t && !seen.has(t.id.slice(3)) && seen.add(t.id.slice(3))).slice(0, 50) }; break;
+        result = { tracks: (panel?.contents || []).map(audioVersion).filter(isMusic).map(track).filter(t => t && !seen.has(t.id.slice(3)) && seen.add(t.id.slice(3))).slice(0, 50) }; break;
       }
       case 'explore': result = { sections: sections(await api.music.getExplore()), hasMore: false }; break;
       case 'related': {

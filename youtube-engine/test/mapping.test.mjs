@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { entry, track, sections, safeError } from '../src/mapping.mjs';
+import { entry, track, sections, safeError, isMusic, audioVersion } from '../src/mapping.mjs';
 test('provider section, entry and duplicate order survives mapping', () => {
   const a = { id: 'aaaaaaaaaaa', title: 'Zebra', artists: [{ name: 'One' }], item_type: 'song' };
   const b = { id: 'bbbbbbbbbbb', title: 'Apple', artists: [{ name: 'Two' }], item_type: 'song' };
@@ -89,4 +89,20 @@ test('music requests are signed for the music origin like the web client', async
   const auth = await sidAuthorization('SID=x; SAPISID=abc; __Secure-3PAPISID=def', 'https://music.youtube.com', 1700000000000);
   assert.equal(auth, `SAPISIDHASH 1700000000_${sha('1700000000 abc https://music.youtube.com')} SAPISID3PHASH 1700000000_${sha('1700000000 def https://music.youtube.com')}`);
   assert.equal(await sidAuthorization('SID=x', 'https://music.youtube.com'), '');
+});
+
+test('music videos, podcasts and episodes never reach feeds or radio', () => {
+  const watch = (id, type) => ({ title: id, endpoint: { payload: { videoId: id, watchEndpointMusicSupportedConfigs: { watchEndpointMusicConfig: { musicVideoType: type } } } } });
+  const song = watch('aaaaaaaaaaa', 'MUSIC_VIDEO_TYPE_ATV');
+  // A non-English subtitle makes youtubei.js guess "video"; the video type still says it is a song.
+  song.item_type = 'video';
+  const omv = watch('bbbbbbbbbbb', 'MUSIC_VIDEO_TYPE_OMV'), ugc = watch('ccccccccccc', 'MUSIC_VIDEO_TYPE_UGC'), episode = watch('ddddddddddd', 'MUSIC_VIDEO_TYPE_PODCAST_EPISODE');
+  const show = { title: 'Show', item_type: 'podcast_show', endpoint: { payload: { browseId: 'MPSPx', browseEndpointContextSupportedConfigs: { browseEndpointContextMusicConfig: { pageType: 'MUSIC_PAGE_TYPE_PODCAST_SHOW_DETAIL_PAGE' } } } } };
+  const multi = { type: 'MusicMultiRowListItem', title: 'News today', endpoint: { payload: { videoId: 'eeeeeeeeeee' } } };
+  const album = { title: 'Album', item_type: 'album', endpoint: { payload: { browseId: 'MPREb' } } };
+  const feed = sections({ sections: [{ title: 'Mixed', contents: [song, omv, ugc, episode, show, multi, album] }, { title: 'New episodes', contents: [episode, multi] }] });
+  assert.deepEqual(feed.map(s => [s.title, s.items.map(i => i.id)]), [['Mixed', ['yt:aaaaaaaaaaa', 'MPREb']]]);
+  assert.equal(isMusic(omv), false);
+  assert.equal(audioVersion({ type: 'PlaylistPanelVideoWrapper', primary: omv, counterpart: [song] }), song);
+  assert.equal(isMusic({ title: 'Unlabelled', endpoint: { payload: { videoId: 'fffffffffff' } } }), true);
 });

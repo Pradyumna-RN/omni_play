@@ -40,6 +40,8 @@ class ListeningHistory(private val file: File) {
     }
 
     @Synchronized fun remove(startedAt: Long) { events = events.filterNot { it.startedAt == startedAt }; persist() }
+    /** Forget every play of one song, so removing it from History doesn't reveal an older play. */
+    @Synchronized fun removeSong(trackId: String) { events = events.filterNot { songKey(it.track.id) == songKey(trackId) }; persist() }
     @Synchronized fun clear() { events = emptyList(); persist() }
 
     @Synchronized fun enrich(transform: (Track) -> Track) {
@@ -67,9 +69,15 @@ class ListeningHistory(private val file: File) {
             return ListeningStats(week.sumOf { it.listenedMs } / 60_000, week.size, topArtist, topTrack)
         }
 
+        /** One id per song, whether or not it carries the "yt:" prefix. */
+        fun songKey(id: String) = id.removePrefix("yt:")
+
+        /** History shows each song once, at its latest play; all plays still count for stats and recommendations. */
+        fun latestPerSong(events: List<PlayEvent>) = events.sortedByDescending { it.startedAt }.distinctBy { songKey(it.track.id) }
+
         fun days(events: List<PlayEvent>, now: Long = System.currentTimeMillis()): List<HistoryDay> {
             val today = startOfDay(now)
-            return events.groupBy { startOfDay(it.startedAt) }.toSortedMap(compareByDescending { it }).map { (day, list) ->
+            return latestPerSong(events).groupBy { startOfDay(it.startedAt) }.toSortedMap(compareByDescending { it }).map { (day, list) ->
                 val label = when (day) {
                     today -> "Today"
                     today - DAY -> "Yesterday"

@@ -90,6 +90,14 @@ class RecommendationTest {
         file.delete()
     }
 
+    @Test fun historyShowsEachSongOnceAtItsLatestPlay() {
+        val a = t("aaaaaaaaaaa", "Alpha"); val b = t("bbbbbbbbbbb", "Beta")
+        val events = listOf(play(a, 0.1), play(b, 0.2), play(t("yt:aaaaaaaaaaa", "Alpha"), 0.3), play(a, 2.0))
+        val shown = ListeningHistory.days(events, now).flatMap { it.events }
+        assertEquals(listOf(a.id, b.id), shown.map { it.track.id })
+        assertEquals(now - (0.1 * day).toLong(), shown.first().startedAt)
+    }
+
     @Test fun thumbnailsAreRequestedAtTheSizeTheyAreDrawn() {
         assertEquals("https://lh3.googleusercontent.com/abc=w120-h120-l90-rj", ArtworkUrl.sized("https://lh3.googleusercontent.com/abc=w544-h544-l90-rj", 96))
         assertEquals("https://i.ytimg.com/vi/aaaaaaaaaaa/mqdefault.jpg", ArtworkUrl.sized("https://i.ytimg.com/vi/aaaaaaaaaaa/maxresdefault.jpg", 144))

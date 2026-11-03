@@ -521,8 +521,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) { listening.clear() }
     }
     fun removePlay(event: PlayEvent) {
-        mutable.update { it.copy(playEvents = it.playEvents.filterNot { e -> e.startedAt == event.startedAt }) }
-        viewModelScope.launch(Dispatchers.IO) { listening.remove(event.startedAt) }
+        val key = ListeningHistory.songKey(event.track.id)
+        mutable.update { it.copy(playEvents = it.playEvents.filterNot { e -> ListeningHistory.songKey(e.track.id) == key }) }
+        viewModelScope.launch(Dispatchers.IO) { listening.removeSong(event.track.id) }
     }
     fun autoplay(value: Boolean) { library.autoplay = value; mutable.update { it.copy(autoplay = value) } }
     fun trackHistory(value: Boolean) { library.trackHistory = value; if (!value) listen = null; mutable.update { it.copy(trackHistory = value) } }
