@@ -19,6 +19,11 @@ android {
         versionCode = 15
         versionName = "0.3.12"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // An integrated build must not install as 32-bit using a dependency's
+        // unrelated JNI library when the renderer is supplied only for 64-bit.
+        if (providers.gradleProperty("rtensorDspJniDir").isPresent) {
+            ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
+        }
     }
     buildFeatures { compose = true; buildConfig = true }
     compileOptions {

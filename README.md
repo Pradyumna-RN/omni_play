@@ -20,6 +20,7 @@ the desktop renderer's comparison. The player identifies that front-pair mode.
 Playback settings now contain the Autoplay control and Import audio action. The
 four descriptive feature rows and the hard-coded processing status were removed.
 DSP remains inside the normal Music APK and is distributed through OTA.
+The integrated APK targets 64-bit ARM and x86-64, matching the supplied native core.
 
 ## Previous release: 0.3.11 — integrated DSP and OTA
 
