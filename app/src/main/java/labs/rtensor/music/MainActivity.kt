@@ -79,7 +79,7 @@ class MainActivity : ComponentActivity() {
                 state = state,
                 onQuery = model::setQuery, onSearch = model::search,
                 onPlay = model::play, onToggle = model::toggle,
-                onPrevious = model::previous, onNext = model::next,
+                onPrevious = model::previous, onNext = model::next, onSkipTo = model::skipTo,
                 onSeek = model::seek, onSave = model::save,
                 onTheme = model::theme, onReducedMotion = model::reducedMotion,
                 onOpenLocal = { local.launch(arrayOf("audio/*")) },

@@ -450,6 +450,14 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         (s.queue.getOrNull(s.queueIndex) ?: s.current)?.let { play(it, s.queue) }
     }
 
+    /** Jump to a song already in the queue without rebuilding it, so preloaded audio and radio stay. */
+    fun skipTo(index: Int) {
+        val c = controller ?: return
+        if (index !in 0 until c.mediaItemCount) return
+        c.seekToDefaultPosition(index)
+        c.play()
+    }
+
     fun next() {
         controller?.takeIf { it.hasNextMediaItem() }?.seekToNextMediaItem()
     }
