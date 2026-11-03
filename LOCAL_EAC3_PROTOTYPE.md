@@ -8,7 +8,7 @@ protected Apple Music playback or a decryption wrapper.
 
 ## Try it on Android
 
-1. Update to **0.3.15 / code 18** through **Settings → About → Check updates**, or
+1. Update to **0.3.16 / code 19** through **Settings → About → Check updates**, or
    install `music-debug.apk` from its release. It includes the corrected decoder
    and the original DMR, using Music's existing package/signature. The earlier
    manual 0.3.14 prototype is superseded; it had a multiframe decoder bug.
@@ -48,7 +48,8 @@ The real host-built FFmpeg JNI decoder decodes the synthetic E-AC-3 fixture to
 six distinct PCM channels at 48 kHz. Its reported native speaker mask is mapped
 explicitly to the original DMR. The tests then run that PCM through the real
 original DMR JNI library. Stereo PCM remains byte-identical and creates no DMR
-engine. Unknown layouts and protected formats are rejected by this adapter.
+engine. Unknown layouts disable DSP with a reason while original PCM can play
+through Android. Protected input remains unsupported by the software decoder.
 
 E-AC-3 JOC can provide a multichannel **bed** through this decoder. It does not
 reconstruct the full Atmos object scene and must not be advertised as a full

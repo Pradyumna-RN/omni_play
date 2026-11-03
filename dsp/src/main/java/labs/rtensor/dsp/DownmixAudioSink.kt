@@ -139,7 +139,8 @@ class DownmixAudioSink(
     private fun bypass(format: Format, specifiedBufferSize: Int, outputChannels: IntArray?, positions: List<SpeakerPosition>, reason: String) {
         delegate.setAudioAttributes(requestedAttributes)
         delegate.configure(format, specifiedBufferSize, outputChannels)
-        report = DownmixReport(format.sampleRate, positions, processing = "Original audio", processingEnabled = false,
+        report = DownmixReport(format.sampleRate, positions, outputChannels = outputChannels?.size ?: format.channelCount,
+            processing = "Original audio", processingEnabled = false,
             comparisonAvailable = false, unavailableReason = reason, sourceChannels = format.channelCount)
         onReport(report)
     }

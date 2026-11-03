@@ -2,8 +2,9 @@
 
 This remains work in progress, not a released native provider integration. The
 earlier local E-AC-3 prototype used version 0.3.14 / code 17 and was excluded
-from normal OTA. Music **0.3.15 / code 18** includes the multiframe decoder fix
-and uses the normal OTA feed. This does not add provider subscription access.
+from normal OTA. Music **0.3.16 / code 19** includes the multiframe decoder fix,
+multichannel rate conversion and visible processing-unavailable status, using
+the normal OTA feed. This does not add provider subscription access.
 
 ## Implemented
 
@@ -45,7 +46,7 @@ and uses the normal OTA feed. This does not add provider subscription access.
 
 ## Validation status
 
-- The complete final run passes **126 app tests and 66 DSP tests**, with no failures,
+- The complete final run passes **128 app tests and 72 DSP tests**, with no failures,
   errors or skips, plus fatal lint and both native APK packaging guards.
 - SourceSettingsUiTest passes against Claude's inline editor using the automatic
   animation clock. The navigation test now targets the clickable About tab,

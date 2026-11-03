@@ -119,4 +119,24 @@ class PlayerProcessingTest {
         compose.onNodeWithContentDescription("Processed audio").assertDoesNotExist()
         compose.onNodeWithText("6 channels → stereo").assertDoesNotExist()
     }
+
+    @Test fun unknownLayoutShowsDisabledComparisonAndItsReason() {
+        val reason = "The decoder did not report speaker positions"
+        val report = DownmixReport(48000, emptyList(), outputChannels = 6, processingEnabled = false,
+            comparisonAvailable = false, unavailableReason = reason, sourceChannels = 6)
+        compose.setContent { MusicApp(initial(report), initialPage = "now") }
+        compose.onNodeWithContentDescription("Original audio").performScrollTo().assertIsNotEnabled().assertIsSelected()
+        compose.onNodeWithContentDescription("Processed audio").assertIsNotEnabled().assertIsNotSelected()
+        compose.onNodeWithText("6 channels · original audio · $reason").assertIsDisplayed()
+        compose.onNodeWithText("6 channels → stereo").assertDoesNotExist()
+    }
+
+    @Test fun missingDspShowsAnExplanationInsteadOfHidingTheControl() {
+        val state = initial(DownmixReport(48000, surround)).copy(audioProcessing =
+            AudioProcessingState(available = false, unavailableReason = "The DSP library is not included"))
+        compose.setContent { MusicApp(state, initialPage = "now") }
+        compose.onNodeWithContentDescription("Original audio").performScrollTo().assertIsNotEnabled().assertIsSelected()
+        compose.onNodeWithContentDescription("Processed audio").assertIsNotEnabled()
+        compose.onNodeWithText("Processing unavailable · The DSP library is not included").assertIsDisplayed()
+    }
 }

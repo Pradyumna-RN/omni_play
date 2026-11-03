@@ -18,8 +18,9 @@ libraries. The public JNI adapter links them dynamically. DMR is unchanged.
 - Output is the **decoded channel bed**, not reconstructed Atmos objects.
   An E-AC-3 JOC input is not evidence of a full Atmos object render.
 - FFmpeg's actual native channel mask is reconciled with DMR speaker roles.
-  Unknown/custom layouts, unsupported positions and count/mask mismatches are
-  rejected. A multichannel/JOC input folded to stereo is rejected.
+  Unknown/custom layouts, unsupported positions and count/mask mismatches disable
+  DSP with an explanation; original PCM can play through the Android delegate.
+  A multichannel/JOC input folded to stereo before the sink is rejected.
 - The float conversion preserves the decoded channel layout and sample rate.
   Codec DRC is disabled. DMR processes supported multichannel PCM at 48/96/192 kHz;
   stereo bypasses DMR without app upmixing/resampling. Android's output device or

@@ -269,6 +269,7 @@ class DownmixAudioSinkTest {
         assertTrue(h.engines.isEmpty()); assertSame(f, h.output.configured); assertEquals(777, h.output.configuredBufferSize)
         val report = h.reports.last()!!
         assertFalse(report.comparisonAvailable); assertFalse(report.processingEnabled); assertEquals(7, report.sourceChannels)
+        assertEquals(7, report.outputChannels) // PCM passed to Android, not a claimed DMR stereo render
         assertTrue(report.unavailableReason, "0x13f" in report.unavailableReason!!)
         val samples = ByteArray(7 * 4 * 3) { it.toByte() }
         assertTrue(sink.handleBuffer(buffer(samples.size).apply { put(samples); flip() }, 0, 1))
@@ -362,6 +363,61 @@ class DownmixAudioSinkTest {
         assertEquals(listOf(false, true), h.engines.single().comparisons)
         assertFalse(h.reports.last()!!.processingEnabled)
         assertEquals((4800 * 2 + 48000) * 8, h.output.bytes.size())
+    }
+
+    @Test fun convertedMultichannelRunsThroughOriginalNativeDmrAndSwitchesBothWays() {
+        if (System.getProperty("rtensor.dsp.expectNative") == "true") assertTrue(NativeDownmixEngine.isAvailable)
+        else org.junit.Assume.assumeTrue(NativeDownmixEngine.isAvailable)
+        for ((sourceRate, renderRate) in PcmRateAdapter.CONVERTIBLE_RATES) for (channels in listOf(6, 8)) {
+            val output = RecordingOutput()
+            val positions = if (channels == 6) roles else roles + listOf(SpeakerPosition.SL, SpeakerPosition.SR)
+            val reports = mutableListOf<DownmixReport?>()
+            var selected = true
+            var engines = 0
+            val sink = DownmixAudioSink(output.sink, { positions },
+                engineFactory = { engines++; NativeDownmixEngine(it) }, onReport = reports::add,
+                processingEnabled = { selected })
+            try {
+                sink.configure(format(channels, rate = sourceRate), 0, null)
+                assertEquals(renderRate, output.configured!!.sampleRate)
+                assertEquals(2, output.configured!!.channelCount)
+                val levels = mutableListOf<Double>()
+                for ((segment, processed) in listOf(true, false, true).withIndex()) {
+                    selected = processed
+                    val frames = sourceRate / 10
+                    val pcm = buffer(frames * channels * 4).apply {
+                        repeat(frames) { frame -> repeat(channels) { channel ->
+                            // Centre-only content makes the original FL/FR pair silent.
+                            putFloat(if (channel == 2) (kotlin.math.sin((frame + segment * frames) * .037) * .04).toFloat() else 0f)
+                        } }; flip()
+                    }
+                    assertTrue(sink.handleBuffer(pcm, segment * 100_000L, 1))
+                    assertEquals(processed, reports.last()!!.processingEnabled)
+                    val bytes = output.bytes.toByteArray()
+                    val tail = ByteBuffer.wrap(bytes, bytes.size - renderRate / 100 * 8, renderRate / 100 * 8)
+                        .order(ByteOrder.nativeOrder()).asFloatBuffer()
+                    var energy = 0.0; val count = tail.remaining()
+                    while (tail.hasRemaining()) { val sample = tail.get().toDouble(); energy += sample * sample }
+                    levels += kotlin.math.sqrt(energy / count)
+                }
+                assertTrue("Processed must render the centre channel: $levels", levels[0] > 1e-5 && levels[2] > 1e-5)
+                assertTrue("Original FL/FR must omit the centre channel: $levels", levels[1] < minOf(levels[0], levels[2]) * .001)
+                assertEquals(1, engines)
+                assertEquals(1, output.configurations)
+                assertEquals(listOf(true, false, true), reports.filterNotNull().map { it.processingEnabled })
+                assertEquals(renderRate / 10 * 3 * 8, output.bytes.size())
+                val samples = ByteBuffer.wrap(output.bytes.toByteArray()).order(ByteOrder.nativeOrder()).asFloatBuffer()
+                var nonzero = false
+                while (samples.hasRemaining()) {
+                    val sample = samples.get(); assertTrue(sample.isFinite()); nonzero = nonzero || kotlin.math.abs(sample) > 1e-8f
+                }
+                assertTrue("Native DMR must produce audio at $sourceRate Hz / $channels channels", nonzero)
+                sink.playToEndOfStream()
+                assertTrue(sink.isEnded)
+                output.position = Long.MAX_VALUE
+                assertEquals(300_000L, sink.getCurrentPositionUs(true)) // excludes converter/core tail
+            } finally { sink.release() }
+        }
     }
 
     /** Exposes a 16-speaker field the way the ABI 3 private core does. */
