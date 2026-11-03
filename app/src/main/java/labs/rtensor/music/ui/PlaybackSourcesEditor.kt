@@ -1,18 +1,28 @@
 package labs.rtensor.music.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import labs.rtensor.music.MusicState
 import labs.rtensor.music.sources.MusicProvider
 import labs.rtensor.music.sources.SourceProtocol
 
-/** Secrets live only in the form until the ViewModel seals the connection. */
+/**
+ * Inline editor under "Playback sources". It grows inside the settings card rather than
+ * scrolling on its own, so there is only ever one scroll container on the page.
+ * Secrets live only in the form until the ViewModel seals the connection.
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun PlaybackSourcesEditor(state: MusicState, onDismiss: () -> Unit,
@@ -24,43 +34,71 @@ internal fun PlaybackSourcesEditor(state: MusicState, onDismiss: () -> Unit,
     var token by remember { mutableStateOf("") }
     val count = state.playbackSources.size
     LaunchedEffect(count) { if (count > 0) { adding = false; url = ""; token = "" } }
-        Column(Modifier.fillMaxWidth().heightIn(max = 520.dp).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Recommendations stay with YouTube. Playback checks matching Atmos recordings first, then lossless quality. Stereo plays unchanged.")
-            state.playbackSources.forEach { source ->
-                Column {
-                    Text(source.name, style = MaterialTheme.typography.titleSmall)
-                    Text("${source.provider} · ${source.protocol}", style = MaterialTheme.typography.bodySmall)
-                    TextButton(onClick = { onRemove(source.id) }, enabled = !state.sourceBusy) { Text("Remove ${source.name}") }
+    val scheme = MaterialTheme.colorScheme
+    val busy = state.sourceBusy
+    Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("Recommendations stay with YouTube. Playback checks matching Atmos recordings first, then lossless quality. Stereo plays unchanged.",
+            fontSize = 13.sp, lineHeight = 19.sp, color = scheme.onSurfaceVariant)
+        state.playbackSources.forEach { source ->
+            Surface(shape = RoundedCornerShape(14.dp), color = scheme.surfaceVariant.copy(alpha = .5f), modifier = Modifier.fillMaxWidth()) {
+                Row(Modifier.padding(start = 14.dp, end = 4.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(source.name, fontSize = 15.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        // Saved is not the same as verified: each song is checked before playback.
+                        Text("${source.provider} · ${source.protocol} · saved", fontSize = 12.sp, lineHeight = 17.sp, color = scheme.onSurfaceVariant,
+                            maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    }
+                    TextButton(onClick = { onRemove(source.id) }, enabled = !busy) { Text("Remove ${source.name}", maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 140.dp)) }
                 }
             }
-            if (!adding) TextButton(onClick = { adding = true }, enabled = count < 4) { Text("Add a source") }
-            else {
-                Text("Connection type", style = MaterialTheme.typography.titleSmall)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    SourceProtocol.entries.forEach { value ->
-                        FilterChip(selected = protocol == value, enabled = !state.sourceBusy, onClick = {
-                            protocol = value
-                            provider = when (value) { SourceProtocol.TIDAL_HIFI -> MusicProvider.TIDAL; SourceProtocol.ADDON -> MusicProvider.LIBRARY; else -> MusicProvider.APPLE_MUSIC }
-                        }, label = { Text(value.label) })
-                    }
+        }
+        if (!adding) {
+            OutlinedButton(onClick = { adding = true }, enabled = count < 4, shape = RoundedCornerShape(12.dp)) { Text("Add a source") }
+        } else {
+            FieldLabel("Connection type")
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                SourceProtocol.entries.forEach { value ->
+                    FilterChip(selected = protocol == value, enabled = !busy, onClick = {
+                        protocol = value
+                        provider = when (value) { SourceProtocol.TIDAL_HIFI -> MusicProvider.TIDAL; SourceProtocol.ADDON -> MusicProvider.LIBRARY; else -> MusicProvider.APPLE_MUSIC }
+                    }, label = { Text(value.label) })
                 }
-                if (protocol == SourceProtocol.GATEWAY) FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    MusicProvider.entries.forEach { value -> FilterChip(selected = provider == value, enabled = !state.sourceBusy,
+            }
+            if (protocol == SourceProtocol.GATEWAY) {
+                FieldLabel("Provider")
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    MusicProvider.entries.forEach { value -> FilterChip(selected = provider == value, enabled = !busy,
                         onClick = { provider = value }, label = { Text(value.label) }) }
                 }
-                Text(when (protocol) {
-                    SourceProtocol.GATEWAY -> "Requires a compatible server with access to your provider account. Native Apple Music sign-in is not included."
-                    SourceProtocol.ADDON -> "Install an addon by entering its HTTPS server address. Availability and account requirements depend on your addon."
-                    SourceProtocol.TIDAL_HIFI -> "Connect your own HiFi API server with a TIDAL account."
-                }, style = MaterialTheme.typography.bodySmall)
-                OutlinedTextField(url, { url = it }, label = { Text("HTTPS server URL") }, singleLine = true, enabled = !state.sourceBusy, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(token, { token = it }, label = { Text("Server access token (optional)") }, singleLine = true, enabled = !state.sourceBusy,
-                    visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
-                Button(onClick = { onConnect(provider, protocol, url, token) }, enabled = url.isNotBlank() && !state.sourceBusy) {
-                    Text(if (state.sourceBusy) "Checking…" else "Check and save")
+            }
+            Text(when (protocol) {
+                SourceProtocol.GATEWAY -> "Requires a compatible server with access to your provider account. Native Apple Music sign-in is not included."
+                SourceProtocol.ADDON -> "Install an addon by entering its HTTPS server address. Availability and account requirements depend on your addon."
+                SourceProtocol.TIDAL_HIFI -> "Connect your own HiFi API server with a TIDAL account."
+            }, fontSize = 12.sp, lineHeight = 17.sp, color = scheme.onSurfaceVariant)
+            OutlinedTextField(url, { url = it }, label = { Text("HTTPS server URL") }, singleLine = true, enabled = !busy,
+                shape = RoundedCornerShape(12.dp), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri), modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(token, { token = it }, label = { Text("Server access token (optional)") }, singleLine = true, enabled = !busy,
+                shape = RoundedCornerShape(12.dp), visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password), modifier = Modifier.fillMaxWidth())
+        }
+        state.sourceMessage?.let {
+            Text(it, fontSize = 13.sp, lineHeight = 19.sp, color = scheme.onSurface,
+                modifier = Modifier.fillMaxWidth().background(scheme.secondaryContainer, RoundedCornerShape(10.dp)).padding(horizontal = 12.dp, vertical = 8.dp))
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = onDismiss) { Text("Done") }
+            if (adding) {
+                Spacer(Modifier.width(8.dp))
+                Button(onClick = { onConnect(provider, protocol, url, token) }, enabled = url.isNotBlank() && !busy, shape = RoundedCornerShape(12.dp)) {
+                    Text(if (busy) "Checking…" else "Check and save")
                 }
             }
-            state.sourceMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-            TextButton(onClick = onDismiss) { Text("Done") }
         }
+    }
+}
+
+@Composable
+private fun FieldLabel(text: String) {
+    Text(text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }

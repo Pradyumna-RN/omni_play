@@ -60,6 +60,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.draw.drawBehind
@@ -81,6 +82,9 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -134,6 +138,14 @@ private val EmphasizedAccelerate = CubicBezierEasing(0.3f, 0f, 0.8f, 0.15f)
 private val Standard = CubicBezierEasing(0.2f, 0f, 0f, 1f)
 /** Springs settle naturally and can be interrupted mid-flight without a jump. */
 private val PageSpring = spring<IntOffset>(dampingRatio = .88f, stiffness = 420f)
+/** Durations: 240 ms to arrive, 180 ms to go back. Small changes use [QuickMs]. */
+private const val EnterMs = 240
+private const val ExitMs = 180
+/** Presses, toggles and indicators settle critically damped: quick, interruptible, no bounce. */
+private val PressSpring = spring<Float>(dampingRatio = 1f, stiffness = 900f)
+private val IndicatorSpring = spring<Float>(dampingRatio = 1f, stiffness = 520f)
+/** The dock slides on a spring, so a quick open/close never snaps mid-flight. */
+private val DockSpring = spring<IntOffset>(dampingRatio = 1f, stiffness = 480f)
 
 @Composable
 fun MusicTheme(theme: String = "light", content: @Composable () -> Unit) {
@@ -241,8 +253,8 @@ fun MusicApp(
                             HorizontalDivider(thickness = .5.dp, color = MaterialTheme.colorScheme.outline)
                             AnimatedVisibility(
                                 visible = state.current != null,
-                                enter = if (reduced) EnterTransition.None else slideInVertically(tween(360, easing = EmphasizedDecelerate)) { it } + fadeIn(tween(240)),
-                                exit = if (reduced) ExitTransition.None else slideOutVertically(tween(200, easing = EmphasizedAccelerate)) { it } + fadeOut(tween(160)),
+                                enter = if (reduced) EnterTransition.None else slideInVertically(DockSpring) { it } + fadeIn(tween(EnterMs)),
+                                exit = if (reduced) ExitTransition.None else slideOutVertically(DockSpring) { it } + fadeOut(tween(QuickMs)),
                             ) {
                                 lastTrack?.let { MiniPlayer(state.copy(current = it), { navigate("now") }, onToggle, onNext, onPrevious, playbackPosition) }
                             }
@@ -258,8 +270,8 @@ fun MusicApp(
                     if (state.error != null) lastError = state.error
                     AnimatedVisibility(
                         visible = state.error != null,
-                        enter = if (reduced) EnterTransition.None else expandVertically(tween(260, easing = Standard)) + fadeIn(tween(200, 60)),
-                        exit = if (reduced) ExitTransition.None else shrinkVertically(tween(220, easing = Standard)) + fadeOut(tween(120)),
+                        enter = if (reduced) EnterTransition.None else expandVertically(tween(EnterMs, easing = EmphasizedDecelerate)) + fadeIn(tween(EnterMs, 60)),
+                        exit = if (reduced) ExitTransition.None else shrinkVertically(tween(ExitMs, easing = EmphasizedAccelerate)) + fadeOut(tween(120)),
                     ) {
                         ErrorBanner(lastError.orEmpty(), onDismissError,
                             if (state.searched && page in rootPages) onSearch else if (page == "collection") onRetryCollection else onRetry,
@@ -324,21 +336,23 @@ private fun AppHeader(page: String, onHome: () -> Unit, onSettings: () -> Unit, 
 private fun AnimatedContentTransitionScope<String>.screenTransition(from: String, to: String): ContentTransform {
     val tabs = rootPages
     return when {
-        to == "now" -> (slideInVertically(tween(240, easing = EmphasizedDecelerate)) { it / 10 } + fadeIn(tween(240, easing = EmphasizedDecelerate)) togetherWith
-            fadeOut(tween(120))).using(SizeTransform(clip = false))
-        from == "now" -> (fadeIn(tween(180, easing = EmphasizedDecelerate)) togetherWith
-            slideOutVertically(tween(180, easing = EmphasizedAccelerate)) { it / 10 } + fadeOut(tween(180))).apply { targetContentZIndex = -1f }.using(SizeTransform(clip = false))
+        to == "now" -> (slideInVertically(tween(EnterMs, easing = EmphasizedDecelerate)) { it / 10 } + fadeIn(tween(EnterMs, easing = EmphasizedDecelerate)) togetherWith
+            fadeOut(tween(120))).using(null)
+        from == "now" -> (fadeIn(tween(ExitMs, easing = EmphasizedDecelerate)) togetherWith
+            slideOutVertically(tween(ExitMs, easing = EmphasizedAccelerate)) { it / 10 } + fadeOut(tween(ExitMs))).apply { targetContentZIndex = -1f }.using(null)
         from in tabs && to in tabs -> {
             val dir = if (tabs.indexOf(to) > tabs.indexOf(from)) 1 else -1
-            (slideInHorizontally(tween(240, easing = EmphasizedDecelerate)) { w -> dir * w / 12 } + fadeIn(tween(200, 40)) togetherWith
-                slideOutHorizontally(tween(160, easing = EmphasizedAccelerate)) { w -> -dir * w / 16 } + fadeOut(tween(100))).using(null)
+            (slideInHorizontally(tween(EnterMs, easing = EmphasizedDecelerate)) { w -> dir * w / 12 } + fadeIn(tween(200, 40)) togetherWith
+                slideOutHorizontally(tween(QuickMs, easing = EmphasizedAccelerate)) { w -> -dir * w / 16 } + fadeOut(tween(100))).using(null)
         }
         else -> {
             val forward = to in listOf("settings", "collection", "search")
-            (fadeIn(tween(220, delayMillis = 50, easing = LinearOutSlowInEasing)) +
-                slideInVertically(PageSpring) { h -> if (forward) h / 14 else -h / 30 } +
-                scaleIn(tween(340, easing = EmphasizedDecelerate), initialScale = if (forward) .98f else 1.01f) togetherWith
-                fadeOut(tween(110, easing = FastOutLinearInEasing))).using(SizeTransform(clip = false))
+            // One curve and one duration for every part of the entrance, so fade, lift and
+            // scale finish together instead of trailing each other.
+            (fadeIn(tween(EnterMs, delayMillis = 40, easing = EmphasizedDecelerate)) +
+                slideInVertically(PageSpring) { h -> if (forward) h / 16 else -h / 32 } +
+                scaleIn(tween(EnterMs, easing = EmphasizedDecelerate), initialScale = if (forward) .985f else 1.01f) togetherWith
+                fadeOut(tween(110, easing = FastOutLinearInEasing))).using(null)
         }
     }
 }
@@ -365,8 +379,10 @@ private fun AppNavigation(page: String, reduced: Boolean, onSelect: (String) -> 
     LaunchedEffect(selectedIndex, reduced) {
         val target = selectedIndex.toFloat()
         if (reduced) { lead.snapTo(target); trail.snapTo(target); return@LaunchedEffect }
-        launch { lead.animateTo(target, tween(200, easing = EmphasizedDecelerate)) }
-        trail.animateTo(target, tween(240, delayMillis = 50, easing = EmphasizedDecelerate))
+        // Springs keep their velocity when a second tap retargets them mid-flight.
+        launch { lead.animateTo(target, spring(dampingRatio = 1f, stiffness = 700f)) }
+        delay(40)
+        trail.animateTo(target, spring(dampingRatio = 1f, stiffness = 420f))
     }
     val pill = scheme.secondaryContainer
     Row(
@@ -555,7 +571,7 @@ private fun PrefetchArtwork(urls: List<String>, size: Dp) {
 /** Reserves its height so content below never jumps when loading starts or stops. */
 @Composable
 private fun LoadingLine(busy: Boolean, reduced: Boolean) {
-    val alpha by animateFloatAsState(if (busy) 1f else 0f, tween(if (reduced) 0 else 300), label = "loading line")
+    val alpha by animateFloatAsState(if (busy) 1f else 0f, tween(if (reduced) 0 else EnterMs), label = "loading line")
     Box(Modifier.fillMaxWidth().height(3.dp)) {
         if (busy || alpha > .01f) LinearProgressIndicator(
             Modifier.fillMaxWidth().height(3.dp).graphicsLayer { this.alpha = alpha },
@@ -849,7 +865,7 @@ private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () ->
                     // Reserve the line so the controls never jump when loading starts or stops.
                     Box(Modifier.padding(top = 8.dp).height(16.dp)) {
                         androidx.compose.animation.AnimatedVisibility(loading, enter = fadeIn(tween(if (reduced) 0 else QuickMs)), exit = fadeOut(tween(if (reduced) 0 else QuickMs))) {
-                            Text(if (state.resolving) "Finding audio…" else "Buffering…", color = scheme.primary, fontSize = 11.sp)
+                            Text(if (state.resolving) "Finding audio…" else "Buffering…", color = scheme.primary, fontSize = 12.sp, lineHeight = 16.sp)
                         }
                     }
                     Spacer(Modifier.height(17.dp))
@@ -1013,7 +1029,7 @@ private fun CoverDeck(track: Track, index: Int, previousTrack: Track?, nextTrack
         }
         LaunchedEffect(arrival) {
             if (memory.dragOwner != track.id) drag.floatValue = 0f
-            arrival.progress.animateTo(1f, tween(300, easing = EmphasizedDecelerate))
+            arrival.progress.animateTo(1f, tween(if (reduced) 0 else 300, easing = EmphasizedDecelerate))
         }
         val owner = track.id
         // The drag offset, but only while it belongs to the card on top.
@@ -1168,8 +1184,8 @@ private fun ProgressLine(position: Long, duration: Long, playing: Boolean, reduc
         drawCircle(accent, r, Offset(played.coerceIn(r, size.width - r), center.y))
     }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        Text(clock(seconds * 1000), fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, letterSpacing = .5.sp)
-        Text(if (duration > 0) clock(duration) else "—:—", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, letterSpacing = .5.sp)
+        Text(clock(seconds * 1000), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, letterSpacing = .5.sp)
+        Text(if (duration > 0) clock(duration) else "—:—", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, letterSpacing = .5.sp)
     }
 }
 
@@ -1182,9 +1198,10 @@ private data class SettingsSection(val id: String, val label: String, val icon: 
 private val settingsSections = listOf(
     SettingsSection("account", "Account", Icons.Outlined.AccountCircle),
     SettingsSection("playback", "Playback", Glyph.MusicNote),
+    SettingsSection("sources", "Sources", Glyph.AudioFile),
     SettingsSection("appearance", "Appearance", Glyph.Contrast),
-    SettingsSection("updates", "Updates", Icons.Outlined.Refresh),
     SettingsSection("privacy", "Privacy", Glyph.Shield),
+    SettingsSection("about", "About", Icons.Outlined.Info),
 )
 
 @Composable
@@ -1202,21 +1219,31 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onReduc
     val notices = remember { context.resources.openRawResource(R.raw.third_party_notices).bufferedReader().use { it.readText() } }
     val scroll = rememberScrollState()
     val scope = rememberCoroutineScope()
+    val scheme = MaterialTheme.colorScheme
     val anchors = remember { mutableStateMapOf<String, Int>() }
     fun Modifier.anchor(id: String) = onGloballyPositioned { anchors[id] = it.positionInParent().y.toInt() }
+    // The chip for the section under the top edge lights up while you scroll. derivedStateOf
+    // means scrolling recomposes the bar only when the section actually changes.
+    val active by remember { derivedStateOf {
+        if (scroll.maxValue > 0 && scroll.value >= scroll.maxValue) settingsSections.last().id
+        else settingsSections.lastOrNull { (anchors[it.id] ?: Int.MAX_VALUE) <= scroll.value + 48 }?.id ?: settingsSections.first().id
+    } }
+    val scrolled by remember { derivedStateOf { scroll.value > 0 } }
     Column(Modifier.fillMaxSize()) {
-        // Jump bar stays visible while the page scrolls.
+        // Jump bar stays visible while the page scrolls; a hairline appears once content passes under it.
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             settingsSections.forEach { section ->
-                AssistChip(
-                    onClick = { scope.launch { scroll.animateScrollTo(((anchors[section.id] ?: 0) - 8).coerceAtLeast(0), tween(if (state.reducedMotion) 0 else 450, easing = Standard)) } },
+                FilterChip(
+                    selected = active == section.id,
+                    onClick = { scope.launch { scroll.animateScrollTo(((anchors[section.id] ?: 0) - 8).coerceAtLeast(0), tween(if (state.reducedMotion) 0 else 360, easing = Standard)) } },
                     label = { Text(section.label, fontSize = 13.sp) },
-                    leadingIcon = { Icon(section.icon, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary) },
+                    leadingIcon = { Icon(section.icon, null, Modifier.size(16.dp)) },
                     shape = RoundedCornerShape(20.dp),
                 )
             }
         }
-        Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(scroll).padding(horizontal = 20.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Box(Modifier.fillMaxWidth().height(.5.dp).graphicsLayer { alpha = if (scrolled) 1f else 0f }.background(scheme.outline))
+        Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(scroll).padding(horizontal = 20.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             PageTitle("Settings")
 
             SettingsGroupHeader(settingsSections[0], Modifier.anchor("account"))
@@ -1227,26 +1254,33 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onReduc
                 SettingItem("Autoplay radio", "When the queue ends, keep playing similar songs", Glyph.Sparkle, onClick = { onAutoplay(!state.autoplay) }) {
                     Switch(checked = state.autoplay, onCheckedChange = onAutoplay, modifier = Modifier.semantics { contentDescription = "Autoplay radio" })
                 }
-                CardDivider()
-                SettingItem("Playback sources", if (state.playbackSources.isEmpty()) "Connect a provider server or install an audio addon" else "${state.playbackSources.size} saved servers · Atmos, then lossless",
-                    Glyph.MusicNote, onClick = { showSources = !showSources })
+            }
+
+            SettingsGroupHeader(settingsSections[2], Modifier.anchor("sources"))
+            SettingsCard {
+                val count = state.playbackSources.size
+                // A saved server is only a candidate; each song is checked before anything plays from it.
+                SettingItem("Playback sources",
+                    if (count == 0) "Connect a provider server or install an audio addon"
+                    else "$count saved ${if (count == 1) "server" else "servers"} · checked per song before it plays",
+                    Glyph.MusicNote, onClick = { showSources = !showSources }, expanded = showSources)
                 if (showSources) PlaybackSourcesEditor(state, { showSources = false }, onConnectSource, onRemoveSource)
-                CardDivider()
-                SettingItem("Import audio", "Add a file from this device to Saved", Glyph.AudioFile, onClick = onLocal)
-                state.importMessage?.let { Text(it, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
                 CardDivider()
                 SettingItem("Atmos & lossless folder",
                     state.mastersSummary.ifBlank { "Songs you own in Atmos or lossless play from your files instead of YouTube" },
                     Glyph.AudioFile, onClick = { if (!state.mastersBusy) onChooseMasters() })
                 if (state.mastersSummary.isNotBlank() && !state.mastersBusy) {
-                    FlowRow(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FlowRow(Modifier.padding(start = 66.dp, end = 16.dp, bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(onClick = onChooseMasters, shape = RoundedCornerShape(12.dp)) { Text("Rescan", fontSize = 14.sp) }
-                        OutlinedButton(onClick = onClearMasters, shape = RoundedCornerShape(12.dp)) { Text("Forget folder", fontSize = 14.sp) }
+                        TextButton(onClick = onClearMasters) { Text("Forget folder", fontSize = 14.sp) }
                     }
                 }
+                CardDivider()
+                SettingItem("Import audio", "Add a file from this device to Saved", Icons.Outlined.Add, onClick = onLocal)
+                state.importMessage?.let { Text(it, fontSize = 13.sp, lineHeight = 19.sp, color = scheme.onSurfaceVariant, modifier = Modifier.padding(start = 66.dp, end = 16.dp, bottom = 12.dp)) }
             }
 
-            SettingsGroupHeader(settingsSections[2], Modifier.anchor("appearance"))
+            SettingsGroupHeader(settingsSections[3], Modifier.anchor("appearance"))
             SettingsCard {
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
                     Text("Theme", fontSize = 16.sp, fontWeight = FontWeight.Medium)
@@ -1259,29 +1293,8 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onReduc
                 }
             }
 
-            SettingsGroupHeader(settingsSections[3], Modifier.anchor("updates"))
-            SettingsCard {
-                SettingItem("Music ${BuildConfig.VERSION_NAME}", "Preview channel · GitHub Releases", Icons.Outlined.Info)
-                Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    if (state.update.message.isNotBlank()) Text(state.update.message, fontSize = 14.sp, lineHeight = 21.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (state.update.downloading) {
-                        val progress by animateFloatAsState(state.update.progress / 100f, tween(if (state.reducedMotion) 0 else 300), label = "update progress")
-                        LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth(), strokeCap = StrokeCap.Round)
-                        Text("${state.update.progress}%", fontSize = 14.sp)
-                    }
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = onCheckUpdates, enabled = !state.update.checking && !state.update.downloading, shape = RoundedCornerShape(12.dp)) { Text("Check updates", fontSize = 14.sp) }
-                        if (state.update.apkPath != null) Button(onClick = onInstallUpdate, shape = RoundedCornerShape(12.dp)) { Text("Install update", fontSize = 14.sp) }
-                        else if (state.update.release != null) Button(onClick = onDownloadUpdate, enabled = !state.update.downloading && !state.update.checking, shape = RoundedCornerShape(12.dp)) { Text("Download", fontSize = 14.sp) }
-                    }
-                }
-            }
-
             SettingsGroupHeader(settingsSections[4], Modifier.anchor("privacy"))
             SettingsCard {
-                Text("Saved recordings, history and encrypted account sessions stay on this device. Connected music servers receive song searches and playback requests. YouTube receives your discovery requests; GitHub receives update checks.",
-                    fontSize = 14.sp, lineHeight = 21.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp))
-                CardDivider(start = 16.dp)
                 SettingItem("Keep listening history", "Powers the History tab and “Mixed for you”. Stays on this device.", Glyph.History, onClick = { onTrackHistory(!state.trackHistory) }) {
                     Switch(checked = state.trackHistory, onCheckedChange = onTrackHistory, modifier = Modifier.semantics { contentDescription = "Keep listening history" })
                 }
@@ -1289,11 +1302,32 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onReduc
                 val hasHistory = state.history.isNotEmpty() || state.playEvents.isNotEmpty()
                 SettingItem("Clear listening history", if (!hasHistory) "Nothing to clear" else "${state.playEvents.size} plays · ${state.history.size} recent recordings", Icons.Outlined.Delete,
                     onClick = if (hasHistory) ({ confirmClear = true }) else null)
+                CardDivider(start = 16.dp)
+                Text("Saved recordings, history and encrypted account sessions stay on this device. Connected music servers receive song searches and playback requests. YouTube receives your discovery requests; GitHub receives update checks.",
+                    fontSize = 13.sp, lineHeight = 19.sp, color = scheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp))
+            }
+
+            SettingsGroupHeader(settingsSections[5], Modifier.anchor("about"))
+            SettingsCard {
+                SettingItem("Music ${BuildConfig.VERSION_NAME}", "Preview channel · GitHub Releases", Icons.Outlined.Refresh)
+                Column(Modifier.padding(start = 66.dp, end = 16.dp, bottom = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (state.update.message.isNotBlank()) Text(state.update.message, fontSize = 13.sp, lineHeight = 19.sp, color = scheme.onSurfaceVariant)
+                    if (state.update.downloading) {
+                        val progress by animateFloatAsState(state.update.progress / 100f, tween(if (state.reducedMotion) 0 else EnterMs), label = "update progress")
+                        LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth(), strokeCap = StrokeCap.Round)
+                        Text("${state.update.progress}%", fontSize = 13.sp, color = scheme.onSurfaceVariant)
+                    }
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = onCheckUpdates, enabled = !state.update.checking && !state.update.downloading, shape = RoundedCornerShape(12.dp)) { Text("Check updates", fontSize = 14.sp) }
+                        if (state.update.apkPath != null) Button(onClick = onInstallUpdate, shape = RoundedCornerShape(12.dp)) { Text("Install update", fontSize = 14.sp) }
+                        else if (state.update.release != null) Button(onClick = onDownloadUpdate, enabled = !state.update.downloading && !state.update.checking, shape = RoundedCornerShape(12.dp)) { Text("Download", fontSize = 14.sp) }
+                    }
+                }
                 CardDivider()
                 SettingItem("Open-source licences", "Libraries and fonts used by Music", Icons.Outlined.Info, onClick = { showLicences = true })
             }
-            Text("Music · RTensorLabs · Early build ${BuildConfig.VERSION_NAME}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 28.dp))
+            Text("Music · RTensorLabs · Early build ${BuildConfig.VERSION_NAME}", fontSize = 12.sp, color = scheme.onSurfaceVariant,
+                textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 28.dp))
         }
     }
     if (confirmClear) AlertDialog(
@@ -1394,34 +1428,58 @@ private fun StatusLine(label: String, ok: Boolean, detail: String) {
     }
 }
 
+/**
+ * A segmented control whose highlight slides between options. The highlight is painted in
+ * the draw phase from one spring, so changing theme never re-measures the row.
+ */
 @Composable
 private fun ThemeSelector(theme: String, reduced: Boolean, onTheme: (String) -> Unit) {
-    Row(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp)).padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        listOf("system" to "Device", "light" to "Light", "dark" to "Dark").forEach { (id, name) ->
-            val selected = theme == id
-            val bg by animateColorAsState(if (selected) MaterialTheme.colorScheme.surface else Color.Transparent, tween(if (reduced) 0 else 220), label = "theme bg")
-            val fg by animateColorAsState(if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, tween(if (reduced) 0 else 220), label = "theme fg")
-            Box(Modifier.weight(1f).height(40.dp).clip(RoundedCornerShape(11.dp)).background(bg).clickable { onTheme(id) }.semantics { contentDescription = "$name theme" },
+    val options = listOf("system" to "Device", "light" to "Light", "dark" to "Dark")
+    val index = options.indexOfFirst { it.first == theme }.coerceAtLeast(0)
+    val slot = remember { Animatable(index.toFloat()) }
+    LaunchedEffect(index, reduced) { if (reduced) slot.snapTo(index.toFloat()) else slot.animateTo(index.toFloat(), IndicatorSpring) }
+    val highlight = MaterialTheme.colorScheme.surface
+    val edge = MaterialTheme.colorScheme.outline
+    Row(
+        Modifier.fillMaxWidth().height(44.dp).clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.surfaceVariant)
+            .drawBehind {
+                val pad = 4.dp.toPx()
+                val w = (size.width - pad * 2) / options.size
+                val r = CornerRadius(10.dp.toPx())
+                val topLeft = Offset(pad + w * slot.value, pad)
+                val box = Size(w, size.height - pad * 2)
+                drawRoundRect(highlight, topLeft, box, r)
+                drawRoundRect(edge, topLeft, box, r, style = Stroke(.5.dp.toPx()))
+            }
+            .padding(4.dp),
+    ) {
+        options.forEachIndexed { i, (id, name) ->
+            val selected = i == index
+            val fg by animateColorAsState(if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, tween(if (reduced) 0 else QuickMs), label = "theme fg")
+            Box(Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(10.dp)).clickable { onTheme(id) }
+                .semantics { contentDescription = "$name theme"; this.selected = selected; role = Role.Tab },
                 contentAlignment = Alignment.Center) {
-                Text(name, fontSize = 14.sp, color = fg, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
+                Text(name, fontSize = 14.sp, color = fg, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium)
             }
         }
     }
 }
 
+/** Sits close to its own card and far from the one above (proximity groups them). */
 @Composable
 private fun SettingsGroupHeader(section: SettingsSection, modifier: Modifier = Modifier) {
-    Row(modifier.padding(top = 10.dp, start = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-        Icon(section.icon, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+    Row(modifier.padding(top = 18.dp, start = 4.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(section.icon, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
         Spacer(Modifier.width(8.dp))
-        Text(section.label.uppercase(), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.2.sp, color = MaterialTheme.colorScheme.primary)
+        Text(section.label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, letterSpacing = .2.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
 @Composable
 private fun SettingsCard(content: @Composable ColumnScope.() -> Unit) {
     Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surface, border = BorderStroke(.5.dp, MaterialTheme.colorScheme.outline), modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(vertical = 4.dp).animateContentSize(animationSpec = if (LocalReducedMotion.current) snap() else spring()), content = content)
+        // Critically damped: the card grows to fit an opened editor without overshooting.
+        Column(Modifier.padding(vertical = 4.dp).animateContentSize(animationSpec = if (LocalReducedMotion.current) snap() else spring(dampingRatio = 1f, stiffness = Spring.StiffnessMediumLow)), content = content)
     }
 }
 
@@ -1430,19 +1488,24 @@ private fun CardDivider(start: Dp = 66.dp) {
     HorizontalDivider(Modifier.padding(start = start), color = MaterialTheme.colorScheme.outline, thickness = .5.dp)
 }
 
+/** A 56dp-minimum list row. [expanded] turns the chevron to show an inline panel is open. */
 @Composable
-private fun SettingItem(title: String, detail: String? = null, icon: ImageVector? = null, onClick: (() -> Unit)? = null, trailing: (@Composable () -> Unit)? = null) {
+private fun SettingItem(title: String, detail: String? = null, icon: ImageVector? = null, onClick: (() -> Unit)? = null,
+    expanded: Boolean? = null, trailing: (@Composable () -> Unit)? = null) {
     Row(
-        Modifier.fillMaxWidth().then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier).padding(horizontal = 16.dp, vertical = 12.dp).heightIn(min = 40.dp),
+        Modifier.fillMaxWidth().then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier).heightIn(min = 56.dp).padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (icon != null) { IconTile(icon); Spacer(Modifier.width(14.dp)) }
         Column(Modifier.weight(1f)) {
-            Text(title, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+            Text(title, fontSize = 16.sp, lineHeight = 22.sp, fontWeight = FontWeight.Medium)
             if (detail != null) Text(detail, fontSize = 13.sp, lineHeight = 19.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 2.dp))
         }
         if (trailing != null) { Spacer(Modifier.width(12.dp)); trailing() }
-        else if (onClick != null) Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        else if (onClick != null) {
+            val turn by animateFloatAsState(if (expanded == true) 90f else 0f, if (LocalReducedMotion.current) snap<Float>() else IndicatorSpring, label = "chevron")
+            Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null, Modifier.size(20.dp).graphicsLayer { rotationZ = turn }, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
     }
 }
 
@@ -1545,7 +1608,7 @@ private fun MiniPlayer(state: MusicState, onOpen: () -> Unit, onToggle: () -> Un
 private fun PlayPauseCircle(playing: Boolean, loading: Boolean, reduced: Boolean, enabled: Boolean, onClick: () -> Unit) {
     val source = remember { MutableInteractionSource() }
     val pressed by source.collectIsPressedAsState()
-    val scale by animateFloatAsState(if (pressed && !reduced) .94f else 1f, tween(if (reduced) 0 else 100), label = "play press")
+    val scale by animateFloatAsState(if (pressed && !reduced) .92f else 1f, if (reduced) snap<Float>() else PressSpring, label = "play press")
     Box(
         Modifier.size(44.dp).graphicsLayer { scaleX = scale; scaleY = scale }.clip(CircleShape).background(MaterialTheme.colorScheme.primary)
             .clickable(interactionSource = source, indication = LocalIndication.current, enabled = enabled, onClick = onClick)
@@ -1576,7 +1639,7 @@ private fun Modifier.pressable(onClick: () -> Unit): Modifier = composed {
     val reduced = LocalReducedMotion.current
     val source = remember { MutableInteractionSource() }
     val pressed by source.collectIsPressedAsState()
-    val scale by animateFloatAsState(if (pressed && !reduced) .96f else 1f, if (reduced) snap<Float>() else spring(dampingRatio = .6f, stiffness = Spring.StiffnessMediumLow), label = "press")
+    val scale by animateFloatAsState(if (pressed && !reduced) .96f else 1f, if (reduced) snap<Float>() else PressSpring, label = "press")
     graphicsLayer { scaleX = scale; scaleY = scale }.clickable(interactionSource = source, indication = LocalIndication.current, onClick = onClick)
 }
 
@@ -1589,16 +1652,15 @@ private fun TrackRow(track: Track, saved: Boolean, current: Boolean, onPlay: () 
                 Artwork(track, Modifier.size(48.dp).clip(RoundedCornerShape(8.dp)), size = 48.dp)
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
-                    val titleColor by animateColorAsState(if (current) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface, tween(if (LocalReducedMotion.current) 0 else 180), label = "row title")
+                    val titleColor by animateColorAsState(if (current) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface, tween(if (LocalReducedMotion.current) 0 else QuickMs), label = "row title")
                     Text(track.title, fontSize = 14.sp, lineHeight = 19.sp, fontWeight = FontWeight.Medium, color = titleColor, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     Text(track.artist, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 3.dp))
                 }
                 if (track.durationMs > 0) Text(clock(track.durationMs), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 8.dp))
             }
             if (onSave != null) IconButton(onClick = onSave) {
-                Crossfade(saved, animationSpec = tween(if (LocalReducedMotion.current) 0 else 180), label = "save icon") { isSaved ->
-                    Icon(if (isSaved) Icons.Outlined.Favorite else Icons.Outlined.FavoriteBorder, if (isSaved) "Unsave ${track.title}" else "Save ${track.title}", Modifier.size(20.dp), tint = if (isSaved) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
-                }
+                val tint by animateColorAsState(if (saved) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, tween(if (LocalReducedMotion.current) 0 else QuickMs), label = "save tint")
+                Icon(if (saved) Icons.Outlined.Favorite else Icons.Outlined.FavoriteBorder, if (saved) "Unsave ${track.title}" else "Save ${track.title}", Modifier.size(20.dp), tint = tint)
             }
         }
     }
@@ -1639,7 +1701,7 @@ private fun LabelledControl(label: String, image: ImageVector, onClick: () -> Un
             val tint by animateColorAsState(if (highlighted) MaterialTheme.colorScheme.primary else if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .35f), tween(if (LocalReducedMotion.current) 0 else 180), label = "control tint")
             Icon(image, label, Modifier.size(21.dp), tint = tint)
         }
-        Text(label, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp))
+        Text(label, fontSize = 11.sp, lineHeight = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp))
     }
 }
 
@@ -1653,14 +1715,14 @@ private fun PageTitle(text: String) {
 private fun SectionTitle(text: String) { Text(text, fontSize = 22.sp, fontWeight = FontWeight.Medium, letterSpacing = (-.6).sp) }
 
 @Composable
-private fun Caption(text: String, modifier: Modifier = Modifier) { Text(text, fontSize = 9.sp, lineHeight = 14.sp, letterSpacing = 1.4.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = modifier) }
+private fun Caption(text: String, modifier: Modifier = Modifier) { Text(text, fontSize = 10.sp, lineHeight = 14.sp, letterSpacing = 1.4.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = modifier) }
 
 @Composable
 private fun EmptyState(title: String, detail: String, image: ImageVector) {
     Column(Modifier.fillMaxWidth().padding(vertical = 38.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Icon(image, null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.primary)
         Text(title, fontSize = 17.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(top = 16.dp))
-        Text(detail, fontSize = 12.sp, lineHeight = 20.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 9.dp, start = 12.dp, end = 12.dp))
+        Text(detail, fontSize = 13.sp, lineHeight = 20.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 8.dp, start = 16.dp, end = 16.dp))
     }
 }
 
@@ -1669,13 +1731,13 @@ private fun ErrorBanner(message: String, onDismiss: () -> Unit, onRetry: () -> U
     val context = LocalContext.current
     Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = RoundedCornerShape(14.dp), modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)) {
         Column(Modifier.fillMaxWidth().padding(start = 14.dp, end = 8.dp, top = 12.dp)) {
-            Text(message, fontSize = 12.sp, lineHeight = 18.sp, color = MaterialTheme.colorScheme.onBackground)
+            Text(message, fontSize = 14.sp, lineHeight = 20.sp, color = MaterialTheme.colorScheme.onBackground)
             FlowRow(Modifier.align(Alignment.End), horizontalArrangement = Arrangement.End) {
                 if (diagnostic.isNotBlank()) TextButton(onClick = {
                     (context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("Playback details", "Music ${BuildConfig.VERSION_NAME} · $videoId\n$diagnostic"))
-                }) { Text("Copy details", fontSize = 11.sp) }
-                TextButton(onClick = onDismiss) { Text("Dismiss", fontSize = 11.sp) }
-                TextButton(onClick = onRetry) { Text("Retry", fontSize = 11.sp) }
+                }) { Text("Copy details", fontSize = 13.sp) }
+                TextButton(onClick = onDismiss) { Text("Dismiss", fontSize = 13.sp) }
+                TextButton(onClick = onRetry) { Text("Retry", fontSize = 13.sp, fontWeight = FontWeight.Medium) }
             }
         }
     }
