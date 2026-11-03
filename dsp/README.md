@@ -14,13 +14,15 @@ To package the separately built private ARM64/x86-64 libraries:
 
 ```sh
 ./gradlew :dsp:assembleRelease :app:verifyOtaDspBundle \
-  -PrtensorDspJniDir=/absolute/path/to/private/android-output
+  -PrtensorDspJniDir=/absolute/path/to/private/android-output -PrtensorOta=true
 ```
 
 The directory must contain ABI **2** native libraries. Ordinary AAR builds accept
 `arm64-v8a/librtensor_downmix.so` and/or `x86_64/librtensor_downmix.so`; official
 OTA validation requires both. ABI 1 belongs to the earlier private 0.1.0 preview.
 AAR output is `dsp/build/outputs/aar/dsp-release.aar`.
+`rtensorOta=true` makes the distributed Music APK non-debuggable while retaining
+the existing variant/filename and signing identity. Omit it for local debugging.
 Do not commit private artifacts from this module's build directory. Music OTA
 publishes the compiled renderer inside its APK; the implementation source and
 coefficients remain private. No separate DSP app/install is required.

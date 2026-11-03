@@ -48,6 +48,7 @@ import labs.rtensor.music.updates.UpdateState
 import labs.rtensor.music.playback.MusicPlaybackService
 import labs.rtensor.music.playback.AudioPipeline
 import labs.rtensor.music.playback.AudioProcessingState
+import labs.rtensor.music.playback.CatalogueTrackCache
 
 data class MusicState(
     val importMessage: String? = null,
@@ -109,6 +110,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         autoplay = library.autoplay, trackHistory = library.trackHistory,
     ))
     val state = mutable.asStateFlow()
+    private val mutablePosition = MutableStateFlow(0L)
+    val playbackPosition = mutablePosition.asStateFlow()
+    private val catalogueCache = CatalogueTrackCache()
     private val metadata = mutableMapOf<String, YouTubeMetadata>()
     private fun enrich(track: Track) = metadata[track.id]?.enrich(track) ?: track
     private var controller: MediaController? = null
@@ -167,7 +171,14 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             }
         }, ContextCompat.getMainExecutor(application))
         viewModelScope.launch {
-            while (isActive) { syncPlayer(); delay(200) }
+            while (isActive) {
+                controller?.let { c ->
+                    trackListening(c)
+                    // Only the small timeline subtrees observe this clock.
+                    mutablePosition.value = c.currentPosition.coerceAtLeast(0)
+                }
+                delay(200)
+            }
         }
         viewModelScope.launch {
             youtube.runtime.account.collect { account ->
@@ -287,6 +298,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     fun connectAccount() { youtube.runtime.beginSignIn() }
     fun disconnectAccount() {
         controller?.stop(); controller?.clearMediaItems()
+        mutablePosition.value = 0
         mutable.update { it.copy(current = null, queue = emptyList(), queueIndex = -1, positionMs = 0, durationMs = 0, error = null, errorDiagnostic = "") }
         viewModelScope.launch { youtube.runtime.disconnect() }
     }
@@ -321,19 +333,18 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private fun syncPlayer(includeQueue: Boolean = false) {
         val c = controller ?: return
         trackListening(c)
-        val restored = runCatching {
-            c.currentMediaItem?.mediaMetadata?.extras?.getString("catalogue_track")?.let { Track.fromJson(org.json.JSONObject(it)) }
-        }.getOrNull()
+        mutablePosition.value = c.currentPosition.coerceAtLeast(0)
+        val restored = catalogueCache.read(c.currentMediaItem?.mediaMetadata?.extras?.getString("catalogue_track"))
         val queue = if (!includeQueue) mutable.value.queue else (0 until c.mediaItemCount).mapNotNull { index ->
             runCatching { c.getMediaItemAt(index).mediaMetadata.extras?.getString("catalogue_track")?.let { Track.fromJson(org.json.JSONObject(it)) } }.getOrNull()
         }
         mutable.update { it.copy(
             current = restored?.let(::enrich) ?: it.current,
-            queue = queue.map(::enrich),
+            queue = if (includeQueue) queue.map(::enrich) else queue,
             queueIndex = c.currentMediaItemIndex,
             playing = c.isPlaying,
             buffering = c.playbackState == Player.STATE_BUFFERING,
-            positionMs = c.currentPosition.coerceAtLeast(0),
+            positionMs = mutablePosition.value,
             durationMs = c.duration.takeIf { d -> d != C.TIME_UNSET && d > 0 } ?: 0,
         ) }
     }
@@ -367,6 +378,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         val selectedIndex = ordered.indexOfFirst { it === track }.takeIf { it >= 0 }
             ?: ordered.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
         val items = ordered.map(::mediaItem)
+        mutablePosition.value = 0
         mutable.update { it.copy(current = track, loadingTrack = null, error = null, errorDiagnostic = "", queue = ordered, queueIndex = selectedIndex, positionMs = 0, durationMs = 0) }
         radioJob?.cancel(); radioSeeds.clear()
         c.setMediaItems(items, selectedIndex, 0)
@@ -410,7 +422,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private fun trackListening(c: MediaController) {
         val now = android.os.SystemClock.elapsedRealtime()
         val tick = if (lastTick == 0L) 0L else (now - lastTick).coerceIn(0, 2_000); lastTick = now
-        val playing = runCatching { c.currentMediaItem?.mediaMetadata?.extras?.getString("catalogue_track")?.let { Track.fromJson(org.json.JSONObject(it)) } }.getOrNull()
+        val playing = catalogueCache.read(c.currentMediaItem?.mediaMetadata?.extras?.getString("catalogue_track"))
         val open = listen
         if (open != null && open.first.id != playing?.id) finishListen()
         if (playing == null) return
@@ -470,8 +482,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun previous() {
-        val s = mutable.value
-        if (s.positionMs > 3000) { seek(0); return }
+        if ((controller?.currentPosition ?: mutablePosition.value) > 3000) { seek(0); return }
         controller?.takeIf { it.hasPreviousMediaItem() }?.seekToPreviousMediaItem() ?: seek(0)
     }
 

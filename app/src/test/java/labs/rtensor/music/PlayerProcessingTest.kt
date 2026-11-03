@@ -34,12 +34,17 @@ class PlayerProcessingTest {
         val changes = mutableListOf<Boolean>(); var seeks = 0; var pauses = 0
         compose.setContent { MusicApp(state.value, initialPage = "now", onSeek = { seeks++ }, onToggle = { pauses++ }, onProcessing = { processed ->
             changes += processed
-            state.value = state.value.copy(audioProcessing = state.value.audioProcessing.copy(selectedProcessed = processed,
-                report = state.value.audioProcessing.report!!.copy(processingEnabled = processed)))
+            state.value = state.value.copy(audioProcessing = state.value.audioProcessing.copy(selectedProcessed = processed))
         }) }
         compose.onNodeWithContentDescription("Original audio").performScrollTo().performClick().assertIsSelected()
+        compose.onNodeWithText("Switching to original…").assertIsDisplayed()
+        compose.runOnIdle { state.value = state.value.copy(audioProcessing = state.value.audioProcessing.copy(
+            report = state.value.audioProcessing.report!!.copy(processingEnabled = false))) }
         compose.onNodeWithText("Stereo · original audio").assertIsDisplayed()
         compose.onNodeWithContentDescription("Processed audio").performClick().assertIsSelected()
+        compose.onNodeWithText("Switching to processed…").assertIsDisplayed()
+        compose.runOnIdle { state.value = state.value.copy(audioProcessing = state.value.audioProcessing.copy(
+            report = state.value.audioProcessing.report!!.copy(processingEnabled = true))) }
         compose.onNodeWithText("Stereo enhancement · generated spatial audio").assertIsDisplayed()
         compose.runOnIdle {
             assertEquals(listOf(false, true), changes); assertEquals(0, seeks); assertEquals(0, pauses)
@@ -71,5 +76,48 @@ class PlayerProcessingTest {
         assertFalse(LibraryStore(compose.activity).processedAudio)
         first.processedAudio = true
         assertTrue(LibraryStore(compose.activity).processedAudio)
+    }
+
+    @Test fun pausedSelectionWaitsForAudioInsteadOfShowingTheOppositeMode() {
+        val state = mutableStateOf(initial(DownmixReport(48000, stereo, processingEnabled = false)).let {
+            it.copy(playing = false, positionMs = 0, audioProcessing = it.audioProcessing.copy(selectedProcessed = false))
+        })
+        var seeks = 0; var pauses = 0
+        compose.setContent { MusicApp(state.value, initialPage = "now", onSeek = { seeks++ }, onToggle = { pauses++ }, onProcessing = { processed ->
+            // The renderer receives no PCM while paused. Only the requested mode changes.
+            state.value = state.value.copy(audioProcessing = state.value.audioProcessing.copy(selectedProcessed = processed))
+        }) }
+        compose.onNodeWithContentDescription("Processed audio").performScrollTo().performClick().assertIsSelected()
+        compose.onNodeWithText("Processed · ready when you play").assertIsDisplayed()
+        compose.onNodeWithText("Stereo · original audio").assertDoesNotExist()
+        compose.runOnIdle { state.value = state.value.copy(playing = true) }
+        compose.onNodeWithText("Switching to processed…").assertIsDisplayed()
+        compose.runOnIdle { state.value = state.value.copy(audioProcessing = state.value.audioProcessing.copy(
+            report = state.value.audioProcessing.report!!.copy(processingEnabled = true))) }
+        compose.onNodeWithText("Stereo enhancement · generated spatial audio").assertIsDisplayed()
+        compose.onNodeWithText("Switching to processed…").assertDoesNotExist()
+        compose.runOnIdle { assertEquals(0, seeks); assertEquals(0, pauses); assertEquals(0L, state.value.positionMs) }
+    }
+
+    @Test fun reversingAPausedRequestCancelsThePendingMode() {
+        val state = mutableStateOf(initial(DownmixReport(48000, stereo, processingEnabled = false)).let {
+            it.copy(playing = false, audioProcessing = it.audioProcessing.copy(selectedProcessed = false))
+        })
+        compose.setContent { MusicApp(state.value, initialPage = "now", onProcessing = { processed ->
+            state.value = state.value.copy(audioProcessing = state.value.audioProcessing.copy(selectedProcessed = processed))
+        }) }
+        compose.onNodeWithContentDescription("Processed audio").performScrollTo().performClick()
+        compose.onNodeWithText("Processed · ready when you play").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Original audio").performClick().assertIsSelected()
+        compose.onNodeWithText("Processed · ready when you play").assertDoesNotExist()
+        compose.onNodeWithText("Stereo · original audio").assertIsDisplayed()
+    }
+
+    @Test fun loadingKeepsTheRequestedSelectionWithoutClaimingTheRendererAppliedIt() {
+        val state = initial(DownmixReport(48000, stereo)).let { it.copy(audioProcessing = it.audioProcessing.copy(report = null)) }
+        compose.setContent { MusicApp(state, initialPage = "now") }
+        compose.onNodeWithContentDescription("Processed audio").performScrollTo().assertIsSelected().assertIsNotEnabled()
+        compose.onNodeWithText("Waiting for audio…").assertIsDisplayed()
+        compose.onNodeWithText("Stereo enhancement · generated spatial audio").assertDoesNotExist()
     }
 }

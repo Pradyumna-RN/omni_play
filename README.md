@@ -3,7 +3,24 @@
 Temporary name: **Music**. Native Android player from RTensorLabs with the approved
 Margin visual direction: warm paper, DM Sans, original provider artwork and raspberry controls.
 
-## Version 0.3.12 — compare Original and Processed while listening
+## Version 0.3.13 — truthful switch status and lighter player updates
+
+The comparison now shows a pending state while the requested mode differs from
+the renderer's acknowledged mode. A paused selection says “ready when you play”;
+active playback says “Switching…” until new audio applies it. Loading preserves
+your selection without claiming the effect is already active.
+
+Playback progress updates only the full-player and mini-player timelines. It no
+longer rebuilds the screen state, reparses current-song metadata or remaps the queue
+five times per second. Moving progress lines draw in their own layers. Track,
+pause, seek and metadata events still update the screen normally.
+
+Published builds use `-PrtensorOta=true` to disable debugging overhead while keeping
+the same package, signing certificate and updater-compatible APK filename. Normal
+contributor builds remain debuggable. Phone scrolling performance needs device
+validation; host checks are recorded in [VERIFICATION.md](VERIFICATION.md).
+
+## Previous release: 0.3.12 — compare Original and Processed while listening
 
 Now Playing has an **Original / Processed** control. It switches the existing
 renderer during playback with a short fade, without seeking, loading another

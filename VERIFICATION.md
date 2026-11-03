@@ -1,4 +1,34 @@
-# Current verification: Music 0.3.12 / live player comparison
+# Current verification: Music 0.3.13 / pending mode and player UI work
+
+- Three new Compose cases reproduced 0.3.12's incorrect paused/loading status
+  before the fix. **102 app checks and 48 DSP-library checks now pass**, with no
+  failures, errors or skips. Tests cover delayed renderer acknowledgement while
+  paused/playing, reversing a pending request, loading state, both timeline clock
+  consumers, seeking/navigation, metadata cache invalidation and existing gestures.
+- Requests and native acknowledgements remain separate. Selecting a mode never
+  fabricates an applied report. Paused requests wait for playback; native compare
+  still changes on new PCM without reloading, seeking or resetting the source.
+- The 200 ms polling path no longer republishes the complete screen snapshot or
+  reparses unchanged catalogue metadata. Lifecycle-aware clock consumers are
+  confined to the timeline components; their moving lines use separate draw layers.
+  Previous uses the controller's live position rather than the event snapshot.
+- The OTA build uses `rtensorOta=true`: the APK is **non-debuggable**, keeping the
+  same package/signing identity and legacy asset filename. Android fatal lint checks
+  and the embedded ARM64/x86-64 DSP packaging check passed. Local developer builds
+  remain debuggable by default. Version `0.3.13`, versionCode `16`.
+- No native implementation, rate converter, provider client or audio buffer was
+  changed. The native bytes are the same as 0.3.12. A host-only probe processed four
+  roughly 32-second stereo cases at 44.1/48 kHz, Original/Processed. With the build
+  idle, average processing took 0.21–0.38 ms per roughly 10.7 ms block; the earlier
+  concurrent-build probe had higher scheduling outliers. This does not measure
+  phone audio deadlines or UI frame rate.
+
+The screenshot's display mismatch is reproduced and covered by regression tests.
+Physical-phone scrolling, device frame rate and audible mode switching are still
+unverified here. The UI changes remove identified work; they do not establish that
+all device lag is resolved. No separate DSP app is introduced.
+
+# Previous verification: Music 0.3.12 / live player comparison
 
 - **94 app checks and 47 DSP-library checks passed**, with no failures, errors or
   skips. These include working player comparison callbacks, preference persistence,
