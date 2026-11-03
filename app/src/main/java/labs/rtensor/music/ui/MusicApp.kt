@@ -63,6 +63,9 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.semantics.setProgress
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.disabled
 import androidx.compose.foundation.gestures.detectTapGestures
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -882,8 +885,16 @@ private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () ->
 
 /** What the deck remembers between frames without causing recomposition. */
 private class DeckMemory(var track: Track, var index: Int) {
-    var thrown = false
+    /** The track whose card the current drag offset belongs to. */
+    var dragOwner = ""
+    /** Set while a card has been thrown and the player has not moved on yet. */
+    var thrownFor = ""
     var motion: Job? = null
+}
+
+/** How a new top card arrives: dealt in over the old one, or already in place after a throw. */
+private class DeckChange(val outgoing: Track?, val from: Float, val thrown: Boolean) {
+    val progress = Animatable(if (outgoing == null) 1f else 0f)
 }
 
 /**
@@ -897,10 +908,18 @@ private class DeckMemory(var track: Track, var index: Int) {
 private fun CoverDeck(track: Track, index: Int, previousTrack: Track?, nextTrack: Track?, reduced: Boolean,
     canPrevious: Boolean, canNext: Boolean, onPrevious: () -> Unit, onNext: () -> Unit) {
     val drag = remember { mutableFloatStateOf(0f) }
-    val deal = remember { Animatable(1f) }
-    var dealFrom by remember { mutableFloatStateOf(0f) }
-    var outgoing by remember { mutableStateOf<Track?>(null) }
     val memory = remember { DeckMemory(track, index) }
+    // Worked out while composing, so the very first frame of a new track is already right:
+    // a thrown card's offset never carries over, and a dealt card starts at the side.
+    val arrival = remember(track.id) {
+        val old = memory.track
+        val forward = index >= memory.index
+        val thrown = old.id != track.id && memory.thrownFor == old.id
+        memory.track = track; memory.index = index; memory.thrownFor = ""
+        if (thrown) memory.motion?.cancel()
+        DeckChange(if (old.id == track.id || thrown || reduced) null else old, if (forward) 1f else -1f, thrown)
+    }
+    val currentId by rememberUpdatedState(track.id)
     val scope = rememberCoroutineScope()
     val next by rememberUpdatedState(onNext)
     val previous by rememberUpdatedState(onPrevious)
@@ -913,22 +932,16 @@ private fun CoverDeck(track: Track, index: Int, previousTrack: Track?, nextTrack
         suspend fun slide(to: Float, ms: Int, easing: Easing) {
             animate(drag.floatValue, to, animationSpec = tween(if (reduced) 0 else ms, easing = easing)) { v, _ -> drag.floatValue = v }
         }
-        LaunchedEffect(track.id) {
-            val old = memory.track
-            val forward = index >= memory.index
-            memory.track = track; memory.index = index
-            if (old.id == track.id) return@LaunchedEffect
-            if (memory.thrown) { memory.thrown = false; memory.motion?.cancel(); drag.floatValue = 0f; return@LaunchedEffect }
-            drag.floatValue = 0f
-            if (reduced) return@LaunchedEffect
-            outgoing = old; dealFrom = if (forward) 1f else -1f
-            deal.snapTo(0f)
-            deal.animateTo(1f, tween(300, easing = EmphasizedDecelerate))
-            outgoing = null
+        LaunchedEffect(arrival) {
+            if (memory.dragOwner != track.id) drag.floatValue = 0f
+            arrival.progress.animateTo(1f, tween(300, easing = EmphasizedDecelerate))
         }
+        val owner = track.id
+        // The drag offset, but only while it belongs to the card on top.
+        fun offset() = if (memory.dragOwner == owner) drag.floatValue else 0f
         // How far the drag has gone, 0..1, towards whichever neighbour it reveals.
         fun reveal(towardNext: Boolean): Float {
-            val x = drag.floatValue
+            val x = offset()
             return if ((x < 0) == towardNext && x != 0f) (abs(x) / width).coerceIn(0f, 1f) else 0f
         }
         // Neighbours wait underneath, invisible until a drag reveals one of them.
@@ -943,18 +956,18 @@ private fun CoverDeck(track: Track, index: Int, previousTrack: Track?, nextTrack
                 }, size = 400.dp)
             }
         }
-        outgoing?.let { leaving ->
+        arrival.outgoing?.let { leaving ->
             Artwork(leaving, Modifier.matchParentSize().graphicsLayer {
-                val d = deal.value
+                val d = arrival.progress.value
                 alpha = 1f - d; scaleX = 1f - .08f * d; scaleY = scaleX
-                translationX = -dealFrom * width * .12f * d
+                translationX = -arrival.from * width * .12f * d
                 this.shape = shape; clip = true
             }, size = 400.dp)
         }
         Artwork(track, Modifier.matchParentSize()
             .graphicsLayer {
-                val d = deal.value
-                val x = drag.floatValue + dealFrom * width * .3f * (1f - d)
+                val d = arrival.progress.value
+                val x = offset() + arrival.from * width * .3f * (1f - d)
                 translationX = x
                 rotationZ = x / width * 10f
                 transformOrigin = TransformOrigin(.5f, 1.6f)
@@ -964,7 +977,10 @@ private fun CoverDeck(track: Track, index: Int, previousTrack: Track?, nextTrack
             .pointerInput(Unit) {
                 val tracker = VelocityTracker()
                 detectHorizontalDragGestures(
-                    onDragStart = { memory.motion?.cancel(); tracker.resetTracking() },
+                    onDragStart = {
+                        memory.motion?.cancel(); tracker.resetTracking()
+                        if (memory.dragOwner != currentId) { memory.dragOwner = currentId; drag.floatValue = 0f }
+                    },
                     onDragEnd = {
                         val x = drag.floatValue
                         val v = tracker.calculateVelocity().x
@@ -972,12 +988,13 @@ private fun CoverDeck(track: Track, index: Int, previousTrack: Track?, nextTrack
                         val goPrevious = allowPrevious && (x > width / 3 || (v > flick && x > 0))
                         memory.motion = scope.launch {
                             if (goNext || goPrevious) {
-                                memory.thrown = true
+                                val thrown = currentId
+                                memory.thrownFor = thrown
                                 slide(if (goNext) -width * 1.3f else width * 1.3f, 160, EmphasizedAccelerate)
                                 if (goNext) next() else previous()
                                 // If the player never moves on, bring the card back.
                                 delay(1200)
-                                if (memory.thrown) { memory.thrown = false; slide(0f, SwapMs, EmphasizedDecelerate) }
+                                if (memory.thrownFor == thrown) { memory.thrownFor = ""; slide(0f, SwapMs, EmphasizedDecelerate) }
                             } else slide(0f, SwapMs, EmphasizedDecelerate)
                         }
                     },
@@ -1025,7 +1042,10 @@ private fun ProgressLine(position: Long, duration: Long, playing: Boolean, reduc
     val drag = remember { mutableStateOf<Float?>(null) }
     val smooth = rememberSmoothPosition(position, duration, playing && !reduced)
     val fraction = { drag.value ?: if (duration > 0) (smooth.value.toFloat() / duration).coerceIn(0f, 1f) else 0f }
-    val seconds by remember(duration) { derivedStateOf { (fraction() * duration).toLong() / 1000 } }
+    // Tenths of a second: enough for the time label and for accessibility, and it limits
+    // recomposition to ten times a second while the line itself is drawn every frame.
+    val tenths by remember(duration) { derivedStateOf { (fraction() * duration).toLong() / 100 } }
+    val seconds = tenths / 10
     val active by remember { derivedStateOf { drag.value != null } }
     val grow = remember { Animatable(0f) }
     LaunchedEffect(active) { grow.animateTo(if (active) 1f else 0f, tween(if (reduced) 0 else QuickMs, easing = EmphasizedDecelerate)) }
@@ -1054,6 +1074,8 @@ private fun ProgressLine(position: Long, duration: Long, playing: Boolean, reduc
             }
             .semantics {
                 contentDescription = "Playback position"
+                progressBarRangeInfo = ProgressBarRangeInfo(if (duration > 0) (tenths * 100f / duration).coerceIn(0f, 1f) else 0f, 0f..1f)
+                if (duration <= 0) disabled()
                 setProgress { value -> if (duration > 0) seek((value.coerceIn(0f, 1f) * duration).toLong()); duration > 0 }
             },
     ) {

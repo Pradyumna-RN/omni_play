@@ -1,4 +1,87 @@
-# v0.3.8 verification
+# v0.3.9 verification
+
+Reviewed Claude's `73e4cb6cea4ebba3ee240212adb69566eec9a870` update, including
+the recommendation changes in `7faea75` and the previous media transport fixes.
+
+## Current results
+
+- **88 Android/JVM checks passed**, with zero failures, errors or skips. This includes
+  the existing 18 Compose checks, 12 new motion/gesture checks and 8 recommendation checks.
+- **15 JavaScript unit tests**, **43 Chromium engine checks** and **6 isolated proof
+  checks** passed against the exact packaged engine. Provider/account responses are fixtures.
+- `:app:assembleDebug :app:testDebugUnitTest` completed successfully with JDK 17,
+  Gradle 8.11.1 and Android SDK 35. Package `labs.rtensor.music`, version `0.3.9`,
+  versionCode `12`. All four engine assets in the APK match the committed source.
+- APK signature verification passed with the previous certificate, SHA-256
+  `43dffb7aa7b922220c9063c0f2ee9126a30c7d663e1971c8f214bdd2ac7b571f`.
+  The APK contains no test audio, Python verification helper or keystore.
+
+## Player finding and fix
+
+A long cover swipe could move backward on release: its fixed one-third-width exit
+target was closer to the centre than the user's drag position. Motion-enabled tests
+reproduced this before the fix. The cover now continues outward from the actual
+release position. Its outgoing position is retained through the crossfade, while
+the new cover starts centred. Both next and previous gestures advance exactly once;
+short drags and blocked queue-end drags return without skipping.
+
+Two other initial failures were test-harness issues. Android measure/layout must run
+between virtual animation frames when checking return navigation. A large-text queue
+test must scroll its lazy container before looking for an off-screen row. Neither
+required a navigation or layout change in the app.
+
+## Motion coverage
+
+The new `PlayerMotionTest` runs real Compose UI and pointer handlers with Robolectric
+native graphics on API 35. Motion cases use an explicitly controlled frame clock.
+
+- Long left/right cover swipes: no direction reversal, one skip, outgoing pose held
+  through the fade, incoming cover centred.
+- Short and unavailable-next cover swipes: settle back without advancing.
+- Track title/control crossfades: outgoing content disappears after settling;
+  buffering does not move the play control.
+- Timeline: advances with frames while playing, holds when paused, disables during
+  an unresolved track change, and a real drag issues one bounded seek.
+- Reduced motion: outgoing track/cover content is removed promptly.
+- Inline queue: selecting a row passes its original queue index without rebuilding
+  playback; a vertical cover swipe scrolls to the queue.
+- Mini player: swipe up opens the player; Back restores it; horizontal swipe skips
+  once; Next is disabled at the queue end.
+- Home/Explore pull-to-refresh: each dispatches once; an in-progress refresh ignores
+  another pull.
+- A 320 dp screen at 1.5× font scale: transport controls and queued tracks remain
+  reachable by scrolling.
+
+Eighteen existing screen captures and motion frames are included in the preview ZIP.
+`player-swipe.gif` and `player-crossfade.gif` contain frames drawn from the actual
+Android view at controlled clock positions, converted to 25 fps with a final hold.
+The tracks/accounts are fixtures; covers are neutral placeholders. These previews
+are not a measurement of device frame rate, GPU jank, touch latency or network loading.
+The JSON report records test counts, case names and capture details.
+
+Reproduce the new checks with:
+
+```sh
+./gradlew :app:testDebugUnitTest --tests labs.rtensor.music.PlayerMotionTest
+```
+
+Captures are written to `app/build/reports/animation-checks/`.
+
+## Current limits
+
+No physical Android device is attached and no emulator/system image is installed.
+Live Google account selection, YouTube acceptance, real startup/seek latency,
+screen-off playback, Bluetooth, hardware decoding, GPU smoothness and haptic feel
+remain unverified. The workspace proxy blocks YouTube; this UI task does not
+establish that any live YouTube song plays. No proxy bypass or relay was used.
+
+The full-length synthetic HTTP/cache/Media3 extraction regressions passed again in
+the current Android suite. Independent FFmpeg decoding below was performed for
+v0.3.8 and was not repeated for this UI-only fix. The earlier metadata SharedFlow
+replay limitation remains in unchanged code. SABR-only streams remain unsupported;
+DSP remains off.
+
+# Previous verification: v0.3.8
 
 Based on Claude's `94f14f9e034b0206300327bd1b8c27d07cbba648` update. This build adds
 native cache/retry fixes and corresponding engine feedback/format constraints.
