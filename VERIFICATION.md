@@ -1,4 +1,38 @@
-# Current verification: Music 0.3.11 / integrated DSP OTA
+# Current verification: Music 0.3.12 / live player comparison
+
+- **94 app checks and 47 DSP-library checks passed**, with no failures, errors or
+  skips. These include working player comparison callbacks, preference persistence,
+  compact settings, real host JNI stereo processing at 44.1/48 kHz, seeking, partial
+  writes, converter timing, and mode changes without source reload or history reset.
+- **22 private portable-core checks passed**, including stereo monitor generation,
+  live front-pair comparison, channel order and parity with the desktop processor.
+  The original processing implementation and coefficients are unchanged. Stereo
+  uses the existing optional monitor generation; the adapter adds no replacement
+  matrix or recovered-Atmos claim.
+- AddressSanitizer/UndefinedBehaviorSanitizer checks passed, including concurrent
+  compare/reset/process and repeated native lifetimes. Native process/reset/compare
+  performed **zero allocations and frees** in the instrumented run.
+- The public 44.1→48 kHz stereo converter passed analytical 1/10/19/20 kHz sine
+  checks, DC gain/channel checks, exact duration accounting, irregular-block
+  equivalence, malformed-input/reset and sink backpressure checks. Source and render
+  rates are reported separately. Converter delay and padding are excluded from the
+  playback clock. Other unsupported stereo rates bypass with comparison disabled.
+- The UI retains its existing design. Playback settings contain only Autoplay radio
+  and Import audio. Now Playing offers Original/Processed with actual render status.
+  On multichannel input, Original means the desktop renderer's FL/FR-only comparison.
+  Both modes retain common gain, conversion and delay; neither claims bit-perfect
+  output. A short fade changes modes at silence while keeping native history warm.
+- The signed OTA APK is version `0.3.12`, versionCode `15`, package
+  `labs.rtensor.music`, with the same certificate as 0.3.11. The publication task
+  verifies that both supplied ARM64/x86-64 libraries are inside Music.
+
+The standalone DSP component remains reusable; no separate DSP app is needed.
+YouTube client selection and transport code are unchanged. Tests exercise decoded
+PCM and fixture provider responses; no live YouTube song, physical Android route,
+ARM runtime, Apple Music protected audio or Atmos object decoder is verified here.
+Phone listening and performance remain device checks.
+
+# Previous verification: Music 0.3.11 / integrated DSP OTA
 
 The original compiled renderer is bundled inside the existing Music APK. No
 separate DSP application or library installation is required. The reusable library

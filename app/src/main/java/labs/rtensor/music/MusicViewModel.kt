@@ -46,6 +46,8 @@ import labs.rtensor.music.data.FeedSection
 import labs.rtensor.music.updates.GitHubUpdater
 import labs.rtensor.music.updates.UpdateState
 import labs.rtensor.music.playback.MusicPlaybackService
+import labs.rtensor.music.playback.AudioPipeline
+import labs.rtensor.music.playback.AudioProcessingState
 
 data class MusicState(
     val importMessage: String? = null,
@@ -91,6 +93,7 @@ data class MusicState(
     val collectionEntry: FeedEntry? = null,
     val collectionBusy: Boolean = false,
     val update: UpdateState = UpdateState(),
+    val audioProcessing: AudioProcessingState = AudioProcessingState(),
 )
 
 @UnstableApi
@@ -149,6 +152,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     init {
+        AudioPipeline.selectProcessing(library.processedAudio)
+        viewModelScope.launch {
+            AudioPipeline.state.collect { audio -> mutable.update { it.copy(audioProcessing = audio) } }
+        }
         controllerFuture.addListener({
             runCatching { controllerFuture.get() }.onSuccess { c ->
                 controller = c
@@ -524,6 +531,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         val key = ListeningHistory.songKey(event.track.id)
         mutable.update { it.copy(playEvents = it.playEvents.filterNot { e -> ListeningHistory.songKey(e.track.id) == key }) }
         viewModelScope.launch(Dispatchers.IO) { listening.removeSong(event.track.id) }
+    }
+    fun processing(processed: Boolean) {
+        library.processedAudio = processed
+        AudioPipeline.selectProcessing(processed)
     }
     fun autoplay(value: Boolean) { library.autoplay = value; mutable.update { it.copy(autoplay = value) } }
     fun trackHistory(value: Boolean) { library.trackHistory = value; if (!value) listen = null; mutable.update { it.copy(trackHistory = value) } }

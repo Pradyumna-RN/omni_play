@@ -23,6 +23,9 @@ android {
     }
     testOptions.unitTests.isIncludeAndroidResources = true
     testOptions.unitTests.all {
+        // A native library belongs to one JVM classloader. Isolate Robolectric's
+        // sandbox JNI checks from the plain host-JVM JNI checks.
+        it.forkEvery = 1
         it.systemProperty("robolectric.dependency.repo.url", "https://repo.maven.apache.org/maven2")
         listOf("https.proxyHost", "https.proxyPort", "http.proxyHost", "http.proxyPort", "javax.net.ssl.trustStore").forEach { key ->
             System.getProperty(key)?.let { value -> it.systemProperty(key, value) }

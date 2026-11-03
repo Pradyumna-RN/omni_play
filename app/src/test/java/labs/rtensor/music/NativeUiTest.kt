@@ -54,7 +54,12 @@ class NativeUiTest {
         compose.onNodeWithContentDescription("Search").assertDoesNotExist()
         capture("explore")
         compose.onNodeWithContentDescription("Open settings").performClick()
-        compose.onNodeWithText("Music source").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Music source").assertDoesNotExist()
+        compose.onNodeWithText("Ad-free playback").assertDoesNotExist()
+        compose.onNodeWithText("Background play").assertDoesNotExist()
+        compose.onNodeWithText("Recommendations").assertDoesNotExist()
+        compose.onNodeWithText("Off · original audio").assertDoesNotExist()
+        compose.onNodeWithText("Autoplay radio").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Import audio").performScrollTo().assertIsDisplayed()
         capture("settings")
     }

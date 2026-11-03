@@ -16,10 +16,12 @@ import androidx.media3.exoplayer.audio.MediaCodecAudioRenderer
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 
 /** Uses the device decoder, then the app-owned PCM render. No Apple Music SDK
- * capture, Atmos object decoder, system loopback or stereo upmix is implemented. */
+ * capture, Atmos object decoder or system loopback is implemented. Stereo
+ * processing uses the original renderer's optional stereo upmix. */
 @UnstableApi
 class DownmixRenderersFactory(
     context: Context,
+    private val processingEnabled: () -> Boolean = { true },
     private val onReport: (DownmixReport?) -> Unit = {},
 ) : DefaultRenderersFactory(context) {
     private var positions: List<SpeakerPosition>? = null
@@ -34,7 +36,7 @@ class DownmixRenderersFactory(
             val decoded = positions ?: error("The decoder did not expose a supported speaker layout; refusing an unverified downmix")
             require(decoded.size == channels) { "Decoder speaker layout changed without a format notification" }
             decoded
-        }, onReport = onReport)
+        }, onReport = onReport, processingEnabled = processingEnabled)
     }
 
     override fun buildAudioRenderers(context: Context, extensionRendererMode: Int, mediaCodecSelector: MediaCodecSelector,

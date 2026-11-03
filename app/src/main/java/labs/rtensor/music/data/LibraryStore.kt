@@ -31,4 +31,7 @@ class LibraryStore(context: Context) {
     var trackHistory: Boolean
         get() = prefs.getBoolean("track_history", true)
         set(value) { prefs.edit().putBoolean("track_history", value).apply() }
+    var processedAudio: Boolean
+        get() = prefs.getBoolean("processed_audio", true)
+        set(value) { prefs.edit().putBoolean("processed_audio", value).apply() }
 }

@@ -184,6 +184,7 @@ fun MusicApp(
     onGoogleSignIn: () -> Unit = {}, onGoogleSignOut: () -> Unit = {}, onCancelGoogle: () -> Unit = {},
     onCheckUpdates: () -> Unit = {}, onDownloadUpdate: () -> Unit = {}, onInstallUpdate: () -> Unit = {},
     onAutoplay: (Boolean) -> Unit = {}, onTrackHistory: (Boolean) -> Unit = {}, onRemovePlay: (PlayEvent) -> Unit = {}, onRefreshForYou: () -> Unit = {},
+    onProcessing: (Boolean) -> Unit = {},
 ) {
     val startPage = if (initialPage == "saved") "library" else initialPage
     var page by rememberSaveable { mutableStateOf(startPage) }
@@ -268,7 +269,7 @@ fun MusicApp(
                             "search" -> SearchResults(state, ::play, onSave)
                             "explore" -> ProviderHome(state.copy(feed = state.explore, feedBusy = state.exploreBusy, feedError = state.exploreError, feedHasMore = false), ::openEntry, onRefreshExplore, {}, "Explore")
                             "library" -> LibraryScreen(state, ::play, onSave, ::focusSearch, onRemovePlay)
-                            "now" -> NowScreen(state, onToggle, onPrevious, onNext, onSeek, onSave, onSkipTo)
+                            "now" -> NowScreen(state, onToggle, onPrevious, onNext, onSeek, onSave, onSkipTo, onProcessing)
                             "collection" -> CollectionScreen(state, ::play, onSave)
                             "settings" -> SettingsScreen(state, onTheme, onReducedMotion, onOpenLocal, onClearHistory,
                                 onConnect, onWebSignIn, onDisconnect, onCancelConnect, onGoogleSignIn, onGoogleSignOut, onCancelGoogle, onCheckUpdates, onDownloadUpdate, onInstallUpdate,
@@ -790,7 +791,7 @@ private const val SwapMs = 180
 
 @Composable
 private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () -> Unit, onNext: () -> Unit, onSeek: (Long) -> Unit,
-    onSave: (Track) -> Unit, onSkipTo: (Int) -> Unit) {
+    onSave: (Track) -> Unit, onSkipTo: (Int) -> Unit, onProcessing: (Boolean) -> Unit) {
     val track = state.loadingTrack ?: state.current
     if (track == null) {
         Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) { Text("Choose a recording to start listening.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -862,6 +863,7 @@ private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () ->
                         val saved = state.saved.any { it.id == track.id }
                         LabelledControl(if (saved) "Saved" else "Save", if (saved) Icons.Outlined.Favorite else Icons.Outlined.FavoriteBorder, { onSave(track) }, highlighted = saved)
                     }
+                    if (state.audioProcessing.available) AudioComparison(state, onProcessing)
                     Spacer(Modifier.height(30.dp))
                     Row(Modifier.fillMaxWidth().padding(bottom = 6.dp), verticalAlignment = Alignment.Bottom) {
                         Text("Up next", fontSize = 20.sp, fontWeight = FontWeight.Medium, letterSpacing = (-.5).sp, modifier = Modifier.weight(1f))
@@ -880,6 +882,30 @@ private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () ->
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun AudioComparison(state: MusicState, onProcessing: (Boolean) -> Unit) {
+    val audio = state.audioProcessing
+    val report = audio.report
+    val ready = report?.comparisonAvailable == true && state.loadingTrack == null
+    val processed = ready && audio.selectedProcessed
+    Column(Modifier.fillMaxWidth().padding(top = 14.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(selected = !processed, onClick = { onProcessing(false) }, enabled = ready,
+                label = { Text("Original") }, modifier = Modifier.semantics { contentDescription = "Original audio" })
+            FilterChip(selected = processed, onClick = { onProcessing(true) }, enabled = ready,
+                label = { Text("Processed") }, modifier = Modifier.semantics { contentDescription = "Processed audio" })
+        }
+        val detail = when {
+            state.loadingTrack != null || report == null -> "Waiting for audio…"
+            !report.comparisonAvailable -> if (report.inputPositions.size == 2) "${report.sampleRate / 1000f} kHz · processing unavailable" else "Mono · original audio"
+            !report.processingEnabled -> if (report.inputPositions.size == 2) "Stereo · original audio" else "Front L/R only · ${report.inputPositions.size}-channel source"
+            report.inputPositions.size == 2 -> "Stereo enhancement · generated spatial audio"
+            else -> "${report.inputPositions.size} channels → stereo"
+        }
+        Text(detail, fontSize = 12.sp, lineHeight = 17.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -1142,19 +1168,9 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onReduc
 
             SettingsGroupHeader(settingsSections[1], Modifier.anchor("playback"))
             SettingsCard {
-                SettingItem("Music source", "YouTube Music · search, links and your feed", Icons.Outlined.Search)
-                CardDivider()
-                SettingItem("Ad-free playback", "Audio streams play directly; ads are never requested", Icons.Outlined.CheckCircle)
-                CardDivider()
-                SettingItem("Background play", "Keeps playing with the screen off or in another app", Icons.Outlined.PlayArrow)
-                CardDivider()
-                SettingItem("Recommendations", "Your YouTube Music feed, plus “Mixed for you”: radio from your most-played songs, re-ranked on this device by what you finish and skip", Icons.Outlined.Star)
-                CardDivider()
                 SettingItem("Autoplay radio", "When the queue ends, keep playing similar songs", Glyph.Sparkle, onClick = { onAutoplay(!state.autoplay) }) {
                     Switch(checked = state.autoplay, onCheckedChange = onAutoplay, modifier = Modifier.semantics { contentDescription = "Autoplay radio" })
                 }
-                CardDivider()
-                SettingItem("Audio processing", "Off · original audio", Glyph.MusicNote)
                 CardDivider()
                 SettingItem("Import audio", "Add a file from this device to Saved", Glyph.AudioFile, onClick = onLocal)
                 state.importMessage?.let { Text(it, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
