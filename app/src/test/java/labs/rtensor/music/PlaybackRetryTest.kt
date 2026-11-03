@@ -21,8 +21,8 @@ class PlaybackRetryTest {
         assertEquals(100L, source.open(request)); assertTrue(forced); assertEquals(2, upstream.opens); assertEquals(1, upstream.closes); assertEquals(0, reported)
     }
     @Test fun repeated403IsReportedAfterOneRetryWithoutAnEndlessLoop() {
-        val upstream = DeniedFixture(true); var reported: Int? = null
-        val source = PlaybackDataSource(upstream, retryDenied = { true }) { original, status -> assertSame(request, original); reported = status }
+        val upstream = DeniedFixture(true); var reported: Int? = null; var retries = 0
+        val source = PlaybackDataSource(upstream, retryDenied = { retries++ == 0 }) { original, status -> assertSame(request, original); reported = status }
         try { source.open(request); fail("A rejected retry must not be accepted") } catch (_: HttpDataSource.InvalidResponseCodeException) {}
         assertEquals(2, upstream.opens); assertEquals(403, reported)
     }
@@ -64,6 +64,13 @@ class PlaybackRetryTest {
         source.close()
     }
 
+    @Test fun repeatedPathFailuresHaveAFiniteSafetyBudget() {
+        val upstream = DeniedFixture(true)
+        val source = PlaybackDataSource(upstream, retryDenied = { true }) { _, code -> assertEquals(403, code) }
+        try { source.open(request); fail("Rejected media is never successful playback") }
+        catch (_: HttpDataSource.InvalidResponseCodeException) {}
+        assertEquals(PlaybackDataSource.MAX_ATTEMPTS, upstream.opens)
+    }
     private class DeniedFixture(val always: Boolean) : DataSource {
         var opens = 0; var closes = 0
         override fun open(dataSpec: DataSpec): Long {
