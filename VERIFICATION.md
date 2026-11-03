@@ -1,4 +1,11 @@
-# Current verification: Music 0.3.13 / pending mode and player UI work
+# Current development checkpoint: provider sources
+
+The unpublished 0.3.14 work is **not release-ready**. Its implementation and
+passing/failing check history are documented in
+[PROVIDER_PLAYBACK_STATUS.md](PROVIDER_PLAYBACK_STATUS.md). The new settings form
+test still fails, and live provider account playback remains unverified.
+
+# Last published verification: Music 0.3.13 / pending mode and player UI work
 
 - Three new Compose cases reproduced 0.3.12's incorrect paused/loading status
   before the fix. **102 app checks and 48 DSP-library checks now pass**, with no

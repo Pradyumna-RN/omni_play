@@ -90,6 +90,7 @@ class MainActivity : ComponentActivity() {
                 onTheme = model::theme, onReducedMotion = model::reducedMotion,
                 onOpenLocal = { local.launch(arrayOf("audio/*")) },
                 onChooseMasters = { mastersFolder.launch(null) }, onClearMasters = model::clearMasters,
+                onConnectSource = model::connectSource, onRemoveSource = model::removeSource,
                 onClearHistory = model::clearHistory, onRetry = model::retry, onDismissError = model::clearError,
                 sharedQuery = sharedQuery,
                 onShareConsumed = { sharedQuery = null },

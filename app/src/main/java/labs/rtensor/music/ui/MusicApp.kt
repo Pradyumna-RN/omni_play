@@ -107,6 +107,8 @@ import labs.rtensor.music.data.FeedSection
 import labs.rtensor.music.data.ListeningHistory
 import labs.rtensor.music.data.PlayEvent
 import labs.rtensor.music.BuildConfig
+import labs.rtensor.music.sources.MusicProvider
+import labs.rtensor.music.sources.SourceProtocol
 import java.util.Locale
 import kotlin.math.abs
 
@@ -180,6 +182,8 @@ fun MusicApp(
     onOpenLocal: () -> Unit = {},
     onChooseMasters: () -> Unit = {},
     onClearMasters: () -> Unit = {},
+    onConnectSource: (MusicProvider, SourceProtocol, String, String) -> Unit = { _, _, _, _ -> },
+    onRemoveSource: (String) -> Unit = {},
     onClearHistory: () -> Unit = {}, onRetry: () -> Unit = {}, onDismissError: () -> Unit = {},
     sharedQuery: String? = null, onShareConsumed: () -> Unit = {},
     initialPage: String = "home",
@@ -278,7 +282,7 @@ fun MusicApp(
                             "collection" -> CollectionScreen(state, ::play, onSave)
                             "settings" -> SettingsScreen(state, onTheme, onReducedMotion, onOpenLocal, onChooseMasters, onClearMasters, onClearHistory,
                                 onConnect, onWebSignIn, onDisconnect, onCancelConnect, onGoogleSignIn, onGoogleSignOut, onCancelGoogle, onCheckUpdates, onDownloadUpdate, onInstallUpdate,
-                                onAutoplay, onTrackHistory)
+                                onAutoplay, onTrackHistory, onConnectSource, onRemoveSource)
                             else -> HomeScreen(state, ::focusSearch, ::play, ::openEntry, { onRefreshFeed(); onRefreshForYou() }, onMoreFeed, onConnect)
                         }
                     }
@@ -869,7 +873,7 @@ private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () ->
                         LabelledControl(if (saved) "Saved" else "Save", if (saved) Icons.Outlined.Favorite else Icons.Outlined.FavoriteBorder, { onSave(track) }, highlighted = saved)
                     }
                     RouteLabel(state.routeLabel)
-                    if (state.audioProcessing.available) AudioComparison(state, onProcessing)
+                    if (state.audioProcessing.available && state.audioProcessing.report?.comparisonAvailable == true) AudioComparison(state, onProcessing)
                     Spacer(Modifier.height(30.dp))
                     Row(Modifier.fillMaxWidth().padding(bottom = 6.dp), verticalAlignment = Alignment.Bottom) {
                         Text("Up next", fontSize = 20.sp, fontWeight = FontWeight.Medium, letterSpacing = (-.5).sp, modifier = Modifier.weight(1f))
@@ -1189,9 +1193,11 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onReduc
     onConnect: () -> Unit, onWebSignIn: () -> Unit, onDisconnect: () -> Unit, onCancelConnect: () -> Unit,
     onGoogleSignIn: () -> Unit, onGoogleSignOut: () -> Unit, onCancelGoogle: () -> Unit,
     onCheckUpdates: () -> Unit, onDownloadUpdate: () -> Unit, onInstallUpdate: () -> Unit,
-    onAutoplay: (Boolean) -> Unit, onTrackHistory: (Boolean) -> Unit) {
+    onAutoplay: (Boolean) -> Unit, onTrackHistory: (Boolean) -> Unit,
+    onConnectSource: (MusicProvider, SourceProtocol, String, String) -> Unit, onRemoveSource: (String) -> Unit) {
     var confirmClear by remember { mutableStateOf(false) }
     var showLicences by remember { mutableStateOf(false) }
+    var showSources by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val notices = remember { context.resources.openRawResource(R.raw.third_party_notices).bufferedReader().use { it.readText() } }
     val scroll = rememberScrollState()
@@ -1221,6 +1227,10 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onReduc
                 SettingItem("Autoplay radio", "When the queue ends, keep playing similar songs", Glyph.Sparkle, onClick = { onAutoplay(!state.autoplay) }) {
                     Switch(checked = state.autoplay, onCheckedChange = onAutoplay, modifier = Modifier.semantics { contentDescription = "Autoplay radio" })
                 }
+                CardDivider()
+                SettingItem("Playback sources", if (state.playbackSources.isEmpty()) "Connect a provider server or install an audio addon" else "${state.playbackSources.size} saved servers · Atmos, then lossless",
+                    Glyph.MusicNote, onClick = { showSources = !showSources })
+                if (showSources) PlaybackSourcesEditor(state, { showSources = false }, onConnectSource, onRemoveSource)
                 CardDivider()
                 SettingItem("Import audio", "Add a file from this device to Saved", Glyph.AudioFile, onClick = onLocal)
                 state.importMessage?.let { Text(it, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
@@ -1269,7 +1279,7 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onReduc
 
             SettingsGroupHeader(settingsSections[4], Modifier.anchor("privacy"))
             SettingsCard {
-                Text("Saved recordings, history and your encrypted YouTube session stay on this device. YouTube receives your provider requests; GitHub receives update checks.",
+                Text("Saved recordings, history and encrypted account sessions stay on this device. Connected music servers receive song searches and playback requests. YouTube receives your discovery requests; GitHub receives update checks.",
                     fontSize = 14.sp, lineHeight = 21.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp))
                 CardDivider(start = 16.dp)
                 SettingItem("Keep listening history", "Powers the History tab and “Mixed for you”. Stays on this device.", Glyph.History, onClick = { onTrackHistory(!state.trackHistory) }) {

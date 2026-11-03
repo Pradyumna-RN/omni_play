@@ -51,6 +51,7 @@ import labs.rtensor.music.playback.MusicPlaybackService
 import labs.rtensor.music.playback.AudioPipeline
 import labs.rtensor.music.playback.AudioProcessingState
 import labs.rtensor.music.playback.CatalogueTrackCache
+import labs.rtensor.music.sources.*
 
 data class MusicState(
     val importMessage: String? = null,
@@ -101,6 +102,9 @@ data class MusicState(
     val routeLabel: String = "",
     val mastersSummary: String = "",
     val mastersBusy: Boolean = false,
+    val playbackSources: List<SourceSummary> = emptyList(),
+    val sourceBusy: Boolean = false,
+    val sourceMessage: String? = null,
 )
 
 @UnstableApi
@@ -111,6 +115,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val youtube = YouTubeSource(application)
     private val updater = GitHubUpdater(application)
     private val masters = LocalMasters(application)
+    private val sources = PlaybackSources.get(application)
     private val routes = mutableMapOf<String, PlaybackRoute>()
     private fun route(track: Track) = routes.getOrPut(track.id) { PlaybackRoute.choose(track, masters.entries) }
     private val mutable = MutableStateFlow(MusicState(
@@ -118,6 +123,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         theme = library.theme, reducedMotion = library.reducedMotion, playEvents = listening.events,
         autoplay = library.autoplay, trackHistory = library.trackHistory,
         mastersSummary = summary(masters.entries, masters.folder != null),
+        playbackSources = sources.settings.connections.value.map { it.summary() },
     ))
     val state = mutable.asStateFlow()
     private val mutablePosition = MutableStateFlow(0L)
@@ -149,6 +155,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         }
         override fun onPlaybackStateChanged(playbackState: Int) {
             syncPlayer()
+            if (playbackState == Player.STATE_READY) mutable.update { it.copy(error = null, errorDiagnostic = "") }
         }
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             syncPlayer(includeQueue = true)
@@ -168,8 +175,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     init {
         AudioPipeline.selectProcessing(library.processedAudio)
         viewModelScope.launch {
-            AudioPipeline.state.collect { audio -> mutable.update { it.copy(audioProcessing = audio) } }
+            AudioPipeline.state.collect { audio -> mutable.update { it.copy(audioProcessing = audio, routeLabel = currentRoute(audio)) } }
         }
+        viewModelScope.launch { sources.state.collect { mutable.update { it.copy(routeLabel = currentRoute(it.audioProcessing)) } } }
+        viewModelScope.launch { sources.settings.connections.collect { profiles -> mutable.update { it.copy(playbackSources = profiles.map { p -> p.summary() }) } } }
         controllerFuture.addListener({
             runCatching { controllerFuture.get() }.onSuccess { c ->
                 controller = c
@@ -352,12 +361,46 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             current = restored?.let(::enrich) ?: it.current,
             queue = if (includeQueue) queue.map(::enrich) else queue,
             queueIndex = c.currentMediaItemIndex,
-            routeLabel = c.currentMediaItem?.mediaMetadata?.extras?.getString("route").orEmpty(),
+            routeLabel = currentRoute(it.audioProcessing),
             playing = c.isPlaying,
             buffering = c.playbackState == Player.STATE_BUFFERING,
             positionMs = mutablePosition.value,
             durationMs = c.duration.takeIf { d -> d != C.TIME_UNSET && d > 0 } ?: 0,
         ) }
+    }
+
+    private fun currentRoute(audio: AudioProcessingState): String {
+        val item = controller?.currentMediaItem ?: return ""
+        val key = item.localConfiguration?.customCacheKey ?: item.mediaId
+        val local = runCatching { item.mediaMetadata.extras?.getString("local_master")?.let { org.json.JSONObject(it) } }.getOrNull()
+        if (!sources.isRemote(key) && local != null) {
+            val report = audio.report ?: return "Local file · checking decoded channels"
+            if (report.inputPositions.size <= 2) return "Local file · ${report.sampleRate / 1000f} kHz · stereo unchanged"
+            return if (report.processingEnabled) "Local file · ${report.inputPositions.size} ch → DMR" else "Local file · original front L/R"
+        }
+        return sources.label(key, audio.report) ?: item.mediaMetadata.extras?.getString("route").orEmpty()
+    }
+
+    fun connectSource(provider: MusicProvider, protocol: SourceProtocol, url: String, token: String) {
+        if (mutable.value.sourceBusy) return
+        viewModelScope.launch {
+            mutable.update { it.copy(sourceBusy = true, sourceMessage = "Checking server…") }
+            try {
+                val connection = SourceConnection(java.util.UUID.randomUUID().toString(), provider.label, provider, protocol,
+                    SourceConnection.validateUrl(url), token.trim())
+                val name = withContext(Dispatchers.IO) { SourceServerClient(connection).probe() }.take(80)
+                withContext(Dispatchers.IO) { sources.settings.save(connection.copy(name = name.ifBlank { provider.label })) }
+                mutable.update { it.copy(sourceBusy = false, sourceMessage = "Server saved. Available recordings will be checked when you play a song.") }
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { mutable.update { it.copy(sourceBusy = false, sourceMessage = if (e is IllegalArgumentException) e.message else "Could not connect. Check the server address and access token.") } }
+        }
+    }
+
+    fun removeSource(id: String) {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { sources.settings.remove(id) }
+            mutable.update { it.copy(sourceMessage = null) }
+        }
     }
 
     fun setQuery(query: String) {
@@ -404,6 +447,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         val extras = Bundle().apply {
             putString("catalogue_track", item.json().toString())
             putString("route", route.label)
+            putString("fallback_route", route.label)
+            route.master?.let { putString("local_master", it.json().toString()) }
         }
         val metadata = MediaMetadata.Builder().setTitle(item.title).setArtist(item.artist)
             .setArtworkUri(item.artwork.takeIf(String::isNotBlank)?.let(Uri::parse)).setExtras(extras).build()

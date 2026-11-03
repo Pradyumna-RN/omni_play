@@ -3,7 +3,26 @@
 Temporary name: **Music**. Native Android player from RTensorLabs with the approved
 Margin visual direction: warm paper, DM Sans, original provider artwork and raspberry controls.
 
-## Version 0.3.13 — truthful switch status and lighter player updates
+## In progress: 0.3.14 — playback source connections and stereo bypass
+
+This is an unpublished development checkpoint. See
+[current implementation and test status](PROVIDER_PLAYBACK_STATUS.md).
+
+Settings now supports user-connected account gateways, HTTP audio addons and
+TIDAL HiFi servers alongside Claude's imported Atmos/lossless folder matching.
+YouTube keeps discovery and catalogue identity. Available matching recordings
+compete for quality; failed remote recordings fall back through separate media
+sources without mixing cached bytes. Connections are encrypted on this device.
+
+Stereo now bypasses DMR unchanged, including 44.1 kHz and high-resolution stereo.
+Original/Processed controls appear only for decoded multichannel processing.
+The existing UI, player motion and private native implementation are preserved.
+
+This does **not** include native Apple Music/TIDAL/Qobuz sign-in, a provider backend,
+or a bundled free commercial catalogue. A configured server is required for network
+sources. See [setup, supported protocols and provider limits](PLAYBACK_SOURCES.md).
+
+## Previous release: 0.3.13 — truthful switch status and lighter player updates
 
 The comparison now shows a pending state while the requested mode differs from
 the renderer's acknowledged mode. A paused selection says “ready when you play”;
@@ -26,9 +45,10 @@ Now Playing has an **Original / Processed** control. It switches the existing
 renderer during playback with a short fade, without seeking, loading another
 stream or resetting its filter history. Your choice is saved.
 
-YouTube's decoded stereo can use the original renderer's optional stereo monitor
+In that release, YouTube's decoded stereo could use the original renderer's optional stereo monitor
 upmix. This creates spatial ambience from stereo; it does not recover an Atmos
-mix or lossless source. Common 44.1 kHz stereo is explicitly converted to 48 kHz
+mix or lossless source. This is no longer enabled in Music: **0.3.14 bypasses all
+stereo unchanged**. In 0.3.12, common 44.1 kHz stereo was converted to 48 kHz
 before the fixed-rate core; 48/96/192 kHz uses its own rate. Original bypasses
 the native upmix/matrix while retaining the same rate conversion, delay and gain
 for comparison. For multichannel recordings, Original keeps only FL/FR, matching

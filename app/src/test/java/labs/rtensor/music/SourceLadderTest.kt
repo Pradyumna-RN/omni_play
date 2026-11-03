@@ -23,7 +23,7 @@ class SourceLadderTest {
     @Test fun losslessPicksTheHighestSampleRateThenBitDepth() {
         val route = PlaybackRoute.choose(song, listOf(master("96", 2, 96_000), master("192", 2, 192_000), master("cd", 2, 44_100, 16)))
         assertEquals("192", route.master?.uri)
-        assertEquals("Lossless 24/192 · FLAC → DMR", route.label)
+        assertEquals("Lossless 24/192 · FLAC · stereo", route.label)
     }
 
     @Test fun lossyFilesAndOtherSongsFallBackToYouTube() {
@@ -36,6 +36,14 @@ class SourceLadderTest {
     @Test fun multichannelAtRatesTheRendererCannotTakeIsSkipped() {
         val route = PlaybackRoute.choose(song, listOf(master("51-441", 6, 44_100), master("stereo", 2, 96_000)))
         assertEquals("stereo", route.master?.uri)
+    }
+
+    @Test fun wrongArtistAndEditionNeverReplaceTheSelectedRecording() {
+        assertNull(PlaybackRoute.choose(song, listOf(master("remaster", 2, 192000, title = "Blinding Lights (2025 Remaster)"))).master)
+        assertNull(PlaybackRoute.choose(song, listOf(master("live", 2, 192000, title = "Blinding Lights (Live Audio)"))).master)
+        val different = master("different", 2, 192000).copy(artist = "The Other Artist")
+        assertNull(PlaybackRoute.choose(song, listOf(different)).master)
+        assertNull(PlaybackRoute.choose(song, listOf(different.copy(artist = ""))).master)
     }
 
     @Test fun titlesAreComparedWithoutVideoNoiseOrFeaturedArtists() {

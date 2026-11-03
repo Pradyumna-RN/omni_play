@@ -17,7 +17,7 @@ import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 
 /** Uses the device decoder, then the app-owned PCM render. No Apple Music SDK
  * capture, Atmos object decoder or system loopback is implemented. Stereo
- * processing uses the original renderer's optional stereo upmix. */
+ * bypasses DMR without upmixing or rate conversion. */
 @UnstableApi
 class DownmixRenderersFactory(
     context: Context,

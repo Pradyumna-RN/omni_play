@@ -82,7 +82,7 @@ class DownmixAudioSinkTest {
         val reports = mutableListOf<DownmixReport?>()
     }
     private fun wrapper(h: Harness, layout: (Int) -> List<SpeakerPosition> = { roles }) = DownmixAudioSink(h.output.sink, layout,
-        engineFactory = { CountingEngine(it).also(h.engines::add) }, onReport = h.reports::add)
+        engineFactory = { CountingEngine(it).also(h.engines::add) }, onReport = h.reports::add, processStereo = true)
 
     @Test fun unsupportedStereoRateBypassesWithoutChangingFormatOrBytes() {
         val h = Harness(); val sink = wrapper(h); val f = format(2, C.ENCODING_PCM_24BIT, 88200)
@@ -91,6 +91,24 @@ class DownmixAudioSinkTest {
         assertTrue(sink.handleBuffer(b, 0, 1)); assertArrayEquals(samples, h.output.bytes.toByteArray())
         assertSame(f, h.output.configured); assertEquals(1234, h.output.configuredBufferSize)
         assertTrue(h.engines.isEmpty()); assertFalse(h.reports.single()!!.comparisonAvailable)
+    }
+    @Test fun defaultStereoBypassesDmrAtEverySupportedDepthAndRate() {
+        for (rate in listOf(44100, 48000, 88200, 96000, 176400, 192000)) {
+            for (encoding in listOf(C.ENCODING_PCM_16BIT, C.ENCODING_PCM_24BIT, C.ENCODING_PCM_32BIT, C.ENCODING_PCM_FLOAT)) {
+                val h = Harness()
+                val sink = DownmixAudioSink(h.output.sink, { error("Stereo must not need a DMR layout") },
+                    engineFactory = { error("Stereo must not construct DMR") }, onReport = h.reports::add)
+                val f = format(2, encoding, rate)
+                sink.configure(f, 321, null)
+                val samples = ByteArray(120) { (it * 13).toByte() }
+                assertTrue(sink.handleBuffer(buffer(120).apply { put(samples); flip() }, 1234, 1))
+                assertSame(f, h.output.configured)
+                assertEquals(321, h.output.configuredBufferSize)
+                assertArrayEquals(samples, h.output.bytes.toByteArray())
+                assertFalse(h.reports.single()!!.comparisonAvailable)
+                assertEquals("Stereo bypass", h.reports.single()!!.unavailableReason)
+            }
+        }
     }
     @Test fun floatMultichannelIsProcessedAndDeliveredAsFloatStereo() {
         val h = Harness(); val sink = wrapper(h); sink.configure(format(), 64000, null)
@@ -102,7 +120,7 @@ class DownmixAudioSinkTest {
         val report = h.reports.single()!!
         assertEquals(roles, report.inputPositions); assertFalse(report.bitPerfect); assertFalse(report.atmosVerified)
     }
-    @Test fun decodedYoutubeStereoUsesTheSameNativeAdapterAndItsRealInputLayout() {
+    @Test fun optionalLibraryStereoEnhancementRequiresExplicitOptIn() {
         val h = Harness(); val sink = wrapper(h)
         sink.configure(format(2), 0, null)
         assertTrue(sink.handleBuffer(input(1024, 2), 0, 1))
@@ -136,7 +154,7 @@ class DownmixAudioSinkTest {
         else org.junit.Assume.assumeTrue(NativeDownmixEngine.isAvailable)
         for (rate in listOf(44100, 48000)) {
             val h = Harness(); var processed = true
-            val sink = DownmixAudioSink(h.output.sink, { roles }, onReport = h.reports::add, processingEnabled = { processed })
+            val sink = DownmixAudioSink(h.output.sink, { roles }, onReport = h.reports::add, processingEnabled = { processed }, processStereo = true)
             sink.configure(format(2, rate = rate), 0, null)
             assertTrue(sink.handleBuffer(input(1024, 2), 0, 1))
             processed = false
@@ -156,12 +174,12 @@ class DownmixAudioSinkTest {
         val sink = DownmixAudioSink(h.output.sink, { roles },
             engineFactory = { CountingEngine(it).also(h.engines::add) },
             onReport = h.reports::add, processingEnabled = { processed })
-        sink.configure(format(2), 0, null)
+        sink.configure(format(), 0, null)
         sink.pause(); processed = true
         assertFalse(h.reports.last()!!.processingEnabled)
         assertEquals(listOf(true), h.engines.single().comparisons)
         sink.play()
-        assertTrue(sink.handleBuffer(input(1024, 2), 0, 1))
+        assertTrue(sink.handleBuffer(input(1024), 0, 1))
         assertTrue(h.reports.last()!!.processingEnabled)
         assertEquals(listOf(true, false), h.engines.single().comparisons)
         assertEquals(1, h.output.configurations); assertEquals(0, h.engines.single().resets)

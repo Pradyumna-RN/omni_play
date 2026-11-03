@@ -24,7 +24,7 @@ data class AudioProcessingState(
 
 /**
  * The optional private Android core processes explicit multichannel PCM before
- * output. Supported stereo uses the original core's optional monitor upmix.
+ * output. Stereo bypasses the core without conversion or upmixing.
  * This does not capture or decode a provider-owned protected player.
  */
 @UnstableApi
@@ -34,6 +34,7 @@ object AudioPipeline {
     val state = mutable.asStateFlow()
 
     fun selectProcessing(processed: Boolean) { mutable.update { it.copy(selectedProcessed = processed) } }
+    fun clearReport() { mutable.update { it.copy(report = null) } }
 
     fun privateRenderers(context: Context): DefaultRenderersFactory? {
         selectProcessing(LibraryStore(context).processedAudio)

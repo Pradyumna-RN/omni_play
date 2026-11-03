@@ -38,7 +38,7 @@ data class Master(
         val LosslessMimes = setOf("audio/flac", "audio/alac", "audio/raw", "audio/x-wav", "audio/wav", "audio/true-hd", "audio/vnd.dts.hd", "audio/mlp")
         fun fromJson(o: JSONObject) = Master(
             o.getString("uri"), o.optString("title"), o.optString("artist"), o.optLong("durationMs"),
-            o.optInt("channels"), o.optInt("sampleRate"), o.optInt("bitDepth"), o.optString("mime"), o.optBoolean("atmos"),
+            o.optInt("channels"), o.optInt("sampleRate"), o.optInt("bitDepth"), o.optString("mime"), o.optString("mime") == "audio/eac3-joc",
         )
     }
 }
@@ -110,7 +110,8 @@ class LocalMasters(private val context: Context) {
             val artist = reader.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST)
                 ?: reader.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUMARTIST).orEmpty()
             val retrievedDepth = if (android.os.Build.VERSION.SDK_INT >= 31) reader.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITS_PER_SAMPLE)?.toIntOrNull() ?: 0 else 0
-            val atmos = mime.contains("joc") || mime == "audio/ac4" || listOf(name, title).any { it.contains("atmos", ignoreCase = true) } && format.int(MediaFormat.KEY_CHANNEL_COUNT) > 2
+            // A filename or generic AC-4/E-AC-3 codec is not proof of Atmos.
+            val atmos = mime == "audio/eac3-joc"
             Master(uri.toString(), title, artist,
                 reader.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: (format.long(MediaFormat.KEY_DURATION) / 1000),
                 format.int(MediaFormat.KEY_CHANNEL_COUNT), format.int(MediaFormat.KEY_SAMPLE_RATE), bitDepth.takeIf { it > 0 } ?: retrievedDepth, mime, atmos)
@@ -143,7 +144,7 @@ data class PlaybackRoute(val master: Master?) {
         return when (kind) {
             Kind.ATMOS -> "Atmos · ${layout(m.channels)} bed → DMR"
             Kind.MULTICHANNEL -> "${layout(m.channels)} · $codec $rate kHz → DMR"
-            else -> "Lossless ${m.bitDepth.takeIf { it > 0 }?.let { "$it/" }.orEmpty()}$rate · $codec → DMR"
+            else -> "Lossless ${m.bitDepth.takeIf { it > 0 }?.let { "$it/" }.orEmpty()}$rate · $codec · stereo"
         }
     }
 
@@ -151,38 +152,40 @@ data class PlaybackRoute(val master: Master?) {
 
     companion object {
         /**
-         * The best file the user owns for this song: any Atmos version first, then any other
-         * multichannel version, then lossless stereo at the highest sample rate (then bit depth).
+         * The best file the user owns for this song: Atmos first, then lossless
+         * at the highest sample rate/bit depth, then other multichannel files.
          * Lossy files never outrank the YouTube stream.
          */
         fun choose(track: Track, masters: List<Master>): PlaybackRoute {
             if (masters.isEmpty() || track.source == Source.LOCAL) return PlaybackRoute(null)
             // The DMR core renders multichannel only at 48/96/192 kHz and up to 16 channels; anything else would fail to play.
             val best = masters.filter { (it.lossless || it.multichannel) && (!it.multichannel || (it.channels <= 16 && it.sampleRate in DmrRates)) && matches(track, it) }
-                .maxWithOrNull(compareBy<Master>({ it.atmos }, { it.multichannel }, { it.channels }, { it.sampleRate }, { it.bitDepth }))
+                .maxWithOrNull(qualityOrder)
             return PlaybackRoute(best)
         }
 
         fun matches(track: Track, master: Master): Boolean {
             val title = clean(track.title); val other = clean(master.title)
             if (title.isBlank() || other.isBlank()) return false
-            if (title != other && !(title.length >= 4 && other.length >= 4 && (title.startsWith(other) || other.startsWith(title)))) return false
+            if (title != other) return false
             val artists = words(track.artist); val theirs = words(master.artist)
-            if (artists.isNotEmpty() && theirs.isNotEmpty() && artists.intersect(theirs).isEmpty()) return false
+            if (artists.isEmpty() || theirs.isEmpty() || artists != theirs) return false
             // Different edits (radio, extended, live) share a title; the length tells them apart.
             if (track.durationMs > 0 && master.durationMs > 0 && abs(track.durationMs - master.durationMs) > 4_000) return false
-            return artists.isNotEmpty() && theirs.isNotEmpty() || (track.durationMs > 0 && master.durationMs > 0)
+            return true
         }
 
         private val DmrRates = setOf(48_000, 96_000, 192_000)
-        private val Noise = Regex("""[(\[][^)\]]*(official|video|audio|lyric|visuali[sz]er|remaster|hd|hq|4k|atmos|explicit|clean|mv)[^)\]]*[)\]]""", RegexOption.IGNORE_CASE)
+        val qualityOrder = compareBy<Master>({ it.atmos }, { it.lossless }, { it.sampleRate }, { it.bitDepth }, { it.multichannel }, { it.channels })
+        private val Noise = Regex("""[(\[][^)\]]*(official|video|audio|lyric|visuali[sz]er|hd|hq|4k|atmos|mv)[^)\]]*[)\]]""", RegexOption.IGNORE_CASE)
         private val Featuring = Regex("""\s(feat\.?|ft\.?|featuring)\s.*$""", RegexOption.IGNORE_CASE)
+        private val Edition = Regex("""live|remaster|clean|explicit|acoustic|instrumental|remix|edit""", RegexOption.IGNORE_CASE)
         fun clean(text: String): String {
             val plain = Normalizer.normalize(text, Normalizer.Form.NFKD).replace(Regex("\\p{M}+"), "")
-            return plain.replace(Noise, " ").replace(Featuring, " ").lowercase()
+            return Noise.replace(plain) { if (Edition.containsMatchIn(it.value)) it.value else " " }.replace(Featuring, " ").lowercase()
                 .replace(Regex("[^\\p{L}\\p{N}]+"), " ").trim()
         }
         private fun words(text: String) = clean(text.replace(Regex("""\s*-\s*topic$""", RegexOption.IGNORE_CASE), ""))
-            .split(' ').filter { it.length > 1 && it !in setOf("the", "and", "vevo") }.toSet()
+            .split(' ').filter { it.isNotBlank() && it !in setOf("the", "and", "vevo") }.toSet()
     }
 }

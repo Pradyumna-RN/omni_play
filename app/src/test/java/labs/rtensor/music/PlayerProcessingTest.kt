@@ -25,12 +25,13 @@ class PlayerProcessingTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
     private val track = Track("fixture:stereo", "Afterimage", "Serein", "https://www.youtube.com/watch?v=aaaaaaaaaaa", durationMs = 224000)
     private val stereo = listOf(SpeakerPosition.FL, SpeakerPosition.FR)
+    private val surround = stereo + listOf(SpeakerPosition.FC, SpeakerPosition.LFE, SpeakerPosition.BL, SpeakerPosition.BR)
     private fun initial(report: DownmixReport) = MusicState(current = track, queue = listOf(track), queueIndex = 0,
         playing = true, positionMs = 72000, durationMs = 224000, reducedMotion = true,
         audioProcessing = AudioProcessingState(available = true, report = report))
 
     @Test fun originalProcessedSwitchWorksWithoutSeekingOrStoppingTheSong() {
-        val state = mutableStateOf(initial(DownmixReport(48000, stereo, processing = "Stereo enhancement")))
+        val state = mutableStateOf(initial(DownmixReport(48000, surround, processing = "Multichannel render")))
         val changes = mutableListOf<Boolean>(); var seeks = 0; var pauses = 0
         compose.setContent { MusicApp(state.value, initialPage = "now", onSeek = { seeks++ }, onToggle = { pauses++ }, onProcessing = { processed ->
             changes += processed
@@ -40,12 +41,12 @@ class PlayerProcessingTest {
         compose.onNodeWithText("Switching to original…").assertIsDisplayed()
         compose.runOnIdle { state.value = state.value.copy(audioProcessing = state.value.audioProcessing.copy(
             report = state.value.audioProcessing.report!!.copy(processingEnabled = false))) }
-        compose.onNodeWithText("Stereo · original audio").assertIsDisplayed()
+        compose.onNodeWithText("Front L/R only · 6-channel source").assertIsDisplayed()
         compose.onNodeWithContentDescription("Processed audio").performClick().assertIsSelected()
         compose.onNodeWithText("Switching to processed…").assertIsDisplayed()
         compose.runOnIdle { state.value = state.value.copy(audioProcessing = state.value.audioProcessing.copy(
             report = state.value.audioProcessing.report!!.copy(processingEnabled = true))) }
-        compose.onNodeWithText("Stereo enhancement · generated spatial audio").assertIsDisplayed()
+        compose.onNodeWithText("6 channels → stereo").assertIsDisplayed()
         compose.runOnIdle {
             assertEquals(listOf(false, true), changes); assertEquals(0, seeks); assertEquals(0, pauses)
             assertEquals(72000L, state.value.positionMs); assertTrue(state.value.playing)
@@ -55,9 +56,8 @@ class PlayerProcessingTest {
     @Test fun unsupportedStereoRateCannotPretendProcessingIsActive() {
         val report = DownmixReport(88200, stereo, processingEnabled = false, comparisonAvailable = false)
         compose.setContent { MusicApp(initial(report), initialPage = "now") }
-        compose.onNodeWithContentDescription("Processed audio").performScrollTo().assertIsNotEnabled().assertIsNotSelected()
-        compose.onNodeWithContentDescription("Original audio").assertIsSelected()
-        compose.onNodeWithText("88.2 kHz · processing unavailable").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Processed audio").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Original audio").assertDoesNotExist()
     }
 
     @Test fun multichannelOriginalExplainsThatTheDesktopComparisonKeepsOnlyTheFrontPair() {
@@ -79,7 +79,7 @@ class PlayerProcessingTest {
     }
 
     @Test fun pausedSelectionWaitsForAudioInsteadOfShowingTheOppositeMode() {
-        val state = mutableStateOf(initial(DownmixReport(48000, stereo, processingEnabled = false)).let {
+        val state = mutableStateOf(initial(DownmixReport(48000, surround, processingEnabled = false)).let {
             it.copy(playing = false, positionMs = 0, audioProcessing = it.audioProcessing.copy(selectedProcessed = false))
         })
         var seeks = 0; var pauses = 0
@@ -89,18 +89,18 @@ class PlayerProcessingTest {
         }) }
         compose.onNodeWithContentDescription("Processed audio").performScrollTo().performClick().assertIsSelected()
         compose.onNodeWithText("Processed · ready when you play").assertIsDisplayed()
-        compose.onNodeWithText("Stereo · original audio").assertDoesNotExist()
+        compose.onNodeWithText("Front L/R only · 6-channel source").assertDoesNotExist()
         compose.runOnIdle { state.value = state.value.copy(playing = true) }
         compose.onNodeWithText("Switching to processed…").assertIsDisplayed()
         compose.runOnIdle { state.value = state.value.copy(audioProcessing = state.value.audioProcessing.copy(
             report = state.value.audioProcessing.report!!.copy(processingEnabled = true))) }
-        compose.onNodeWithText("Stereo enhancement · generated spatial audio").assertIsDisplayed()
+        compose.onNodeWithText("6 channels → stereo").assertIsDisplayed()
         compose.onNodeWithText("Switching to processed…").assertDoesNotExist()
         compose.runOnIdle { assertEquals(0, seeks); assertEquals(0, pauses); assertEquals(0L, state.value.positionMs) }
     }
 
     @Test fun reversingAPausedRequestCancelsThePendingMode() {
-        val state = mutableStateOf(initial(DownmixReport(48000, stereo, processingEnabled = false)).let {
+        val state = mutableStateOf(initial(DownmixReport(48000, surround, processingEnabled = false)).let {
             it.copy(playing = false, audioProcessing = it.audioProcessing.copy(selectedProcessed = false))
         })
         compose.setContent { MusicApp(state.value, initialPage = "now", onProcessing = { processed ->
@@ -110,14 +110,13 @@ class PlayerProcessingTest {
         compose.onNodeWithText("Processed · ready when you play").assertIsDisplayed()
         compose.onNodeWithContentDescription("Original audio").performClick().assertIsSelected()
         compose.onNodeWithText("Processed · ready when you play").assertDoesNotExist()
-        compose.onNodeWithText("Stereo · original audio").assertIsDisplayed()
+        compose.onNodeWithText("Front L/R only · 6-channel source").assertIsDisplayed()
     }
 
     @Test fun loadingKeepsTheRequestedSelectionWithoutClaimingTheRendererAppliedIt() {
-        val state = initial(DownmixReport(48000, stereo)).let { it.copy(audioProcessing = it.audioProcessing.copy(report = null)) }
+        val state = initial(DownmixReport(48000, surround)).let { it.copy(audioProcessing = it.audioProcessing.copy(report = null)) }
         compose.setContent { MusicApp(state, initialPage = "now") }
-        compose.onNodeWithContentDescription("Processed audio").performScrollTo().assertIsSelected().assertIsNotEnabled()
-        compose.onNodeWithText("Waiting for audio…").assertIsDisplayed()
-        compose.onNodeWithText("Stereo enhancement · generated spatial audio").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Processed audio").assertDoesNotExist()
+        compose.onNodeWithText("6 channels → stereo").assertDoesNotExist()
     }
 }

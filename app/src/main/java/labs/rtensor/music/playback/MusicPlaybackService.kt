@@ -22,6 +22,12 @@ import java.io.File
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.source.MediaSource
+import androidx.media3.exoplayer.analytics.AnalyticsListener
+import androidx.media3.common.Format
+import androidx.media3.common.PlaybackException
+import androidx.media3.exoplayer.DecoderReuseEvaluation
+import labs.rtensor.music.sources.PlaybackSources
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.google.common.util.concurrent.Futures
@@ -94,6 +100,18 @@ class MusicPlaybackService : MediaSessionService() {
         audioCache = cache
         val cachedData = CacheDataSource.Factory().setCache(cache).setUpstreamDataSourceFactory(data)
             .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+        val sources = PlaybackSources.get(this)
+        // Account-server authorization is never attached to a returned CDN URL.
+        // Adaptive segments use their own URLs, without an item-wide cache key.
+        val remoteData = DefaultDataSource.Factory(this, PlaybackDataSource.httpFactory().setConnectTimeoutMs(8_000).setReadTimeoutMs(10_000))
+        val remoteCached = DefaultMediaSourceFactory(CacheDataSource.Factory().setCache(cache)
+            .setUpstreamDataSourceFactory(remoteData).setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR))
+        val remoteAdaptive = DefaultMediaSourceFactory(remoteData)
+        val remoteFactory = object : MediaSource.Factory by remoteCached {
+            override fun createMediaSource(mediaItem: MediaItem): MediaSource =
+                (if (mediaItem.localConfiguration?.mimeType in setOf("application/dash+xml", "application/x-mpegURL", "application/vnd.apple.mpegurl")) remoteAdaptive else remoteCached)
+                    .createMediaSource(mediaItem)
+        }
         val renderers = AudioPipeline.privateRenderers(this) ?: object : DefaultRenderersFactory(this) {
             override fun buildAudioSink(context: android.content.Context, enableFloatOutput: Boolean, enableAudioTrackPlaybackParams: Boolean): AudioSink =
                 DefaultAudioSink.Builder(context)
@@ -103,7 +121,7 @@ class MusicPlaybackService : MediaSessionService() {
                     .build()
         }
         val player = ExoPlayer.Builder(this, renderers)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(cachedData))
+            .setMediaSourceFactory(ProviderMediaSourceFactory(DefaultMediaSourceFactory(cachedData), remoteFactory, sources))
             // A deeper forward buffer (as in open-source YouTube Music players) rides out
             // slow media-server ranges; 50 s of audio is well under 1 MB.
             .setLoadControl(DefaultLoadControl.Builder().setBufferDurationsMs(50_000, 50_000, 750, 2_000)
@@ -120,6 +138,12 @@ class MusicPlaybackService : MediaSessionService() {
                 }
             }
             .build()
+        player.addAnalyticsListener(object : AnalyticsListener {
+            override fun onAudioInputFormatChanged(eventTime: AnalyticsListener.EventTime, format: Format, decoderReuseEvaluation: DecoderReuseEvaluation?) {
+                if (eventTime.windowIndex != player.currentMediaItemIndex) return
+                player.currentMediaItem?.localConfiguration?.customCacheKey?.let { sources.format(it, format) }
+            }
+        })
         var confirmedKey: String? = null
         fun confirmPlaying() {
             if (!player.isPlaying) return
@@ -135,11 +159,28 @@ class MusicPlaybackService : MediaSessionService() {
             }
         }
         player.addListener(object : androidx.media3.common.Player.Listener {
-            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) { confirmPlaying() }
+            override fun onPlayerError(error: PlaybackException) {
+                val item = player.currentMediaItem ?: return
+                val key = item.localConfiguration?.customCacheKey ?: return
+                if (!sources.reject(key)) return
+                // Recreate the whole child source. A failed FLAC/Atmos response
+                // must never be replaced with another format inside a range read.
+                val index = player.currentMediaItemIndex
+                val position = player.currentPosition.coerceAtLeast(0)
+                val playing = player.playWhenReady
+                val extras = android.os.Bundle(item.mediaMetadata.extras ?: android.os.Bundle()).apply {
+                    putInt("source_attempt", getInt("source_attempt") + 1)
+                }
+                player.replaceMediaItem(index, item.buildUpon().setMediaMetadata(item.mediaMetadata.buildUpon().setExtras(extras).build()).build())
+                player.seekTo(index, position); player.prepare(); player.playWhenReady = playing
+            }
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) { AudioPipeline.clearReport(); confirmPlaying() }
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 confirmPlaying()
                 if (!isPlaying || !player.hasNextMediaItem()) return
-                val next = player.getMediaItemAt(player.nextMediaItemIndex).localConfiguration ?: return
+                val nextItem = player.getMediaItemAt(player.nextMediaItemIndex)
+                val next = nextItem.localConfiguration ?: return
+                val nextExtras = nextItem.mediaMetadata.extras
                 val url = YouTubeLink.normalize(next.uri.toString()) ?: return
                 val key = next.customCacheKey ?: url
                 if (preloadKey == key) return
@@ -147,6 +188,12 @@ class MusicPlaybackService : MediaSessionService() {
                 // Start only after current audio plays; never hold the next song's bytes or proof open.
                 preloadJob = preloadScope.launch {
                     try {
+                        if (sources.enabled) {
+                            val extras = nextExtras
+                            val track = extras?.getString("catalogue_track")?.let { Track.fromJson(org.json.JSONObject(it)) }
+                            val local = extras?.getString("local_master")?.let { labs.rtensor.music.data.Master.fromJson(org.json.JSONObject(it)) }
+                            if (track != null && sources.choose(track, key, local) != null) return@launch
+                        }
                         val audio = youtube.resolve(Track(url, "", "", url), background = true)
                         if (audio.playbackPath !in paths.rejected(key)) resolvedStreams[key] = CachedAudio(audio, android.os.SystemClock.elapsedRealtime())
                     } catch (e: CancellationException) { throw e } catch (_: Exception) { /* Resolve normally on selection. */ }

@@ -23,6 +23,9 @@ class DownmixAudioSink(
     private val engineFactory: (DownmixFormat) -> DownmixEngine = { NativeDownmixEngine(it) },
     private val onReport: (DownmixReport?) -> Unit = {},
     private val processingEnabled: () -> Boolean = { true },
+    /** Music keeps stereo untouched. Other library consumers may explicitly opt
+     * into the original renderer's optional stereo enhancement. */
+    private val processStereo: Boolean = false,
 ) : ForwardingAudioSink(delegate) {
     private var engine: DownmixEngine? = null
     private var inputFormat: Format? = null
@@ -53,6 +56,7 @@ class DownmixAudioSink(
         // Decode compressed input rather than bypassing the custom PCM stage.
         if (format.sampleMimeType != MimeTypes.AUDIO_RAW) return AudioSink.SINK_FORMAT_UNSUPPORTED
         val encodingSupported = runCatching { PcmFloatConverter.bytesPerSample(format.pcmEncoding) }.isSuccess
+        if (format.channelCount <= 2 && !processStereo) return delegate.getFormatSupport(format)
         val processable = format.channelCount in 2..16 && (format.sampleRate in DownmixFormat.SUPPORTED_SAMPLE_RATES || (format.channelCount == 2 && format.sampleRate == 44100)) && encodingSupported
         if (format.channelCount <= 2 && !processable) return delegate.getFormatSupport(format)
         return if (processable)
@@ -68,12 +72,12 @@ class DownmixAudioSink(
         inputFormat = format
         val convertible = format.channelCount == 2 && format.sampleRate == 44100
         val encodingSupported = runCatching { PcmFloatConverter.bytesPerSample(format.pcmEncoding) }.isSuccess
-        if (format.channelCount < 2 || (format.channelCount == 2 && ((!convertible && format.sampleRate !in DownmixFormat.SUPPORTED_SAMPLE_RATES) || !encodingSupported))) {
+        if (format.channelCount < 2 || (format.channelCount == 2 && (!processStereo || (!convertible && format.sampleRate !in DownmixFormat.SUPPORTED_SAMPLE_RATES) || !encodingSupported))) {
             delegate.setAudioAttributes(requestedAttributes)
             delegate.configure(format, specifiedBufferSize, outputChannels)
             report = DownmixReport(format.sampleRate, if (format.channelCount == 2) listOf(SpeakerPosition.FL, SpeakerPosition.FR) else emptyList(),
                 processing = "Original audio", processingEnabled = false, comparisonAvailable = false,
-                unavailableReason = if (format.channelCount == 2) "Unsupported processing format" else "Mono source")
+                unavailableReason = if (!processStereo && format.channelCount == 2) "Stereo bypass" else if (format.channelCount == 2) "Unsupported processing format" else "Mono source")
             onReport(report)
             return
         }
