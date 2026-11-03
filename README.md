@@ -3,7 +3,23 @@
 Temporary name: **Music**. Native Android player from RTensorLabs with the approved
 Margin visual direction: warm paper, DM Sans, original provider artwork and raspberry controls.
 
-## Development: private DSP preview (0.3.10)
+## Version 0.3.11 — DSP built into Music and delivered through OTA
+
+The normal Music APK now bundles the original native DSP and its player adapter.
+Install it through Settings → Updates; no separate DSP application or library
+installation is needed. The standalone library remains available for reuse.
+
+The existing player routes supported decoded multichannel audio through the
+renderer automatically. Stereo bypasses DSP. The UI and account/library storage
+stay in the same `labs.rtensor.music` application, with the same signing identity.
+The private source and coefficients stay outside this repository; compiled Android
+libraries are embedded in the APK.
+
+Official OTA builds must run `:app:verifyOtaDspBundle` with the private artifact
+directory. That task rejects an APK missing either native ABI or containing a
+different library. Source-only contributor builds remain supported.
+
+## Previous preview: private DSP build (0.3.10)
 
 Adds a standalone Android `dsp` library and Media3 sink adapter. The optional private
 native build reuses the original Downmix Renderer processing core, with explicit

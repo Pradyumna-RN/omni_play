@@ -1,4 +1,32 @@
-# Development: private DSP preview, app 0.3.10 / library 0.1.0
+# Current verification: Music 0.3.11 / integrated DSP OTA
+
+The original compiled renderer is bundled inside the existing Music APK. No
+separate DSP application or library installation is required. The reusable library
+remains available; its implementation source and coefficients stay private. The UI
+is unchanged. The normal OTA feed is `RTensorLabs/music-app`.
+
+- **90 app checks and 32 DSP-library checks passed**, with no failures, errors or
+  skips. Seven checks execute the actual host JNI library. The app checks include
+  OTA selection and upgrade identity for both 0.3.9 and the private 0.3.10 preview.
+- `:app:verifyOtaDspBundle` verifies the ARM64 and x86-64 renderer bytes inside the
+  Music APK against the supplied private artifacts. Official OTA builds must run
+  this task. Contributor builds can still omit the private core.
+- Package `labs.rtensor.music`, version `0.3.11`, versionCode `14`; same signing
+  certificate SHA-256
+  `43dffb7aa7b922220c9063c0f2ee9126a30c7d663e1971c8f214bdd2ac7b571f`.
+  Release assets use the installed updater's `music-debug.apk` and `SHA256SUMS`
+  names. VersionCode 14 upgrades the previous public and private preview APKs.
+- The DSP adapter and native processing implementation are unchanged from the
+  preview validation below. Publication removes unneeded native symbols without
+  changing processing code. The 630-second reference comparison and sanitizer
+  results below apply to that same native implementation.
+
+Supported multichannel PCM is rendered automatically; stereo bypasses DSP. No
+Android device is attached, so phone playback, routing and ARM execution still need
+device validation. This does not add Apple Music protected-audio access or an Atmos
+object decoder. See the release's `ota-validation.json` for package checks.
+
+# Previous verification: private DSP preview, app 0.3.10 / library 0.1.0
 
 Based on Claude's `a33d6bf30d6fe1b9785d781e824a02d85639c22b`. No UI implementation
 was changed for the DSP work. The native processing implementation is a separate
@@ -51,8 +79,8 @@ bit-perfect hardware output. No Apple Music authentication, protected PCM access
 new streaming source or Atmos object decoder is implemented. PCM channel counts
 alone do not establish full Atmos rendering.
 
-Private native binaries and the DSP-enabled test APK stay in the private preview;
-they are not attached to a public Music release. Public source builds without the
+The 0.3.10 preview was distributed privately. Music 0.3.11 embeds the compiled core
+in its normal public OTA APK, as described above. Public source builds without the
 private artifact retain the normal playback path. See [DSP build instructions](dsp/README.md).
 
 # Previous verification: v0.3.9

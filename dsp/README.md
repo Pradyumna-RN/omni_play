@@ -11,13 +11,15 @@ Ordinary source builds contain the adapter only and retain the normal player.
 To package the separately built private ARM64/x86-64 libraries:
 
 ```sh
-./gradlew :dsp:assembleRelease :app:assembleDebug \
+./gradlew :dsp:assembleRelease :app:verifyOtaDspBundle \
   -PrtensorDspJniDir=/absolute/path/to/private/android-output
 ```
 
 The directory must contain `arm64-v8a/librtensor_downmix.so` and/or
 `x86_64/librtensor_downmix.so`. AAR output is `dsp/build/outputs/aar/dsp-release.aar`.
-Do not commit or publish private artifacts from this module's build directory.
+Do not commit private artifacts from this module's build directory. Music OTA
+publishes the compiled renderer inside its APK; the implementation source and
+coefficients remain private. No separate DSP app/install is required.
 A build that declares the private artifact but cannot load it fails an attempted
 multichannel render explicitly instead of silently claiming DSP processing.
 
