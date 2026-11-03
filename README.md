@@ -3,6 +3,26 @@
 Temporary name: **Music**. Native Android player from RTensorLabs with the approved
 Margin visual direction: warm paper, DM Sans, original provider artwork and raspberry controls.
 
+## Version 0.3.8 — media fallback and seek fixes
+
+Includes Claude's visionOS 1.04 / visionOS Music / embedded-client update, plus:
+
+- Preserve the catalogue URI through the audio cache, so an uncached seek still
+  resolves with the right headers and byte-range metadata.
+- Track rejected playback paths per queue item and try remaining paths within a
+  finite budget, including when more than one media URL returns HTTP 403.
+- Resume at the exact next unread byte; keep the original encoded format and length
+  so a fallback cannot splice incompatible audio into the current recording.
+- Remember a preferred client only after native playback starts. Prefetched URLs
+  do not establish playback success. Guest profiles no longer share mutable state.
+- Direct visionOS audio can start without waiting for the web player script; guest
+  deciphering receives the shared player once it is ready. Reject wrong-video responses.
+
+Three generated AAC tracks (180/210/240 seconds) were transferred completely over
+local HTTP, parsed to EOF by Media3 and decoded to EOF by FFmpeg. These are synthetic
+test tracks, not live YouTube songs. YouTube access is blocked by the workspace proxy
+and no Android device is attached. See [verification details](VERIFICATION.md).
+
 ## Version 0.3.7 — Library, radio and player update
 
 Packages Claude's `9a863d9` update:

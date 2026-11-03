@@ -1,82 +1,78 @@
-# v0.3.7 verification
+# v0.3.8 verification
 
-Built from Claude's commit `9a863d9260c46a3c95fdf7ea7fe86fe1378b3fd5`.
-Only release version metadata and documentation were added for this build; the
-reviewed sign-in/playback implementation is unchanged.
+Based on Claude's `94f14f9e034b0206300327bd1b8c27d07cbba648` update. This build adds
+native cache/retry fixes and corresponding engine feedback/format constraints.
 
-## Current checks
+## What was actually tested
 
-- Android build, packaged engine/source/proof digests: passed.
-- Android/JVM: **65 tests**, no failures or skips, including 18 Compose checks.
-  - A generated AAC/MP4 fixture is served over real loopback HTTP. Media3's actual
-    MP4 extractor reads its seek map, seeks to 8 seconds and back to 2 seconds,
-    and produces samples at the requested timestamps through query-range transport.
-    This exercises the extractor and transport, not an audio device/decoder.
-  - Range recovery verifies a later HTTP 403 refreshes the URL and reopens at the
-    exact next unread byte after a nonzero seek, preserving the catalogue key.
-    Repeated rejection is still reported rather than presented as success.
-  - Existing range, truncation, negotiated-header, HTTP error, redirect, encrypted
-    account, updater, library, Google identity and UI regression checks pass.
-  - Five history/recommendation/artwork tests cover listen thresholds, radio seed
-    selection, local ranking/repeat filtering, persisted history and thumbnail sizes.
-  - Checks cover constrained device handoff URLs, regional Google sign-in
-    navigation, exact-video artist repair,
-    preserving known artists/local metadata, Home without the local-file row,
-    Settings import action placement/callback, and Library History tab navigation.
-- JavaScript mapping/configuration: **15 tests passed**. Empty artist arrays no
-  longer hide YouTube authors/linked subtitle artists. Album/year/view text is
-  never inferred to be an artist. Music-origin cookie-signature construction is
-  checked against an independent SHA-1 calculation.
-- Exact bundled engine in Chromium: **30 checks passed** against synthetic provider
-  HTTP, including no duplicate media probe, AAC preference, signed content-length
-  fallback, metadata events, shared concurrent resolution, parsing, account capture,
-  real signature/n extraction, proof bindings, music-origin feed signing and
-  failure reporting. Feed/artist tests use actual upstream parser code with fixtures.
-- Exact proof bundle in separate Chromium: **6 checks passed** with fixture VM and
-  integrity responses. These checks do not establish live attestation acceptance.
-- APK: `labs.rtensor.music`, version `0.3.7`, code `10`. Signature matches previous
-  releases, certificate SHA-256:
+- **73 Android/JVM tests passed**, no failures or skips, including 18 Compose checks.
+- **15 JavaScript unit tests**, **42 Chromium engine checks**, and **6 isolated proof
+  checks** passed. Browser provider responses, account data and attestation are fixtures.
+- Three generated AAC/MP4 tones were transferred fully over real loopback HTTP through
+  the production Media3 range/retry/cache classes. Received bytes matched each source
+  SHA-256. The real MP4 extractor reached EOF and independently FFmpeg decoded each
+  complete received file with `-xerror` and no decoder warnings/errors.
+
+| Synthetic test track | Length | Received bytes | Complete transfer / extraction / decoding |
+| --- | --- | --- | --- |
+| 440 Hz AAC | 180 s | 2,917,751 | Passed |
+| 550 Hz AAC | 210 s | 3,405,530 | Passed |
+| 660 Hz AAC | 240 s | 3,891,527 | Passed |
+
+Each track crosses at least two one-MiB boundaries. The server rejects the first
+client after one MiB, rejects the second client too, then serves the third. Recovery
+preserves the exact byte offset. Cached backward/forward/tail reads use no new HTTP.
+A separate queue item reads only its header, seeks outside the cache and recovers
+without losing the original catalogue URI. The extractor then verifies timestamped
+forward/backward seeks. The total audio decoded is **630 seconds (10.5 minutes)**;
+tests run faster than real time and do not represent listening on a phone.
+
+Reproduce after running the Android suite:
+`python3 tools/verify-full-track-audio.py --output artifacts/playback-validation.json`
+
+## Fixes covered by the regressions
+
+- CacheDataSource sees the original catalogue URI rather than persisting an expiring
+  signed media URL that bypasses resolution on an uncached seek.
+- Media retries exclude the actual failed path for that queue item, preserve source
+  identity/headers and stop after a finite budget. Other recordings and prefetches
+  cannot overwrite its rejection list.
+- Engine responses include the playback path and encoded format. Mid-file recovery
+  accepts the original itag/MIME/length only; incompatible audio produces an explicit
+  error rather than mixed/corrupt media bytes.
+- Native `isPlaying` feedback selects the preferred path. Merely obtaining a URL
+  does not mark playback successful. All excluded paths fail without more player calls.
+- Separate guest sessions keep visionOS variants isolated; concurrent exclusion
+  lists do not share an incompatible resolution result. Visitor requests share one
+  in-flight fetch. Native guest requests keep account cookies/headers out.
+- Direct visionOS resolution completes while player JavaScript is deliberately
+  blocked. A ciphered guest request waits for and receives that shared player.
+- Wrong-video responses are rejected before returning audio or relabelling metadata.
+
+The visionOS version/model/agent fields match NewPipe Extractor's current public
+constants. This comparison is source inspection, not evidence of live compatibility.
+
+## Build and signing
+
+- Package `labs.rtensor.music`, version `0.3.8`, versionCode `11`.
+- APK signing certificate matches prior previews, SHA-256:
   `43dffb7aa7b922220c9063c0f2ee9126a30c7d663e1971c8f214bdd2ac7b571f`.
-- Native UI screenshots inspected, including the new Library History tab and
-  navigation. Import remains in Settings and original provider artwork colours
-  remain. Screenshots use synthetic listening/account data and artwork fallbacks.
-- Engine assets in the APK match tracked source assets. Source archives contain
-  no keystore, private DSP implementation or real account data. The test audio is
-  a generated sine wave.
+- Gradle engine/source/proof digest checks passed and APK engine assets match source.
+- The test tones and Python verification helper are development-only, outside the APK.
+  No keystore, private DSP implementation or real account data is in the source archive.
 
-## Known review findings
+## Not verified live
 
-The earlier review findings below concern unchanged parts of the code. The existing
-passing tests do not establish that these cases work:
+**Three live YouTube songs have not been tested here.** A fresh YouTube request was
+rejected by the workspace proxy: `CONNECT tunnel failed, response 403`. `adb devices`
+reported no attached Android device; no emulator/system image is installed. No proxy
+bypass or remote YouTube relay was used.
 
-- A forced verified retry can stop after the preferred client fails, before trying
-  another client, because the verification gate examines the preferred failure.
-- A preferred path is recorded after URL resolution, before Media3 confirms actual
-  audio playback. It is not a record of a successfully played stream.
-- Metadata SharedFlow has no replay; events emitted without an active subscriber
-  are dropped, including metadata fetched during background-only playback.
+Native Google login/consent, live acceptance of the visionOS profiles/attestation,
+full playback of `zAiIgYOH4Ys`, real startup latency, device decoders, screen-off/Wi-Fi
+behaviour and Bluetooth remain unverified. The deep buffer is a setting, not a
+measured result. SABR-only streams remain unsupported and DSP remains off.
 
-## Implementation limits and device checks
-
-The live probe recorded during v0.3.5 verification was rejected by this workspace's proxy with
-`CONNECT tunnel failed, response 403`. No network-policy bypass was used. The
-reported live playback/seek issue is not claimed universally resolved by fixtures.
-
-Google's account provider may decline `weblogin:` handoff for third-party apps.
-Music first attempts the chosen device account, then falls back to normal Google
-browser sign-in if no usable session URL is returned. It never fabricates a web
-session from an identity token. Native consent, ticket acceptance, the registered
-OAuth clients and actual personalised Home still require phone verification.
-
-The configured 500 ms startup buffer is a threshold, not a measured live startup
-latency. Verify initial play, repeated forward/backward seeks, cold-network starts,
-queue changes, and screen-off/Bluetooth playback on a phone. A bounded 128 MiB
-local byte cache supports rereads during a queue item's lifetime. Source URLs are
-not promised to remain valid, and a repeated provider denial remains visible.
-
-Also verify real personalised/generic feed detection, radio/autoplay, listening
-history across UI/service lifecycle changes, the local mix, swipe gestures and
-artwork cache behaviour. Verify document access survives restart and Library
-Saved plays the imported file
-while its original remains available, plus Android's update installer with the
-same signing identity. SABR-only streams remain unsupported. DSP is off.
+The earlier metadata SharedFlow replay limitation remains in unchanged code:
+metadata produced without a subscriber is not retained. This task focuses on
+playback transport and client fallback, not history/recommendation behaviour.

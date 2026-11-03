@@ -34,17 +34,24 @@ class YouTubeSource(context: Context) {
         }, data.optBoolean("hasMore"), data.optBoolean("signedIn"), data.optBoolean("personalized"))
     }
 
-    suspend fun resolve(track: Track, forceProof: Boolean = false, background: Boolean = false): ResolvedAudio {
+    suspend fun resolve(track: Track, forceProof: Boolean = false, background: Boolean = false, rejectedPaths: Collection<String> = emptyList(), requiredFormat: ResolvedAudio? = null): ResolvedAudio {
         if (track.source == Source.LOCAL) return ResolvedAudio(track.url, null, emptyMap())
         val canonical = YouTubeLink.normalize(track.url)?.takeIf { it.contains("/watch?v=") } ?: throw SourceException("LINK", "Choose a valid YouTube recording.")
-        val json = runtime.call("resolve", JSONObject().put("videoId", canonical.substringAfter("?v=")).put("forceProof", forceProof).put("background", background))
+        val format = requiredFormat?.let { JSONObject().put("formatId", it.formatId).put("mimeType", it.mimeType).put("contentLength", it.contentLength) }
+        val json = runtime.call("resolve", JSONObject().put("videoId", canonical.substringAfter("?v=")).put("forceProof", forceProof).put("background", background).put("rejectedPaths", org.json.JSONArray(rejectedPaths)).put("requiredFormat", format))
         val headers = json.optJSONObject("headers") ?: JSONObject()
         return ResolvedAudio(
             json.getString("url"),
             json.optString("mimeType").takeIf { it.isNotBlank() && it != "null" },
             headers.keys().asSequence().associateWith { headers.getString(it) },
             json.optLong("contentLength", 0),
+            json.optString("playbackPath"),
+            json.optInt("formatId"),
         )
+    }
+
+    suspend fun confirmPlayback(videoId: String, path: String) {
+        runtime.call("confirm-playback", JSONObject().put("videoId", videoId).put("playbackPath", path))
     }
 
     private fun tracks(data: JSONObject): List<Track> {

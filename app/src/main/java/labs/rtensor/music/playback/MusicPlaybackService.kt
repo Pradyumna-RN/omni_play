@@ -40,7 +40,7 @@ class MusicPlaybackService : MediaSessionService() {
     private val preloadScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var preloadJob: Job? = null
     private var preloadKey: String? = null
-    private val verifiedRetries = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+    private val paths = PlaybackPaths()
     private data class CachedAudio(val audio: ResolvedAudio, val createdAt: Long)
     private val resolvedStreams = java.util.Collections.synchronizedMap(
         object : LinkedHashMap<String, CachedAudio>(32, .75f, true) {
@@ -58,13 +58,18 @@ class MusicPlaybackService : MediaSessionService() {
                 // Media3 calls this on its loading thread, never the UI/audio-render thread.
                 // Resolve only the item about to play, so a long queue cannot expire in advance.
                 val cacheKey = spec.key ?: catalogueUrl
+                val required = paths.format(cacheKey).takeIf { spec.position > 0 }
                 val now = android.os.SystemClock.elapsedRealtime()
-                val cached = resolvedStreams[cacheKey]?.takeIf { now - it.createdAt < 600_000 && (Uri.parse(it.audio.url).getQueryParameter("expire")?.toLongOrNull()?.let { expiry -> expiry * 1000 - System.currentTimeMillis() > 60_000 } ?: true) }
+                val cached = resolvedStreams[cacheKey]?.takeIf { (required == null || (it.audio.formatId == required.formatId && it.audio.mimeType == required.mimeType && it.audio.contentLength == required.contentLength)) && it.audio.playbackPath !in paths.rejected(cacheKey) && now - it.createdAt < 600_000 && (Uri.parse(it.audio.url).getQueryParameter("expire")?.toLongOrNull()?.let { expiry -> expiry * 1000 - System.currentTimeMillis() > 60_000 } ?: true) }
                 val audio = cached?.audio ?: try {
-                    runBlocking { youtube.resolve(Track(catalogueUrl, "", "", catalogueUrl), forceProof = cacheKey in verifiedRetries) }.also {
+                    runBlocking { youtube.resolve(Track(catalogueUrl, "", "", catalogueUrl), rejectedPaths = paths.rejected(cacheKey), requiredFormat = required) }.also {
                         resolvedStreams[cacheKey] = CachedAudio(it, now)
                     }
                 } catch (e: Exception) { throw IOException("YouTube audio resolution failed", e) }
+                if (required != null && (audio.formatId != required.formatId || audio.mimeType != required.mimeType || audio.contentLength != required.contentLength))
+                    throw IOException("The audio representation changed during a seek")
+                paths.record(cacheKey, audio.playbackPath)
+                if (spec.position == 0L) paths.rememberFormat(cacheKey, audio)
                 spec.withUri(Uri.parse(audio.url)).withAdditionalHeaders(audio.headers).buildUpon().setCustomData(audio).build()
             }
         }
@@ -72,13 +77,14 @@ class MusicPlaybackService : MediaSessionService() {
             PlaybackDataSource(resolving.createDataSource(), retryDenied = { spec ->
                 val canonical = YouTubeLink.normalize(spec.uri.toString())
                 val key = spec.key ?: canonical.orEmpty()
-                if (canonical == null || !canonical.contains("/watch?v=") || !verifiedRetries.add(key)) false
+                if (canonical == null || !canonical.contains("/watch?v=") || !paths.rejectCurrent(key)) false
                 else { resolvedStreams.remove(key); true }
             }) { spec, status ->
                 val catalogueUrl = YouTubeLink.normalize(spec.uri.toString())
                 if (catalogueUrl?.contains("/watch?v=") == true) {
                     resolvedStreams.remove(spec.key ?: catalogueUrl)
-                    youtube.runtime.reportPlaybackHttpFailure(catalogueUrl.substringAfter("?v="), status)
+                    val key = spec.key ?: catalogueUrl
+                    youtube.runtime.reportPlaybackHttpFailure(catalogueUrl.substringAfter("?v="), status, paths.rejected(key) + listOfNotNull(paths.current(key)))
                 }
             }
         }
@@ -105,8 +111,24 @@ class MusicPlaybackService : MediaSessionService() {
             // Keep Wi-Fi awake too, so the screen-off buffer refills without stalling.
             .setWakeMode(C.WAKE_MODE_NETWORK)
             .build()
+        var confirmedKey: String? = null
+        fun confirmPlaying() {
+            if (!player.isPlaying) return
+            val config = player.currentMediaItem?.localConfiguration ?: return
+            val key = config.customCacheKey ?: return
+            val path = paths.current(key) ?: return
+            if (key == confirmedKey || path in paths.rejected(key)) return
+            val canonical = YouTubeLink.normalize(config.uri.toString()) ?: return
+            confirmedKey = key
+            preloadScope.launch {
+                try { youtube.confirmPlayback(canonical.substringAfter("?v="), path) }
+                catch (e: CancellationException) { throw e } catch (_: Exception) { /* Playback remains independent of preference hints. */ }
+            }
+        }
         player.addListener(object : androidx.media3.common.Player.Listener {
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) { confirmPlaying() }
             override fun onIsPlayingChanged(isPlaying: Boolean) {
+                confirmPlaying()
                 if (!isPlaying || !player.hasNextMediaItem()) return
                 val next = player.getMediaItemAt(player.nextMediaItemIndex).localConfiguration ?: return
                 val url = YouTubeLink.normalize(next.uri.toString()) ?: return
@@ -117,7 +139,7 @@ class MusicPlaybackService : MediaSessionService() {
                 preloadJob = preloadScope.launch {
                     try {
                         val audio = youtube.resolve(Track(url, "", "", url), background = true)
-                        resolvedStreams[key] = CachedAudio(audio, android.os.SystemClock.elapsedRealtime())
+                        if (audio.playbackPath !in paths.rejected(key)) resolvedStreams[key] = CachedAudio(audio, android.os.SystemClock.elapsedRealtime())
                     } catch (e: CancellationException) { throw e } catch (_: Exception) { /* Resolve normally on selection. */ }
                 }
             }
@@ -152,7 +174,7 @@ class MusicPlaybackService : MediaSessionService() {
         session?.run { player.release(); release() }
         session = null
         preloadScope.cancel(); audioCache?.release(); audioCache = null
-        resolvedStreams.clear(); verifiedRetries.clear()
+        resolvedStreams.clear(); paths.clear()
         super.onDestroy()
     }
 }

@@ -45,8 +45,7 @@ const nativeFetch = async (input, init = {}) => {
 };
 let tubePromise, homeFeed, feedRequest = 0, playerPromise, playerScript = '', webConfigPromise, challengePromise, challengeExpires = 0, dataSyncId = '', accountProfilePromise;
 let contentBoundGvs = { YTMUSIC: false, WEB: false };
-// The playback path that last produced audio. Trying it first skips several failing
-// round trips (and an attestation) on every song after the first.
+// The last path confirmed by native playback, never a speculative/preloaded URL.
 let preferredPath = null;
 const proofs = new Map(); let proofSerial = 0;
 function emit(type, data = {}) { native.event(type, JSON.stringify(data)); }
@@ -202,8 +201,10 @@ async function ensurePlayer(api) {
     const url = String(input instanceof Request ? input.url : input);
     const target = playerScript && /\/s\/player\/[^/]+\/player_es6\.vflset\/.*\/base\.js/.test(url) ? playerScript : input;
     return nativeFetch(target, init);
-  }, undefined, playerScript.match(/\/s\/player\/([^/]+)\//)?.[1]).then(player => (api.session.player = player)).catch(error => { playerPromise = undefined; throw error; });
-  return playerPromise;
+  }, undefined, playerScript.match(/\/s\/player\/([^/]+)\//)?.[1]).catch(error => { playerPromise = undefined; throw error; });
+  const player = await playerPromise;
+  api.session.player = player;
+  return player;
 }
 function normalizePlayerError(client, error) {
   if (error.info?.status) return playerFailure(client, { playability_status: error.info });
@@ -216,7 +217,7 @@ function mediaHeaders(api, client) {
   if (client === 'VISIONOS_MUSIC') return { 'User-Agent': VISION_MUSIC.userAgent };
   return { 'User-Agent': api.session.context.client.userAgent, 'Origin': 'https://www.youtube.com', 'Referer': 'https://www.youtube.com/' };
 }
-async function streamFromInfo(api, id, client, info, tokens) {
+async function streamFromInfo(api, id, client, info, tokens, requiredFormat) {
   if (info.playability_status?.status !== 'OK') throw playerFailure(client, info);
   if (info.basic_info?.is_live) throw failure('LIVE_UNSUPPORTED', 'Live recordings are not supported in this build.', `${client}: live stream`);
   const formats = (info.streaming_data?.adaptive_formats || []).filter(f => f.has_audio && !f.has_video && !f.is_drm && !f.drm_families?.length && (f.url || f.signature_cipher || f.cipher));
@@ -224,8 +225,10 @@ async function streamFromInfo(api, id, client, info, tokens) {
     const sabr = !!info.streaming_data?.server_abr_streaming_url;
     throw failure(sabr ? 'SABR_UNSUPPORTED' : 'NO_AUDIO', sabr ? 'YouTube returned SABR-only audio. This build cannot play that transport yet.' : 'YouTube did not provide an audio stream for this recording.', `${client}: ${sabr ? 'SABR_ONLY' : 'NO_AUDIO_FORMATS'}`);
   }
+  const compatible = requiredFormat ? formats.filter(f => Number(f.itag) === requiredFormat.formatId) : formats;
+  if (!compatible.length) throw failure('FORMAT_UNAVAILABLE', 'YouTube changed the audio format. Tap Retry to restart this recording.', `${client}: incompatible audio format`);
   let lastError;
-  for (const format of [...formats].sort((a, b) => Number(b.mime_type?.startsWith('audio/mp4')) - Number(a.mime_type?.startsWith('audio/mp4')) || b.bitrate - a.bitrate).slice(0, 2)) {
+  for (const format of [...compatible].sort((a, b) => Number(b.mime_type?.startsWith('audio/mp4')) - Number(a.mime_type?.startsWith('audio/mp4')) || b.bitrate - a.bitrate).slice(0, 2)) {
     try {
       const needsPlayer = format.signature_cipher || format.cipher || /[?&]n=/.test(format.url || '');
       if (needsPlayer) {
@@ -239,9 +242,11 @@ async function streamFromInfo(api, id, client, info, tokens) {
       const headers = mediaHeaders(api, client);
       // Media3 validates the real request. A separate probe downloaded the same
       // bytes twice and added a CDN round trip before the user could hear anything.
-      const contentLength = Number(format.content_length) || Number(target.searchParams.get('clen')) || 0;
+      const contentLength = [format.content_length, target.searchParams.get('clen')].map(Number).find(n => Number.isSafeInteger(n) && n > 0) || 0;
+      if (requiredFormat && (contentLength !== requiredFormat.contentLength || format.mime_type?.split(';')[0] !== requiredFormat.mimeType))
+        throw failure('FORMAT_UNAVAILABLE', 'YouTube changed the audio format. Tap Retry to restart this recording.', `${client}: incompatible audio bytes`);
       emitMetadata(id, info);
-      return { url: target.href, contentLength, mimeType: format.mime_type?.split(';')[0] || null, headers };
+      return { url: target.href, contentLength, formatId: Number(format.itag), mimeType: format.mime_type?.split(';')[0] || null, headers };
     } catch (error) { lastError = error; }
   }
   throw lastError;
@@ -257,18 +262,20 @@ async function streamFromInfo(api, id, client, info, tokens) {
 // They run as a separate signed-out session: these clients do not accept web cookies,
 // and an account must never be presented under another client's name.
 const GUEST_CLIENTS = ['VISIONOS', 'VISIONOS_MUSIC', 'WEB_EMBEDDED'];
+const pathId = (client, verified) => client + (verified ? ':proof' : '');
+const PLAYBACK_PATHS = [...GUEST_CLIENTS, 'YTMUSIC', 'WEB', 'YTMUSIC:proof', 'WEB:proof'];
 const guestClientType = client => client === 'VISIONOS_MUSIC' ? 'VISIONOS' : client;
 const VISION = { version: '1.04', model: 'RealityDevice17,1', os: '26.6.0.23O770', agentOs: '26_6_0' };
 Object.assign(Constants.CLIENTS.VISIONOS, { VERSION: VISION.version, DEVICE_MODEL: VISION.model, OS_NAME: 'visionOS', OS_VERSION: VISION.os,
   USER_AGENT: `com.google.visionos.youtube/${VISION.version}(${VISION.model}; U; CPU visionOS ${VISION.agentOs} like Mac OS X; US)` });
 const VISION_MUSIC = { clientVersion: '0.1', deviceModel: 'RealityDevice14,1', osName: 'VISION_OS', osVersion: '1.3',
   userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15' };
-// The variant each in-flight visionOS player request uses, by recording.
-const visionVariants = new Map();
-let visionVisitor = null;
+let visionVisitor = null, visionVisitorPromise;
 /** A visitor issued to the visionOS client itself; YouTube declines its player requests without one. */
 async function visionVisitorData(api) {
   if (visionVisitor && Date.now() - visionVisitor.at < 1_800_000) return visionVisitor.value;
+  if (visionVisitorPromise) return visionVisitorPromise;
+  visionVisitorPromise = (async () => {
   const c = Constants.CLIENTS.VISIONOS, client = api.session.context.client;
   const response = await transportFetch('https://www.youtube.com/youtubei/v1/visitor_id?prettyPrint=false', { method: 'POST', headers: {
     [guestMarker]: '1', 'X-Music-User-Agent': c.USER_AGENT, 'Content-Type': 'application/json', 'X-Goog-Api-Format-Version': '2',
@@ -279,6 +286,8 @@ async function visionVisitorData(api) {
   if (!value) throw failure('PLAYER_REJECTED', 'YouTube did not open the visionOS client.', `VISIONOS: visitor HTTP ${response.status}`);
   visionVisitor = { value, at: Date.now() };
   return value;
+  })().finally(() => { visionVisitorPromise = undefined; });
+  return visionVisitorPromise;
 }
 const guestMarker = 'X-Music-Anonymous';
 const EMBED_REFERER = 'https://www.reddit.com/';
@@ -301,13 +310,13 @@ async function embedContext(api, id) {
   return context;
 }
 /** Shapes a guest player request the way the named client's own app sends it. */
-function guestRequest(input, init, headers) {
+function guestRequest(input, init, headers, profile) {
   const url = new URL(String(input instanceof Request ? input.url : input));
   if (url.pathname !== '/youtubei/v1/player' || typeof init.body !== 'string') return { url: url.toString(), body: init.body };
   let body; try { body = JSON.parse(init.body); } catch { return { url: url.toString(), body: init.body }; }
   const client = body.context?.client || {};
   if (client.clientName === 'VISIONOS') {
-    const variant = visionVariants.get(body.videoId);
+    const variant = { music: profile === 'VISIONOS_MUSIC', visitor: profile === 'VISIONOS' ? visionVisitor?.value : null };
     // The visionOS app sends no signature timestamp.
     if (body.playbackContext?.contentPlaybackContext) delete body.playbackContext.contentPlaybackContext.signatureTimestamp;
     if (variant?.music) {
@@ -334,14 +343,14 @@ function guestRequest(input, init, headers) {
   }
   return { url: url.toString(), body: JSON.stringify(body) };
 }
-let guestPromise;
-function guestTube(api) {
-  if (!guestPromise) guestPromise = (async () => {
+const guestPromises = new Map();
+function guestTube(api, profile) {
+  if (!guestPromises.has(profile)) guestPromises.set(profile, (async () => {
     const guestFetch = (input, init = {}) => {
       const headers = new Headers(init.headers || (input instanceof Request ? input.headers : undefined));
       for (const name of ['Authorization', 'X-Goog-Authuser', 'X-Goog-PageId', 'Cookie']) headers.delete(name);
       headers.set(guestMarker, '1');
-      const request = guestRequest(input, init, headers);
+      const request = guestRequest(input, init, headers, profile);
       return transportFetch(request.url, { ...init, method: init.method || (input instanceof Request ? input.method : 'GET'), body: request.body, headers });
     };
     const guest = await Innertube.create({ fetch: guestFetch, cache: { get: async () => undefined, set: async () => {}, remove: async () => {} },
@@ -349,38 +358,39 @@ function guestTube(api) {
       retrieve_player: false, retrieve_innertube_config: false, lang: api.session.context.client.hl, location: api.session.context.client.gl });
     guest.session.context.client.userAgent = api.session.context.client.userAgent;
     return guest;
-  })().catch(error => { guestPromise = undefined; throw error; });
-  return guestPromise;
+  })().catch(error => { guestPromises.delete(profile); throw error; }));
+  return guestPromises.get(profile);
 }
 const restrictedReason = /private|copyright|not available in your country|age.restrict|premium members|members.only/i;
-async function resolve(api, id, forceProof = false) {
+async function resolve(api, id, forceProof = false, rejectedPaths = [], requiredFormat = null) {
   if (!/^[A-Za-z0-9_-]{11}$/.test(id)) throw failure('LINK', 'Choose a valid YouTube recording.');
-  // STS must accompany the player request. Direct formats can still work if the player script is unavailable.
-  await ensurePlayer(api).catch(() => {});
+  const rejected = new Set(rejectedPaths);
+  if (preferredPath && rejected.has(pathId(preferredPath.client, preferredPath.verified))) preferredPath = null;
+  if (PLAYBACK_PATHS.every(path => rejected.has(path))) throw failure('MEDIA_REJECTED', 'YouTube rejected every available audio path. Tap Retry to try again.', 'media: all playback paths rejected');
   // Web-client errors explain the failure; proof-free client errors only add diagnostics
   // (an embed-only refusal must not hide the real reason a recording is unavailable).
   const errors = [], guestErrors = []; let tokens;
   const record = (client, error) => { const e = normalizePlayerError(client, error); (GUEST_CLIENTS.includes(client) ? guestErrors : errors).push(e); };
   const attempt = async (client, verified) => {
     if (GUEST_CLIENTS.includes(client)) {
-      const guest = await guestTube(api);
-      if (client === 'WEB_EMBEDDED') await embedContext(api, id);
-      if (guestClientType(client) === 'VISIONOS') visionVariants.set(id, { music: client === 'VISIONOS_MUSIC', visitor: client === 'VISIONOS' ? await visionVisitorData(api) : undefined });
+      const guest = await guestTube(api, client);
+      if (client === 'WEB_EMBEDDED') { await embedContext(api, id); await ensurePlayer(api).catch(() => {}); }
+      if (client === 'VISIONOS') await visionVisitorData(api);
       if (api.session.player) guest.session.player = api.session.player;
       const info = await guest.getBasicInfo(id, { client: guestClientType(client) });
-      const stream = await streamFromInfo(guest, id, client, info);
-      preferredPath = { client, verified: false };
-      return stream;
+      const stream = await streamFromInfo(guest, id, client, info, undefined, requiredFormat);
+      return { ...stream, playbackPath: pathId(client, false) };
     }
+    await ensurePlayer(api).catch(() => {});
     if (client === 'WEB') await prepareWebPlayback(api);
     tokens = verified ? await playbackProof(api, id, client) : undefined;
     const info = await api.getBasicInfo(id, { client, ...(tokens ? { po_token: tokens.playerToken } : {}) });
-    const stream = await streamFromInfo(api, id, client, info, tokens);
-    preferredPath = { client, verified };
-    return stream;
+    const stream = await streamFromInfo(api, id, client, info, tokens, requiredFormat);
+    return { ...stream, playbackPath: pathId(client, verified) };
   };
   const tryAll = async paths => {
     for (const [client, verified] of paths) {
+      if (rejected.has(pathId(client, verified))) continue;
       try { return { stream: await attempt(client, verified) }; }
       catch (error) { record(client, error); }
     }
@@ -389,8 +399,8 @@ async function resolve(api, id, forceProof = false) {
   const hopeless = () => errors.some(e => e.code === 'AUTH_REQUIRED' || e.code === 'LIVE_UNSUPPORTED' || restrictedReason.test(e.message));
   const preferred = preferredPath;
   // A forced retry follows a media rejection: skip the path that produced the rejected URL.
-  const skip = (client, verified) => preferred && preferred.client === client && preferred.verified === verified;
-  if (preferred && (!forceProof || preferred.verified)) {
+  const skip = (client, verified) => rejected.has(pathId(client, verified)) || (preferred && preferred.client === client && preferred.verified === verified);
+  if (preferred && !forceProof) {
     try { return await attempt(preferred.client, preferred.verified); }
     catch (error) { preferredPath = null; record(preferred.client, error); /* Fall back to the remaining paths. */ }
   }
@@ -403,7 +413,7 @@ async function resolve(api, id, forceProof = false) {
   for (const stage of stages) {
     if (errors.length && hopeless()) break;
     // Attestation only helps when YouTube asked for it (or withheld audio from the plain request).
-    if (!forceProof && stage[0]?.[1] && errors.length && !errors.some(e => ['VERIFICATION_REQUIRED', 'NO_AUDIO'].includes(e.code))) break;
+    if (!forceProof && stage[0]?.[1] && errors.length && !errors.some(e => ['VERIFICATION_REQUIRED', 'NO_AUDIO', 'FORMAT_UNAVAILABLE'].includes(e.code))) break;
     const found = await tryAll(stage);
     if (found) return found.stream;
   }
@@ -422,15 +432,16 @@ async function resolve(api, id, forceProof = false) {
 
 function emitMetadata(id, info) {
   const b = info.basic_info || {};
+  if (b.id !== id) throw failure('VIDEO_MISMATCH', 'YouTube returned a different recording. Retry this recording.', 'player: recording identity mismatch');
   const metadata = { videoId: id, title: b.title || '', artist: b.author || b.channel?.name || '',
     artwork: largestArtwork(b.thumbnail), durationMs: (b.duration || 0) * 1000 };
   if (metadata.title || metadata.artist) emit('metadata', metadata);
   return metadata;
 }
 const resolving = new Map();
-function sharedResolve(api, id, forceProof) {
-  const key = `${id}:${forceProof}`;
-  if (!resolving.has(key)) resolving.set(key, resolve(api, id, forceProof).finally(() => resolving.delete(key)));
+function sharedResolve(api, id, forceProof, rejectedPaths, requiredFormat) {
+  const key = JSON.stringify([id, forceProof, rejectedPaths, requiredFormat]);
+  if (!resolving.has(key)) resolving.set(key, resolve(api, id, forceProof, rejectedPaths, requiredFormat).finally(() => resolving.delete(key)));
   return resolving.get(key);
 }
 globalThis.musicCall = async (id, method, args) => {
@@ -438,7 +449,16 @@ globalThis.musicCall = async (id, method, args) => {
     const api = await tube(); let result;
     switch (method) {
       case 'search': result = { tracks: await search(api, args.query) }; break;
-      case 'resolve': result = await sharedResolve(api, args.videoId, !!args.forceProof); break;
+      case 'resolve': {
+        const rejected = Array.isArray(args.rejectedPaths) ? [...new Set(args.rejectedPaths.filter(p => PLAYBACK_PATHS.includes(p)))].sort() : [];
+        const required = args.requiredFormat || null;
+        result = await sharedResolve(api, args.videoId, !!args.forceProof, rejected, required); break;
+      }
+      case 'confirm-playback': {
+        if (!/^[A-Za-z0-9_-]{11}$/.test(args.videoId) || !PLAYBACK_PATHS.includes(args.playbackPath)) throw failure('OPERATION', 'Invalid playback confirmation.');
+        const [client, proof] = args.playbackPath.split(':'); preferredPath = {client, verified: proof === 'proof'};
+        result = {}; break;
+      }
       case 'metadata': {
         if (!/^[A-Za-z0-9_-]{11}$/.test(args.videoId)) throw failure('LINK', 'Choose a valid YouTube recording.');
         const info = await api.getBasicInfo(args.videoId, { client: 'YTMUSIC' });

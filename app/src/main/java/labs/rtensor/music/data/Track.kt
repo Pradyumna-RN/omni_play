@@ -29,4 +29,4 @@ data class Track(
     }
 }
 
-data class ResolvedAudio(val url: String, val mimeType: String?, val headers: Map<String, String>, val contentLength: Long = 0)
+data class ResolvedAudio(val url: String, val mimeType: String?, val headers: Map<String, String>, val contentLength: Long = 0, val playbackPath: String = "", val formatId: Int = 0)
