@@ -29,6 +29,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import labs.rtensor.music.data.LibraryStore
+import labs.rtensor.music.data.LocalMasters
+import labs.rtensor.music.data.PlaybackRoute
 import labs.rtensor.music.data.ListeningHistory
 import labs.rtensor.music.data.PlayEvent
 import labs.rtensor.music.data.Recommender
@@ -95,6 +97,10 @@ data class MusicState(
     val collectionBusy: Boolean = false,
     val update: UpdateState = UpdateState(),
     val audioProcessing: AudioProcessingState = AudioProcessingState(),
+    /** How the current song is played: the user's own Atmos or lossless file, or YouTube. */
+    val routeLabel: String = "",
+    val mastersSummary: String = "",
+    val mastersBusy: Boolean = false,
 )
 
 @UnstableApi
@@ -104,10 +110,14 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val googleProfiles = GoogleProfileStore(application)
     private val youtube = YouTubeSource(application)
     private val updater = GitHubUpdater(application)
+    private val masters = LocalMasters(application)
+    private val routes = mutableMapOf<String, PlaybackRoute>()
+    private fun route(track: Track) = routes.getOrPut(track.id) { PlaybackRoute.choose(track, masters.entries) }
     private val mutable = MutableStateFlow(MusicState(
         saved = library.tracks("saved"), history = library.tracks("history"), googleProfile = googleProfiles.load(),
         theme = library.theme, reducedMotion = library.reducedMotion, playEvents = listening.events,
         autoplay = library.autoplay, trackHistory = library.trackHistory,
+        mastersSummary = summary(masters.entries, masters.folder != null),
     ))
     val state = mutable.asStateFlow()
     private val mutablePosition = MutableStateFlow(0L)
@@ -342,6 +352,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             current = restored?.let(::enrich) ?: it.current,
             queue = if (includeQueue) queue.map(::enrich) else queue,
             queueIndex = c.currentMediaItemIndex,
+            routeLabel = c.currentMediaItem?.mediaMetadata?.extras?.getString("route").orEmpty(),
             playing = c.isPlaying,
             buffering = c.playbackState == Player.STATE_BUFFERING,
             positionMs = mutablePosition.value,
@@ -389,10 +400,15 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun mediaItem(item: Track): MediaItem {
-        val extras = Bundle().apply { putString("catalogue_track", item.json().toString()) }
+        val route = route(item)
+        val extras = Bundle().apply {
+            putString("catalogue_track", item.json().toString())
+            putString("route", route.label)
+        }
         val metadata = MediaMetadata.Builder().setTitle(item.title).setArtist(item.artist)
             .setArtworkUri(item.artwork.takeIf(String::isNotBlank)?.let(Uri::parse)).setExtras(extras).build()
-        return MediaItem.Builder().setMediaId(item.id).setUri(item.url)
+        // The song keeps its YouTube identity (history, radio, recommendations); only the audio comes from the better file.
+        return MediaItem.Builder().setMediaId(item.id).setUri(route.master?.uri ?: item.url)
             .setCustomCacheKey(java.util.UUID.randomUUID().toString())
             .setMediaMetadata(metadata).build()
     }
@@ -525,6 +541,37 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: CancellationException) { throw e }
             catch (_: Exception) { mutable.update { it.copy(importMessage = "Could not import this file. Choose a readable audio file.") } }
         }
+    }
+
+    /** Index a folder of the user's own lossless and Atmos files, so matching songs play from them. */
+    fun indexMasters(tree: Uri) {
+        viewModelScope.launch {
+            mutable.update { it.copy(mastersBusy = true, mastersSummary = "Reading the folder…") }
+            try {
+                val found = withContext(Dispatchers.IO) {
+                    masters.index(tree) { count -> mutable.update { it.copy(mastersSummary = "Reading the folder… $count files") } }
+                }
+                routes.clear()
+                mutable.update { it.copy(mastersBusy = false, mastersSummary = summary(found, true)) }
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) { mutable.update { it.copy(mastersBusy = false, mastersSummary = "Could not read this folder. Choose it again.") } }
+        }
+    }
+
+    fun clearMasters() {
+        masters.folder?.let { folder -> runCatching { getApplication<Application>().contentResolver.releasePersistableUriPermission(Uri.parse(folder), android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) } }
+        masters.clear(); routes.clear()
+        mutable.update { it.copy(mastersSummary = summary(emptyList(), false)) }
+    }
+
+    private fun summary(found: List<labs.rtensor.music.data.Master>, chosen: Boolean): String {
+        if (!chosen) return ""
+        val atmos = found.count { it.atmos }
+        val multichannel = found.count { it.multichannel && !it.atmos }
+        val hiRes = found.count { !it.multichannel && it.lossless && it.sampleRate > 48_000 }
+        val lossless = found.count { !it.multichannel && it.lossless && it.sampleRate <= 48_000 }
+        return listOfNotNull("${found.size} files", "$atmos Atmos".takeIf { atmos > 0 }, "$multichannel multichannel".takeIf { multichannel > 0 },
+            "$hiRes hi-res".takeIf { hiRes > 0 }, "$lossless CD-quality".takeIf { lossless > 0 }).joinToString(" · ")
     }
 
     fun theme(value: String) {

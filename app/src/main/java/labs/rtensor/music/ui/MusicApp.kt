@@ -178,6 +178,8 @@ fun MusicApp(
     onSeek: (Long) -> Unit = {}, onSave: (Track) -> Unit = {},
     onTheme: (String) -> Unit = {}, onReducedMotion: (Boolean) -> Unit = {},
     onOpenLocal: () -> Unit = {},
+    onChooseMasters: () -> Unit = {},
+    onClearMasters: () -> Unit = {},
     onClearHistory: () -> Unit = {}, onRetry: () -> Unit = {}, onDismissError: () -> Unit = {},
     sharedQuery: String? = null, onShareConsumed: () -> Unit = {},
     initialPage: String = "home",
@@ -274,7 +276,7 @@ fun MusicApp(
                             "library" -> LibraryScreen(state, ::play, onSave, ::focusSearch, onRemovePlay)
                             "now" -> NowScreen(state, onToggle, onPrevious, onNext, onSeek, onSave, onSkipTo, onProcessing, playbackPosition)
                             "collection" -> CollectionScreen(state, ::play, onSave)
-                            "settings" -> SettingsScreen(state, onTheme, onReducedMotion, onOpenLocal, onClearHistory,
+                            "settings" -> SettingsScreen(state, onTheme, onReducedMotion, onOpenLocal, onChooseMasters, onClearMasters, onClearHistory,
                                 onConnect, onWebSignIn, onDisconnect, onCancelConnect, onGoogleSignIn, onGoogleSignOut, onCancelGoogle, onCheckUpdates, onDownloadUpdate, onInstallUpdate,
                                 onAutoplay, onTrackHistory)
                             else -> HomeScreen(state, ::focusSearch, ::play, ::openEntry, { onRefreshFeed(); onRefreshForYou() }, onMoreFeed, onConnect)
@@ -866,6 +868,7 @@ private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () ->
                         val saved = state.saved.any { it.id == track.id }
                         LabelledControl(if (saved) "Saved" else "Save", if (saved) Icons.Outlined.Favorite else Icons.Outlined.FavoriteBorder, { onSave(track) }, highlighted = saved)
                     }
+                    RouteLabel(state.routeLabel)
                     if (state.audioProcessing.available) AudioComparison(state, onProcessing)
                     Spacer(Modifier.height(30.dp))
                     Row(Modifier.fillMaxWidth().padding(bottom = 6.dp), verticalAlignment = Alignment.Bottom) {
@@ -916,6 +919,17 @@ private fun AudioComparison(state: MusicState, onProcessing: (Boolean) -> Unit) 
         }
         Text(detail, fontSize = 12.sp, lineHeight = 17.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
+}
+
+/** Where the audio comes from: the user's Atmos or lossless file, or the YouTube stream. */
+@Composable
+private fun RouteLabel(label: String) {
+    if (label.isBlank()) return
+    val own = label != "YouTube"
+    Text(if (own) label else "YouTube · compressed stream", fontSize = 12.sp, lineHeight = 17.sp,
+        fontWeight = if (own) FontWeight.Medium else FontWeight.Normal,
+        color = if (own) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(top = 14.dp).semantics { contentDescription = "Audio source: $label" })
 }
 
 /** Read the clock in this small subtree, rather than invalidating the cover,
@@ -1170,7 +1184,8 @@ private val settingsSections = listOf(
 )
 
 @Composable
-private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onReduced: (Boolean) -> Unit, onLocal: () -> Unit, onClearHistory: () -> Unit,
+private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onReduced: (Boolean) -> Unit, onLocal: () -> Unit,
+    onChooseMasters: () -> Unit, onClearMasters: () -> Unit, onClearHistory: () -> Unit,
     onConnect: () -> Unit, onWebSignIn: () -> Unit, onDisconnect: () -> Unit, onCancelConnect: () -> Unit,
     onGoogleSignIn: () -> Unit, onGoogleSignOut: () -> Unit, onCancelGoogle: () -> Unit,
     onCheckUpdates: () -> Unit, onDownloadUpdate: () -> Unit, onInstallUpdate: () -> Unit,
@@ -1209,6 +1224,16 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onReduc
                 CardDivider()
                 SettingItem("Import audio", "Add a file from this device to Saved", Glyph.AudioFile, onClick = onLocal)
                 state.importMessage?.let { Text(it, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
+                CardDivider()
+                SettingItem("Atmos & lossless folder",
+                    state.mastersSummary.ifBlank { "Songs you own in Atmos or lossless play from your files instead of YouTube" },
+                    Glyph.AudioFile, onClick = { if (!state.mastersBusy) onChooseMasters() })
+                if (state.mastersSummary.isNotBlank() && !state.mastersBusy) {
+                    FlowRow(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = onChooseMasters, shape = RoundedCornerShape(12.dp)) { Text("Rescan", fontSize = 14.sp) }
+                        OutlinedButton(onClick = onClearMasters, shape = RoundedCornerShape(12.dp)) { Text("Forget folder", fontSize = 14.sp) }
+                    }
+                }
             }
 
             SettingsGroupHeader(settingsSections[2], Modifier.anchor("appearance"))

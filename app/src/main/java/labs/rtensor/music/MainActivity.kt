@@ -75,6 +75,12 @@ class MainActivity : ComponentActivity() {
                     model.importLocal(uri)
                 }
             }
+            val mastersFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+                if (uri != null) {
+                    runCatching { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+                    model.indexMasters(uri)
+                }
+            }
             MusicApp(
                 state = state,
                 onQuery = model::setQuery, onSearch = model::search,
@@ -83,6 +89,7 @@ class MainActivity : ComponentActivity() {
                 onSeek = model::seek, onSave = model::save,
                 onTheme = model::theme, onReducedMotion = model::reducedMotion,
                 onOpenLocal = { local.launch(arrayOf("audio/*")) },
+                onChooseMasters = { mastersFolder.launch(null) }, onClearMasters = model::clearMasters,
                 onClearHistory = model::clearHistory, onRetry = model::retry, onDismissError = model::clearError,
                 sharedQuery = sharedQuery,
                 onShareConsumed = { sharedQuery = null },
