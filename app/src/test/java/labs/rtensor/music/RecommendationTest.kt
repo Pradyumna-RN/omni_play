@@ -1,6 +1,7 @@
 package labs.rtensor.music
 
 import labs.rtensor.music.data.ArtworkUrl
+import labs.rtensor.music.data.FeedEntry
 import labs.rtensor.music.data.ListeningHistory
 import labs.rtensor.music.data.PlayEvent
 import labs.rtensor.music.data.Recommender
@@ -49,6 +50,30 @@ class RecommendationTest {
         assertTrue("songs both radios lead to are included", "y1yyyyyyyyy" in ids)
         assertEquals("y1yyyyyyyyy", ids.first())
         assertTrue("same artist never twice in a row here", mix.zipWithNext().none { (x, y) -> x.artist == y.artist })
+    }
+
+    @Test fun seedsKeepFavouritesAndRotateTheRest() {
+        val many = (0 until 10).map { t("m${it}mmmmmmmmm", "Artist$it") }
+        val events = (many.flatMapIndexed { i, track -> List(10 - i) { play(track, 1.0 + it * 0.1) } } + play(many[7], 0.01)).sortedByDescending { it.startedAt }
+        val first = Recommender.seeds(events, now = now, rotation = 0)
+        val next = Recommender.seeds(events, now = now, rotation = 1)
+        assertEquals(listOf("Artist0", "Artist1", "Artist7"), first.take(3).map { it.artist })
+        assertEquals(first.take(3), next.take(3))
+        assertNotEquals("each refresh explores another favourite", first[3], next[3])
+    }
+
+    @Test fun radioDropsSkippedSongsAndArtistsYouKeepSkipping() {
+        val skipped = t("sssssssssss", "Other")
+        val events = List(4) { play(t("h${it}hhhhhhhhh", "Hated"), 0.5, skipped = true) } + play(skipped, 2.0, skipped = true)
+        val radio = listOf(t("o1ooooooooo", "Ok"), t("hhhhhhhhhhh", "Hated"), t("o2ooooooooo", "Ok"), skipped)
+        assertEquals(listOf("o1ooooooooo", "o2ooooooooo"), Recommender.filterRadio(radio, events, now).map { it.id })
+    }
+
+    @Test fun exploreSuggestionsLeaveOutRecentAndSkippedSongs() {
+        val events = listOf(play(t("yt:rrrrrrrrrrr", "A"), 1.0), play(t("yt:sssssssssss", "B"), 10.0, skipped = true))
+        val entries = listOf("rrrrrrrrrrr", "sssssssssss", "nnnnnnnnnnn").map { FeedEntry("yt:$it", it, "", "", "song", "", it) } +
+            FeedEntry("VLPL", "Playlist", "", "", "playlist", "VLPL", "")
+        assertEquals(listOf("yt:nnnnnnnnnnn", "VLPL"), Recommender.freshSongs(entries, events, now).map { it.id })
     }
 
     @Test fun historyPersistsGroupsAndRemoves() {

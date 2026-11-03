@@ -547,7 +547,7 @@ private fun ProviderHome(state: MusicState, onEntry: (FeedEntry) -> Unit, onRefr
                     Box(Modifier.weight(1f)) { PageTitle(title) }
                     IconButton(onClick = onRefresh, enabled = !state.feedBusy) { Icon(Icons.Outlined.Refresh, "Refresh", Modifier.size(20.dp)) }
                 }
-                if (title == "Explore") Text("Fresh releases, charts and discoveries from YouTube Music.", fontSize = 12.sp, lineHeight = 19.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 10.dp))
+                if (title == "Explore") Text("Picks from what you play, then new releases and charts from YouTube Music.", fontSize = 12.sp, lineHeight = 19.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 10.dp))
                 Spacer(Modifier.height(16.dp))
                 LoadingLine(state.feedBusy, state.reducedMotion)
             }

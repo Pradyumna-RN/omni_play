@@ -21,6 +21,11 @@ class YouTubeSource(context: Context) {
         return tracks(runtime.call("radio", JSONObject().put("videoId", videoId))).filter { it.id !in skip }
     }
     suspend fun explore(): HomeFeed = feed(runtime.call("explore"))
+    /** YouTube Music's "Related" page for a song: similar songs, artists and playlists. */
+    suspend fun related(track: Track): List<FeedSection> {
+        val videoId = track.id.removePrefix("yt:").takeIf { track.source == Source.YOUTUBE && it.matches(Regex("[A-Za-z0-9_-]{11}")) } ?: return emptyList()
+        return feed(runtime.call("related", JSONObject().put("videoId", videoId))).sections
+    }
     private fun feed(data: JSONObject): HomeFeed {
         val sections = data.getJSONArray("sections")
         return HomeFeed((0 until sections.length()).map { i ->

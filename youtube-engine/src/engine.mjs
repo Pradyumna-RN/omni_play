@@ -460,6 +460,12 @@ globalThis.musicCall = async (id, method, args) => {
         result = { tracks: (panel?.contents || []).map(track).filter(t => t && !seen.has(t.id.slice(3)) && seen.add(t.id.slice(3))).slice(0, 50) }; break;
       }
       case 'explore': result = { sections: sections(await api.music.getExplore()), hasMore: false }; break;
+      case 'related': {
+        // YouTube Music's "Related" tab for a song: similar songs, artists and playlists.
+        if (!/^[A-Za-z0-9_-]{11}$/.test(args.videoId)) throw failure('LINK', 'Choose a valid YouTube recording.');
+        const page = await api.music.getRelated(args.videoId);
+        result = { sections: sections({ sections: page?.contents || [] }), hasMore: false }; break;
+      }
       case 'collection': {
         const page = args.kind === 'album' ? await api.music.getAlbum(args.id) : await api.music.getPlaylist(args.id);
         result = { tracks: (page.contents || []).map(track).filter(Boolean) }; break;

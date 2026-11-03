@@ -12,6 +12,9 @@ import kotlin.math.ln
 object Recommender {
     private const val HALF_LIFE_DAYS = 14.0
     private const val DAY = ListeningHistory.DAY
+    /** Net skips outweigh listens by this much (recent ones counting most). */
+    private const val DISLIKED_ARTIST = -1.5
+    private const val NEW_ARTIST_BONUS = 0.15
 
     private fun decay(age: Long) = exp(-ln(2.0) * age.coerceAtLeast(0) / (HALF_LIFE_DAYS * DAY))
 
@@ -34,14 +37,54 @@ object Recommender {
         return scores
     }
 
-    /** Up to [count] favourite songs to seed radio from, each by a different main artist. */
-    fun seeds(events: List<PlayEvent>, saved: List<Track> = emptyList(), count: Int = 3, now: Long = System.currentTimeMillis()): List<Track> {
+    /**
+     * Up to [count] songs to seed radio from, each by a different main artist: your two
+     * favourites, the last song you played through, then a rotating pick from the rest of
+     * your top songs, so each refresh explores a different corner of your taste.
+     */
+    fun seeds(events: List<PlayEvent>, saved: List<Track> = emptyList(), count: Int = 4, now: Long = System.currentTimeMillis(), rotation: Int = 0): List<Track> {
         val scores = trackScores(events, now)
+        val savedIds = saved.mapTo(HashSet()) { it.id }
         val tracks = (events.map { it.track } + saved).filter { it.source == Source.YOUTUBE }.associateBy { it.id }
-        val ranked = tracks.values.sortedByDescending { (scores[it.id] ?: 0.0) + if (saved.any { s -> s.id == it.id }) 0.5 else 0.0 }
-            .filter { (scores[it.id] ?: 0.0) > 0 || saved.any { s -> s.id == it.id } }
-        val usedArtists = HashSet<String>()
-        return ranked.filter { usedArtists.add(mainArtist(it)) }.take(count)
+        val ranked = tracks.values.filter { (scores[it.id] ?: 0.0) > 0 || it.id in savedIds }
+            .sortedByDescending { (scores[it.id] ?: 0.0) + if (it.id in savedIds) 0.5 else 0.0 }
+            .distinctBy(::mainArtist)
+        if (ranked.size <= count) return ranked
+        val picked = LinkedHashMap<String, Track>()
+        ranked.take(2).forEach { picked[it.id] = it }
+        val usedArtists = picked.values.mapTo(HashSet(), ::mainArtist)
+        events.firstOrNull { !it.skipped && it.track.source == Source.YOUTUBE && mainArtist(it.track) !in usedArtists && (scores[it.track.id] ?: 0.0) > 0 }
+            ?.let { picked[it.track.id] = it.track; usedArtists += mainArtist(it.track) }
+        val rest = ranked.drop(2).take(12).filter { mainArtist(it) !in usedArtists }
+        if (rest.isNotEmpty()) for (i in rest.indices) {
+            if (picked.size >= count) break
+            val track = rest[(i + rotation).mod(rest.size)]
+            if (usedArtists.add(mainArtist(track))) picked[track.id] = track
+        }
+        return picked.values.take(count)
+    }
+
+    /**
+     * Keep YouTube's radio order, minus what this device knows you do not want: songs you
+     * skipped, and artists you skip far more than you finish.
+     */
+    fun filterRadio(tracks: List<Track>, events: List<PlayEvent>, now: Long = System.currentTimeMillis()): List<Track> {
+        if (events.isEmpty()) return tracks
+        val trackScore = trackScores(events, now)
+        val affinity = artistAffinity(events, now)
+        val kept = tracks.filter { track ->
+            (trackScore[track.id] ?: 0.0) >= 0 &&
+                ListeningHistory.artists(track.artist).none { (affinity[it.lowercase()] ?: 0.0) < DISLIKED_ARTIST }
+        }
+        return kept.ifEmpty { tracks }
+    }
+
+    /** Songs in YouTube's suggestions that you skipped or heard in the last few days are left out. */
+    fun freshSongs(entries: List<FeedEntry>, events: List<PlayEvent>, now: Long = System.currentTimeMillis()): List<FeedEntry> {
+        val bare = { id: String -> id.removePrefix("yt:") }
+        val skipped = trackScores(events, now).filterValues { it < 0 }.keys.mapTo(HashSet(), bare)
+        val recent = events.filter { now - it.startedAt < 3 * DAY }.mapTo(HashSet()) { bare(it.track.id) }
+        return entries.filter { it.videoId.isBlank() || (it.videoId !in recent && it.videoId !in skipped) }
     }
 
     /**
@@ -54,16 +97,22 @@ object Recommender {
         val trackScore = trackScores(events, now)
         val recent = events.filter { now - it.startedAt < 3 * DAY }.map { it.track.id }.toSet()
         val skipped = trackScore.filterValues { it < 0 }.keys
+        val disliked = affinity.filterValues { it < DISLIKED_ARTIST }.keys
         val candidates = LinkedHashMap<String, Pair<Track, Double>>()
         for (pool in pools) pool.forEachIndexed { index, track ->
             if (track.id in recent || track.id in skipped) return@forEachIndexed
+            if (ListeningHistory.artists(track.artist).any { it.lowercase() in disliked }) return@forEachIndexed
             val position = 1.0 / (1 + index / 5.0)
             val previous = candidates[track.id]
             candidates[track.id] = track to ((previous?.second ?: 0.0) + position)
         }
+        // Known artists get a modest lift and new artists a small one, so the mix is not
+        // only artists you already play: discovery is the point of a mix.
         val ranked = candidates.values.map { (track, base) ->
-            val artist = ListeningHistory.artists(track.artist).maxOfOrNull { affinity[it.lowercase()] ?: 0.0 } ?: 0.0
-            track to base + artist.coerceIn(-2.0, 3.0) * 0.4
+            val names = ListeningHistory.artists(track.artist).map { it.lowercase() }
+            val known = names.mapNotNull { affinity[it] }
+            val artist = if (known.isEmpty()) NEW_ARTIST_BONUS else known.max().coerceIn(-2.0, 2.0) * 0.3
+            track to base + artist
         }.sortedByDescending { it.second }.map { it.first }
         val perArtist = HashMap<String, Int>()
         val picked = ranked.filter { val a = mainArtist(it); val n = perArtist[a] ?: 0; if (n < 2) { perArtist[a] = n + 1; true } else false }

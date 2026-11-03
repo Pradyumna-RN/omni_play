@@ -20,6 +20,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -113,6 +115,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private var exploreJob: Job? = null
     private var radioJob: Job? = null
     private var forYouJob: Job? = null
+    private var forYouRotation = 0
     private val radioSeeds = mutableSetOf<String>()
     /** The listen in progress: which song, when it started, and how long it has actually played. */
     private var listen: Triple<Track, Long, Long>? = null
@@ -215,11 +218,41 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         exploreJob?.cancel()
         exploreJob = viewModelScope.launch {
             mutable.update { it.copy(exploreBusy = true, exploreError = null) }
-            try { val feed = youtube.explore(); mutable.update { it.copy(explore = feed.sections, exploreBusy = false) } }
+            try {
+                val events = mutable.value.playEvents
+                val seeds = Recommender.seeds(events, mutable.value.saved, count = 2)
+                // Personal rows come from YouTube Music's "Related" page for your favourites;
+                // they are optional, so Explore still loads when they fail.
+                val personal = seeds.mapIndexed { index, seed ->
+                    async { runCatching { personalRows(seed, youtube.related(seed), events, first = index == 0) }.getOrElse { e -> if (e is CancellationException) throw e; emptyList() } }
+                }
+                val feed = youtube.explore()
+                val rows = personal.awaitAll().flatten()
+                // Nothing appears twice: personal rows win, then YouTube's own order.
+                val seen = HashSet<String>()
+                val sections = (rows + feed.sections).mapNotNull { section ->
+                    section.copy(items = section.items.filter { seen.add(it.id) }).takeIf { it.items.isNotEmpty() }
+                }
+                mutable.update { it.copy(explore = sections, exploreBusy = false) }
+            }
             catch (e: CancellationException) { throw e }
             catch (e: Exception) { mutable.update { it.copy(exploreBusy = false, exploreError = sourceMessage(e)) } }
         }
     }
+
+    /** Retitle a song's "Related" page as Explore rows; only the first favourite adds artists and playlists. */
+    private fun personalRows(seed: Track, related: List<FeedSection>, events: List<PlayEvent>, first: Boolean): List<FeedSection> =
+        related.mapNotNull { section ->
+            val songs = section.items.any { it.videoId.isNotBlank() }
+            val artists = section.items.all { it.kind == "artist" }
+            val artist = ListeningHistory.artists(seed.artist).firstOrNull()
+            when {
+                songs -> FeedSection("Because you like ${seed.title}", Recommender.freshSongs(section.items, events).take(20))
+                !first -> null
+                artists -> FeedSection(artist?.let { "Artists like $it" } ?: "Artists for you", section.items)
+                else -> FeedSection(section.title, section.items)
+            }
+        }.filter { it.items.isNotEmpty() }
 
     fun browse(entry: FeedEntry) {
         collectionJob?.cancel()
@@ -356,7 +389,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 val have = (0 until c.mediaItemCount).map { c.getMediaItemAt(it).mediaId }.toSet()
                 val recent = mutable.value.playEvents.take(30).map { it.track.id }.toSet()
-                val radio = youtube.radio(seed, have)
+                val radio = Recommender.filterRadio(youtube.radio(seed, have), mutable.value.playEvents)
                 // Prefer songs not heard in the last few plays; fall back to the full radio if that empties it.
                 val tracks = radio.filter { it.id !in recent }.ifEmpty { radio }.take((100 - c.mediaItemCount).coerceAtLeast(0))
                 if (tracks.isNotEmpty() && c.mediaItemCount > 0) c.addMediaItems(tracks.map(::mediaItem))
@@ -390,12 +423,13 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Build "Mixed for you": radio from your most-played songs, re-ranked on this device. */
     fun refreshForYou() {
-        val seeds = Recommender.seeds(mutable.value.playEvents, mutable.value.saved)
-        if (seeds.isEmpty() || forYouJob?.isActive == true) return
+        if (forYouJob?.isActive == true) return
+        val seeds = Recommender.seeds(mutable.value.playEvents, mutable.value.saved, rotation = forYouRotation++)
+        if (seeds.isEmpty()) return
         forYouJob = viewModelScope.launch {
             mutable.update { it.copy(forYouBusy = true) }
             try {
-                val pools = seeds.map { seed -> runCatching { youtube.radio(seed) }.getOrElse { e -> if (e is CancellationException) throw e; emptyList() } }
+                val pools = seeds.map { seed -> async { runCatching { youtube.radio(seed) }.getOrElse { e -> if (e is CancellationException) throw e; emptyList() } } }.awaitAll()
                 val mix = withContext(Dispatchers.Default) { Recommender.mix(pools, mutable.value.playEvents) }
                 mutable.update { it.copy(forYou = mix, forYouBusy = false) }
             } catch (e: CancellationException) { throw e }
