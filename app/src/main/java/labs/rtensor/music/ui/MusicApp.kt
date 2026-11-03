@@ -40,6 +40,8 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.flow.StateFlow
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -185,6 +187,7 @@ fun MusicApp(
     onCheckUpdates: () -> Unit = {}, onDownloadUpdate: () -> Unit = {}, onInstallUpdate: () -> Unit = {},
     onAutoplay: (Boolean) -> Unit = {}, onTrackHistory: (Boolean) -> Unit = {}, onRemovePlay: (PlayEvent) -> Unit = {}, onRefreshForYou: () -> Unit = {},
     onProcessing: (Boolean) -> Unit = {},
+    playbackPosition: StateFlow<Long>? = null,
 ) {
     val startPage = if (initialPage == "saved") "library" else initialPage
     var page by rememberSaveable { mutableStateOf(startPage) }
@@ -235,7 +238,7 @@ fun MusicApp(
                                 enter = if (reduced) EnterTransition.None else slideInVertically(tween(360, easing = EmphasizedDecelerate)) { it } + fadeIn(tween(240)),
                                 exit = if (reduced) ExitTransition.None else slideOutVertically(tween(200, easing = EmphasizedAccelerate)) { it } + fadeOut(tween(160)),
                             ) {
-                                lastTrack?.let { MiniPlayer(state.copy(current = it), { navigate("now") }, onToggle, onNext, onPrevious) }
+                                lastTrack?.let { MiniPlayer(state.copy(current = it), { navigate("now") }, onToggle, onNext, onPrevious, playbackPosition) }
                             }
                             AppNavigation(if (page == "collection") root else page, reduced, ::navigate)
                         }
@@ -269,7 +272,7 @@ fun MusicApp(
                             "search" -> SearchResults(state, ::play, onSave)
                             "explore" -> ProviderHome(state.copy(feed = state.explore, feedBusy = state.exploreBusy, feedError = state.exploreError, feedHasMore = false), ::openEntry, onRefreshExplore, {}, "Explore")
                             "library" -> LibraryScreen(state, ::play, onSave, ::focusSearch, onRemovePlay)
-                            "now" -> NowScreen(state, onToggle, onPrevious, onNext, onSeek, onSave, onSkipTo, onProcessing)
+                            "now" -> NowScreen(state, onToggle, onPrevious, onNext, onSeek, onSave, onSkipTo, onProcessing, playbackPosition)
                             "collection" -> CollectionScreen(state, ::play, onSave)
                             "settings" -> SettingsScreen(state, onTheme, onReducedMotion, onOpenLocal, onClearHistory,
                                 onConnect, onWebSignIn, onDisconnect, onCancelConnect, onGoogleSignIn, onGoogleSignOut, onCancelGoogle, onCheckUpdates, onDownloadUpdate, onInstallUpdate,
@@ -791,7 +794,7 @@ private const val SwapMs = 180
 
 @Composable
 private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () -> Unit, onNext: () -> Unit, onSeek: (Long) -> Unit,
-    onSave: (Track) -> Unit, onSkipTo: (Int) -> Unit, onProcessing: (Boolean) -> Unit) {
+    onSave: (Track) -> Unit, onSkipTo: (Int) -> Unit, onProcessing: (Boolean) -> Unit, playbackPosition: StateFlow<Long>?) {
     val track = state.loadingTrack ?: state.current
     if (track == null) {
         Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) { Text("Choose a recording to start listening.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -823,7 +826,7 @@ private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () ->
                     CoverDeck(track, queueIndex, state.queue.getOrNull(queueIndex - 1), state.queue.getOrNull(queueIndex + 1), reduced,
                         canPrevious = canSkip, canNext = canSkip && hasNext, onPrevious = onPrevious, onNext = onNext)
                     Spacer(Modifier.height(16.dp))
-                    ProgressLine(position, duration, playing, reduced, onSeek)
+                    PlaybackTimeline(playbackPosition, position, duration, playing, reduced, pending, onSeek)
                     Spacer(Modifier.height(18.dp))
                     // The title rises into place from below while the old one lifts away: a different
                     // motion from the cover so the two never look like one sliding block.
@@ -889,8 +892,9 @@ private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () ->
 private fun AudioComparison(state: MusicState, onProcessing: (Boolean) -> Unit) {
     val audio = state.audioProcessing
     val report = audio.report
+    val waiting = state.loadingTrack != null || report == null
     val ready = report?.comparisonAvailable == true && state.loadingTrack == null
-    val processed = ready && audio.selectedProcessed
+    val processed = audio.selectedProcessed && (waiting || report?.comparisonAvailable == true)
     Column(Modifier.fillMaxWidth().padding(top = 14.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(selected = !processed, onClick = { onProcessing(false) }, enabled = ready,
@@ -901,11 +905,42 @@ private fun AudioComparison(state: MusicState, onProcessing: (Boolean) -> Unit) 
         val detail = when {
             state.loadingTrack != null || report == null -> "Waiting for audio…"
             !report.comparisonAvailable -> if (report.inputPositions.size == 2) "${report.sampleRate / 1000f} kHz · processing unavailable" else "Mono · original audio"
+            audio.comparisonPending -> {
+                val target = if (audio.selectedProcessed) "Processed" else "Original"
+                if (!state.playing || state.buffering || state.resolving) "$target · ready when you play"
+                else "Switching to ${target.lowercase()}…"
+            }
             !report.processingEnabled -> if (report.inputPositions.size == 2) "Stereo · original audio" else "Front L/R only · ${report.inputPositions.size}-channel source"
             report.inputPositions.size == 2 -> "Stereo enhancement · generated spatial audio"
             else -> "${report.inputPositions.size} channels → stereo"
         }
         Text(detail, fontSize = 12.sp, lineHeight = 17.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+/** Read the clock in this small subtree, rather than invalidating the cover,
+ * controls and lazy queue every time the playback position changes. */
+@Composable
+private fun PlaybackTimeline(updates: StateFlow<Long>?, fallback: Long, duration: Long, playing: Boolean,
+    reduced: Boolean, pending: Boolean, onSeek: (Long) -> Unit) {
+    val position = updates?.collectAsStateWithLifecycle()?.value ?: fallback
+    ProgressLine(if (pending) 0 else position, duration, playing, reduced, onSeek)
+}
+
+/** The mini player's clock also stays in its own composition/draw subtree. */
+@Composable
+private fun MiniPlaybackProgress(updates: StateFlow<Long>?, fallback: Long, duration: Long, playing: Boolean, modifier: Modifier) {
+    val position = updates?.collectAsStateWithLifecycle()?.value ?: fallback
+    val smooth = rememberSmoothPosition(position, duration, playing)
+    val accent = MaterialTheme.colorScheme.primary
+    Canvas(modifier.graphicsLayer().semantics {
+        contentDescription = "Mini player progress"
+        progressBarRangeInfo = ProgressBarRangeInfo(if (duration > 0) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f, 0f..1f)
+    }) {
+        if (duration > 0) {
+            val fraction = (smooth.value.toFloat() / duration).coerceIn(0f, 1f)
+            drawRect(accent, size = Size(size.width * fraction, 2.dp.toPx()))
+        }
     }
 }
 
@@ -1086,7 +1121,7 @@ private fun ProgressLine(position: Long, duration: Long, playing: Boolean, reduc
         scope.launch { delay(450); drag.value = null }
     }
     Canvas(
-        Modifier.fillMaxWidth().height(32.dp)
+        Modifier.fillMaxWidth().height(32.dp).graphicsLayer()
             .pointerInput(duration) {
                 if (duration <= 0) return@pointerInput
                 detectTapGestures { drag.value = (it.x / size.width).coerceIn(0f, 1f); release() }
@@ -1393,12 +1428,11 @@ private fun IconTile(icon: ImageVector) {
  * in like a ticker: up when moving forward, down when going back.
  */
 @Composable
-private fun MiniPlayer(state: MusicState, onOpen: () -> Unit, onToggle: () -> Unit, onNext: () -> Unit, onPrevious: () -> Unit) {
+private fun MiniPlayer(state: MusicState, onOpen: () -> Unit, onToggle: () -> Unit, onNext: () -> Unit, onPrevious: () -> Unit,
+    playbackPosition: StateFlow<Long>?) {
     val track = state.current ?: return
     val reduced = state.reducedMotion
     val loading = state.resolving || state.buffering
-    val position = rememberSmoothPosition(state.positionMs, state.durationMs, state.playing && !reduced)
-    val duration = state.durationMs
     val i = state.queueIndex
     val hasNext = i >= 0 && i < state.queue.lastIndex
     val dx = remember { mutableFloatStateOf(0f) }
@@ -1409,20 +1443,13 @@ private fun MiniPlayer(state: MusicState, onOpen: () -> Unit, onToggle: () -> Un
     val previous by rememberUpdatedState(onPrevious)
     val allowNext by rememberUpdatedState(hasNext)
     val density = LocalDensity.current
-    val accent = MaterialTheme.colorScheme.primary
     fun settle() {
         val spec = tween<Float>(if (reduced) 0 else SwapMs, easing = EmphasizedDecelerate)
         scope.launch { animate(dx.floatValue, 0f, animationSpec = spec) { v, _ -> dx.floatValue = v } }
         scope.launch { animate(dy.floatValue, 0f, animationSpec = spec) { v, _ -> dy.floatValue = v } }
     }
-    Column(
+    Box(
         Modifier.fillMaxWidth()
-            .drawBehind {
-                if (duration > 0) {
-                    val f = (position.value.toFloat() / duration).coerceIn(0f, 1f)
-                    drawRect(accent, size = Size(size.width * f, 2.dp.toPx()))
-                }
-            }
             .clickable(onClick = onOpen)
             .pointerInput(Unit) {
                 val trigger = with(density) { 56.dp.toPx() }
@@ -1444,6 +1471,7 @@ private fun MiniPlayer(state: MusicState, onOpen: () -> Unit, onToggle: () -> Un
                 }
             },
     ) {
+        MiniPlaybackProgress(playbackPosition, state.positionMs, state.durationMs, state.playing && !reduced, Modifier.matchParentSize())
         Row(
             Modifier.fillMaxWidth().height(64.dp).padding(start = 12.dp, end = 6.dp)
                 .graphicsLayer {

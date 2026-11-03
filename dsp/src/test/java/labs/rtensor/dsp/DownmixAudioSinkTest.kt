@@ -151,6 +151,21 @@ class DownmixAudioSinkTest {
             assertTrue(heard); sink.release()
         }
     }
+    @Test fun aPausedSelectionIsAcknowledgedOnlyAfterNewAudioIsRendered() {
+        val h = Harness(); var processed = false
+        val sink = DownmixAudioSink(h.output.sink, { roles },
+            engineFactory = { CountingEngine(it).also(h.engines::add) },
+            onReport = h.reports::add, processingEnabled = { processed })
+        sink.configure(format(2), 0, null)
+        sink.pause(); processed = true
+        assertFalse(h.reports.last()!!.processingEnabled)
+        assertEquals(listOf(true), h.engines.single().comparisons)
+        sink.play()
+        assertTrue(sink.handleBuffer(input(1024, 2), 0, 1))
+        assertTrue(h.reports.last()!!.processingEnabled)
+        assertEquals(listOf(true, false), h.engines.single().comparisons)
+        assertEquals(1, h.output.configurations); assertEquals(0, h.engines.single().resets)
+    }
     @Test fun youtubeAacRateIsConvertedBeforeTheFixedRateCoreWithoutChangingPlaybackDuration() {
         val h = Harness(); val sink = wrapper(h)
         sink.configure(format(2, rate = 44100), 0, null)

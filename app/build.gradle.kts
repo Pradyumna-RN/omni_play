@@ -16,8 +16,8 @@ android {
         applicationId = "labs.rtensor.music"
         minSdk = 26
         targetSdk = 35
-        versionCode = 15
-        versionName = "0.3.12"
+        versionCode = 16
+        versionName = "0.3.13"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // An integrated build must not install as 32-bit using a dependency's
         // unrelated JNI library when the renderer is supplied only for 64-bit.
@@ -32,6 +32,11 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
     buildTypes {
+        debug {
+            // Keep the legacy OTA filename/variant and signing identity while
+            // avoiding a debuggable ART/Compose runtime in distributed builds.
+            isDebuggable = !providers.gradleProperty("rtensorOta").map { it.toBoolean() }.getOrElse(false)
+        }
         release {
             isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
@@ -107,6 +112,9 @@ tasks.named("preBuild") { dependsOn(verifyYouTubeEngine) }
 tasks.register("verifyOtaDspBundle") {
     dependsOn("assembleDebug")
     doLast {
+        check(!android.buildTypes.getByName("debug").isDebuggable) {
+            "Music OTA artifacts must be non-debuggable; build with -PrtensorOta=true"
+        }
         val directory = providers.gradleProperty("rtensorDspJniDir").orNull
             ?: error("Music OTA builds require -PrtensorDspJniDir pointing to the private Android libraries")
         val artifact = layout.buildDirectory.file("outputs/apk/debug/app-debug.apk").get().asFile

@@ -17,7 +17,10 @@ data class AudioProcessingState(
     val selectedProcessed: Boolean = true,
     val available: Boolean = false,
     val report: DownmixReport? = null,
-)
+) {
+    /** A selection is a request; only the render callback acknowledges it. */
+    val comparisonPending: Boolean get() = report?.let { it.comparisonAvailable && it.processingEnabled != selectedProcessed } == true
+}
 
 /**
  * The optional private Android core processes explicit multichannel PCM before
