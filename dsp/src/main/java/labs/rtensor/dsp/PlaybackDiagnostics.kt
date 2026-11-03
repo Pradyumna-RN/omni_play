@@ -42,7 +42,7 @@ object PlaybackDiagnostics {
     fun environment(abis: Array<String>): String {
         val ffmpeg = runCatching { if (FfmpegLibrary.isAvailable()) "FFmpeg ${FfmpegLibrary.getVersion()}" else "FFmpeg decoder unavailable" }
             .getOrElse { "FFmpeg check failed: ${it.javaClass.simpleName}" }
-        val dsp = NativeDownmixEngine.unavailableReason ?: "DSP ABI ${NativeBindings.ABI} loaded"
+        val dsp = NativeDownmixEngine.unavailableReason ?: "DSP ABI ${NativeBindings.loadedAbi} loaded"
         return "ABIs=${abis.joinToString(",")}; $ffmpeg; $dsp; DSP packaged=${NativeDownmixEngine.wasPackaged}"
     }
 

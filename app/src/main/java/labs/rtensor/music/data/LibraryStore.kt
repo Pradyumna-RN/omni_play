@@ -34,4 +34,8 @@ class LibraryStore(context: Context) {
     var processedAudio: Boolean
         get() = prefs.getBoolean("processed_audio", true)
         set(value) { prefs.edit().putBoolean("processed_audio", value).apply() }
+    /** Headphone (binaural) render selected instead of the speaker downmix. */
+    var spatialAudio: Boolean
+        get() = prefs.getBoolean("spatial_audio", false)
+        set(value) { prefs.edit().putBoolean("spatial_audio", value).apply() }
 }

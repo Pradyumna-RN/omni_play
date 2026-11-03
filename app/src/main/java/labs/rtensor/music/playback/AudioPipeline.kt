@@ -8,6 +8,7 @@ import androidx.media3.exoplayer.DefaultRenderersFactory
 import labs.rtensor.dsp.DownmixRenderersFactory
 import labs.rtensor.dsp.NativeDownmixEngine
 import labs.rtensor.dsp.DownmixReport
+import labs.rtensor.dsp.ListeningMode
 import labs.rtensor.dsp.AudioFailure
 import labs.rtensor.dsp.PlaybackDiagnostics
 import labs.rtensor.music.data.LibraryStore
@@ -17,6 +18,8 @@ import kotlinx.coroutines.flow.update
 
 data class AudioProcessingState(
     val selectedProcessed: Boolean = true,
+    /** Headphone (binaural) render instead of the speaker downmix, when processed. */
+    val selectedSpatial: Boolean = false,
     val available: Boolean = false,
     val report: DownmixReport? = null,
     /** Why the last audio pipeline stopped, classified where the cause chain is intact. */
@@ -24,8 +27,17 @@ data class AudioProcessingState(
     /** Why the private DSP cannot run in this build or on this device; null when it can. */
     val unavailableReason: String? = null,
 ) {
-    /** A selection is a request; only the render callback acknowledges it. */
-    val comparisonPending: Boolean get() = report?.let { it.comparisonAvailable && it.processingEnabled != selectedProcessed } == true
+    val selectedMode: ListeningMode get() = when {
+        !selectedProcessed -> ListeningMode.ORIGINAL
+        selectedSpatial -> ListeningMode.SPATIAL
+        else -> ListeningMode.PROCESSED
+    }
+    /** A selection is a request; only the render callback acknowledges it. Spatial falls
+     * back to Processed for a stream that has no headphone renderer. */
+    val comparisonPending: Boolean get() = report?.let {
+        val effective = if (selectedMode == ListeningMode.SPATIAL && !it.spatialAvailable) ListeningMode.PROCESSED else selectedMode
+        it.comparisonAvailable && it.listeningMode != effective
+    } == true
 }
 
 /**
@@ -40,6 +52,7 @@ object AudioPipeline {
     val state = mutable.asStateFlow()
 
     fun selectProcessing(processed: Boolean) { mutable.update { it.copy(selectedProcessed = processed) } }
+    fun selectSpatial(spatial: Boolean) { mutable.update { it.copy(selectedSpatial = spatial) } }
     fun clearReport() { mutable.update { it.copy(report = null, failure = null) } }
 
     /** Records an audio-stage failure; returns null for errors outside the audio chain. */
@@ -58,13 +71,13 @@ object AudioPipeline {
     }
 
     fun privateRenderers(context: Context): DefaultRenderersFactory? {
-        selectProcessing(LibraryStore(context).processedAudio)
+        LibraryStore(context).let { selectProcessing(it.processedAudio); selectSpatial(it.spatialAudio) }
         logEnvironment()
         NativeDownmixEngine.unavailableReason?.let { Log.w(TAG, "Processed audio unavailable: $it") }
         return if (!hasPrivateRenderer && !NativeDownmixEngine.wasPackaged) null else DownmixRenderersFactory(context,
-            processingEnabled = { mutable.value.selectedProcessed }) { report ->
+            processingEnabled = { mutable.value.selectedProcessed }, listeningMode = { mutable.value.selectedMode }) { report ->
             mutable.update { it.copy(report = report, failure = if (report != null) null else it.failure) }
-            if (report != null) Log.i(TAG, "${if (report.processingEnabled) report.processing else "Original"} ${report.inputPositions} -> ${report.outputChannels} channels; source=${report.sampleRate} Hz, render=${report.renderSampleRate} Hz; source channels=${report.sourceChannels}; Atmos verification=${report.atmosVerified}${report.unavailableReason?.let { "; not processed: $it" } ?: ""}")
+            if (report != null) Log.i(TAG, "${report.listeningMode} ${report.processing} ${report.inputPositions} -> ${report.outputChannels} channels; source=${report.sampleRate} Hz, render=${report.renderSampleRate} Hz; source channels=${report.sourceChannels}; 9.1.6 upmix=${report.upmix916}; spatial available=${report.spatialAvailable}; Atmos verification=${report.atmosVerified}${report.unavailableReason?.let { "; not processed: $it" } ?: ""}")
         }
     }
 

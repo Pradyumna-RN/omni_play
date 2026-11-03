@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withTimeoutOrNull
 import labs.rtensor.dsp.DownmixReport
+import labs.rtensor.dsp.ListeningMode
 import labs.rtensor.music.data.Master
 import labs.rtensor.music.data.PlaybackRoute
 import labs.rtensor.music.data.Track
@@ -20,6 +21,7 @@ data class SourcePlaybackInfo(val stream: ProviderStream?, val fallbackLabel: St
         val codec = when (f.sampleMimeType) { "audio/flac" -> "FLAC"; "audio/alac" -> "ALAC"; "audio/eac3-joc" -> "Atmos"; "audio/eac3" -> "E-AC-3"; "audio/mp4a-latm" -> "AAC"; else -> "Audio" }
         val multichannel = render?.inputPositions?.size?.let { it > 2 } == true
         val route = when {
+            multichannel && render?.listeningMode == ListeningMode.SPATIAL -> "${render.inputPositions.size} ch → headphones"
             multichannel && render?.processingEnabled == true -> "${render.inputPositions.size} ch → DMR"
             multichannel -> "${render!!.inputPositions.size} ch · original front L/R"
             render == null -> "checking decoded channels"

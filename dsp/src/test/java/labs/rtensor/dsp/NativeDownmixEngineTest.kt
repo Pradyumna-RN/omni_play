@@ -106,4 +106,22 @@ class NativeDownmixEngineTest {
         start.countDown(); engine.close(); workers.forEach { it.join() }
         assertTrue(failures.toString(), failures.isEmpty())
     }
+
+    @Test fun abi3UpmixesMultichannelInto916FieldWithHeights() {
+        assumeTrue("The private DSP predates the speaker field", NativeBindings.hasField)
+        NativeDownmixEngine(DownmixFormat(48000, roles)).use { engine ->
+            assertTrue(engine.upmix916); assertTrue(engine.providesField)
+            val frames = 4096
+            val noise = java.util.Random(3)
+            val input = buffer(frames * 24).apply { repeat(frames) { putFloat(noise.nextFloat() * .2f - .1f); putFloat(noise.nextFloat() * .2f - .1f); repeat(4) { putFloat(0f) } }; flip() }
+            val field = buffer(frames * 16 * 4)
+            while (input.hasRemaining()) engine.processField(input, field, 512)
+            assertFalse(field.hasRemaining())
+            field.flip(); val samples = FloatArray(frames * 16) { field.float }
+            assertTrue(samples.all { it.isFinite() })
+            val heights = (10..15).sumOf { ch -> (0 until frames).sumOf { t -> samples[t * 16 + ch].toDouble().let { it * it } } }
+            assertTrue("upmix should place energy in the height speakers", heights > 0)
+        }
+        NativeDownmixEngine(DownmixFormat(48000, roles.take(2))).use { assertFalse(it.upmix916) }
+    }
 }
