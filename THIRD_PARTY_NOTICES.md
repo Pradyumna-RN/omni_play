@@ -32,3 +32,26 @@ The headphone (Spatial) mode bundles the 16×256-tap third-order HRIR set from
 Omnitone 2.0.0 (https://github.com/GoogleChrome/omnitone, Apache-2.0), re-encoded as
 raw float32. Those filters are derived from the SADIE HRTF database (University of
 York). The binaural renderer code is original; see toa_hrir_48k.NOTICE.txt.
+
+Omnitone HRIR data notice (retained from src/resources/NOTICE):
+
+# SADIE Binaural Measurements
+
+Omnitone's HRIR files for the binaural rendering is based on Google/SADIE
+binaural filters.
+
+https://www.york.ac.uk/sadie-project/GoogleVRSADIE.html
+
+Copyright (c) 2017, University of York.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.

@@ -203,3 +203,38 @@ On a phone, `adb logcat -s AudioPipeline` now prints the source channels and any
 - Private DSP tests: 28/28, including under ASan/UBSan.
 - **Not verified on a phone yet.** CPU load, audible quality and the chip switching
   live need checking on the device.
+
+## Integrated ABI-3 Android build (0.3.17)
+
+Applied the supplied ABI-3 patch only to the private renderer's Android branch.
+Its DSP coefficient/matrix implementation is unchanged; two read-only accessors
+expose the already rendered speaker field. Rebuilt the real JNI library for
+arm64-v8a, x86_64 and the host, rather than shipping the previous ABI-2 binaries.
+The private portable suite passes all 28 cases normally and under ASan/UBSan
+(leak checking disabled for the Python host process).
+
+Verified the bundled HRIR bytes against Omnitone upstream commit
+`7839c134641260bef5456f8661e14a03426e81ad`: all 16 filters exactly match the
+PCM16-to-float conversion. Upstream `src/resources/NOTICE` explicitly licenses
+the Google/SADIE filters under Apache-2.0 and credits University of York (2017).
+Retained that notice in the resource, source notices and existing licences page.
+No copyright text was added to the player or other main app screens.
+
+Added a real ABI-3 JNI sink regression that switches Processed → Original →
+Spatial → Processed on a centre-only 5.1 signal. It checks audible centre energy
+in both render paths, silence for Original's FL/FR-only comparison, finite bounded
+output, acknowledged mode reports, duration, and no engine/output recreation.
+Additional app tests cover pending mode requests and unavailable-Spatial fallback.
+
+Spatial is intended for headphones; the current implementation does not detect
+or enforce the physical output route. It always emits two-channel binaural PCM.
+It is neither a 16-channel hardware output nor an Atmos object decoder. Phone
+performance, route behaviour and listening quality remain to be tested on-device.
+
+Full Android verification completed: 132 app tests and 85 DSP tests pass (no
+skips), including the new Compose Spatial selection/acknowledgement case and the
+real native mode-switching case. The first app run found two outdated two-mode
+fixtures; they now acknowledge both `processingEnabled` and `listeningMode`, as
+the real sink does. The older ABI-2 JNI suite also passes with its ABI-3-only
+field test skipped. APK guards verify the exact supplied native libraries for
+both architectures. Version is 0.3.17/code 20 with the existing signing identity.

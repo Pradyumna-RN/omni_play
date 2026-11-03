@@ -420,6 +420,51 @@ class DownmixAudioSinkTest {
         }
     }
 
+    @Test fun realAbi3FieldSwitchesOriginalProcessedAndSpatialWithoutReloading() {
+        org.junit.Assume.assumeTrue(NativeBindings.hasField)
+        var mode = ListeningMode.PROCESSED
+        val output = RecordingOutput()
+        val reports = mutableListOf<DownmixReport?>()
+        var engines = 0
+        val sink = DownmixAudioSink(output.sink, { roles },
+            engineFactory = { engines++; NativeDownmixEngine(it) },
+            onReport = reports::add, listeningMode = { mode })
+        try {
+            sink.configure(format(), 0, null)
+            val levels = mutableListOf<Double>()
+            for ((segment, target) in listOf(ListeningMode.PROCESSED, ListeningMode.ORIGINAL,
+                ListeningMode.SPATIAL, ListeningMode.PROCESSED).withIndex()) {
+                mode = target
+                val start = output.bytes.size()
+                val pcm = buffer(4800 * roles.size * 4).apply {
+                    repeat(4800) { frame -> repeat(roles.size) { ch ->
+                        putFloat(if (ch == 2) (.1 * kotlin.math.sin(frame * 2 * Math.PI * 440 / 48000)).toFloat() else 0f)
+                    } }; flip()
+                }
+                assertTrue(sink.handleBuffer(pcm, segment * 100_000L, 1))
+                assertEquals(target, reports.last()!!.listeningMode)
+                assertTrue(reports.last()!!.upmix916)
+                val samples = ByteBuffer.wrap(output.bytes.toByteArray()).order(ByteOrder.nativeOrder())
+                samples.position(start + 2400 * 8) // measure after the fade/filter settling
+                var power = 0.0
+                while (samples.hasRemaining()) {
+                    val value = samples.float
+                    assertTrue(value.isFinite() && kotlin.math.abs(value) <= 1.0001f)
+                    power += value * value
+                }
+                levels += kotlin.math.sqrt(power / 4800)
+            }
+            assertTrue("Both render paths must contain the centre speaker: $levels",
+                levels[0] > 1e-5 && levels[2] > 1e-5 && levels[3] > 1e-5)
+            assertTrue("Original must omit the centre speaker: $levels", levels[1] < 1e-7)
+            assertEquals(1, engines)
+            assertEquals(1, output.configurations)
+            assertEquals(19200 * 8, output.bytes.size())
+            assertEquals(listOf(ListeningMode.PROCESSED, ListeningMode.ORIGINAL, ListeningMode.SPATIAL,
+                ListeningMode.PROCESSED), reports.filterNotNull().map { it.listeningMode })
+        } finally { sink.release() }
+    }
+
     /** Exposes a 16-speaker field the way the ABI 3 private core does. */
     private class FieldEngine(format: DownmixFormat) : DownmixEngine by CountingEngine(format) {
         var fields = 0; var processes = 0; var resets = 0
