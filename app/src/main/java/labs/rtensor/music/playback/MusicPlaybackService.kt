@@ -51,6 +51,7 @@ class MusicPlaybackService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
+        setMediaNotificationProvider(PlayerNotification(this))
         val youtube = YouTubeSource(this)
         val http = PlaybackDataSource.httpFactory()
         val resolving = ResolvingDataSource.Factory(DefaultDataSource.Factory(this, DataSource.Factory { GoogleVideoDataSource(http.createDataSource()) })) { spec ->
