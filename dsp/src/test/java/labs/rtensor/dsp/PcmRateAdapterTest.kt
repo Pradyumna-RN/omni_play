@@ -9,10 +9,10 @@ import kotlin.math.abs
 import kotlin.math.sin
 import kotlin.math.sqrt
 
-class StereoRateAdapterTest {
+class PcmRateAdapterTest {
     private fun buffer(bytes: Int) = ByteBuffer.allocateDirect(bytes).order(ByteOrder.nativeOrder())
     private fun convert(data: FloatArray, blocks: IntArray = intArrayOf(470)): FloatArray {
-        val adapter = StereoRateAdapter(); val result = ArrayList<Float>(); var offset = 0; var block = 0
+        val adapter = PcmRateAdapter(); val result = ArrayList<Float>(); var offset = 0; var block = 0
         while (offset < data.size / 2) {
             val frames = minOf(blocks[block++ % blocks.size], data.size / 2 - offset)
             val source = buffer(frames * 8).apply { repeat(frames * 2) { putFloat(data[offset * 2 + it]) }; flip() }
@@ -50,7 +50,7 @@ class StereoRateAdapterTest {
         }
     }
     @Test fun resetClearsOldAudioAndMalformedInputDoesNotPoisonTheHistory() {
-        val adapter = StereoRateAdapter(); val input = buffer(3760).apply { repeat(940) { putFloat(.2f) }; flip() }
+        val adapter = PcmRateAdapter(); val input = buffer(3760).apply { repeat(940) { putFloat(.2f) }; flip() }
         val first = buffer(4096); adapter.process(input, first, 470)
         adapter.reset(); input.rewind(); val repeated = buffer(4096); adapter.process(input, repeated, 470)
         first.flip(); repeated.flip(); assertEquals(first, repeated)
@@ -58,5 +58,37 @@ class StereoRateAdapterTest {
         assertThrows(IllegalArgumentException::class.java) { adapter.process(input, buffer(4096), 470) }
         input.putFloat(12, .2f); val valid = buffer(4096); adapter.process(input, valid, 470); valid.flip()
         assertEquals(first, valid)
+    }
+    private fun convertChannels(data: FloatArray, channels: Int, adapter: PcmRateAdapter, block: Int = 470): FloatArray {
+        val result = ArrayList<Float>(); var offset = 0; val total = data.size / channels
+        while (offset < total) {
+            val frames = minOf(block, total - offset)
+            val source = buffer(frames * channels * 4).apply { repeat(frames * channels) { putFloat(data[offset * channels + it]) }; flip() }
+            val output = buffer(adapter.maxOutputFrames(frames) * channels * 4)
+            val count = adapter.process(source, output, frames)
+            assertEquals(count * channels * 4, output.position()); assertFalse(source.hasRemaining())
+            output.flip(); while (output.hasRemaining()) result += output.float
+            offset += frames
+        }
+        return result.toFloatArray()
+    }
+    @Test fun eachOfSixChannelsMatchesTheSameChannelConvertedAlone() {
+        val channels = 6; val frames = 4410
+        val tones = doubleArrayOf(311.0, 521.0, 733.0, 77.0, 947.0, 1163.0)
+        val data = FloatArray(frames * channels) { i -> (sin(2 * PI * tones[i % channels] * (i / channels) / 44100) * .2).toFloat() }
+        val together = convertChannels(data, channels, PcmRateAdapter(channels))
+        assertEquals(4800 * channels, together.size)
+        for (c in 0 until channels) {
+            val alone = convertChannels(FloatArray(frames) { data[it * channels + c] }, 1, PcmRateAdapter(1))
+            assertEquals(4800, alone.size)
+            for (i in alone.indices) assertEquals("channel $c frame $i", alone[i], together[i * channels + c], 0f)
+        }
+    }
+    @Test fun highResolutionFamilyIsConvertedToTheMatchingRenderRate() {
+        assertEquals(48000, PcmRateAdapter.CONVERTIBLE_RATES[44100]); assertEquals(96000, PcmRateAdapter.CONVERTIBLE_RATES[88200])
+        assertEquals(192000, PcmRateAdapter.CONVERTIBLE_RATES[176400]); assertNull(PcmRateAdapter.CONVERTIBLE_RATES[32000])
+        val out = convertChannels(FloatArray(88200 * 8) { if (it % 8 == 3) .1f else .3f }, 8, PcmRateAdapter(8))
+        assertEquals(96000 * 8, out.size)
+        for (i in 400 * 8 until out.size) assertEquals(if (i % 8 == 3) .1f else .3f, out[i], .000001f)
     }
 }

@@ -46,7 +46,7 @@ class DownmixAudioSink(
     private var inputEndPts = 0L
     private var transition: ProcessingTransition? = null
     private var report: DownmixReport? = null
-    private var rateAdapter: StereoRateAdapter? = null
+    private var rateAdapter: PcmRateAdapter? = null
     private var resampledInput: ByteBuffer = EMPTY
     private var sourceBlockFrames = 512
     private var renderedFrames = 0L
@@ -55,13 +55,12 @@ class DownmixAudioSink(
     override fun getFormatSupport(format: Format): Int {
         // Decode compressed input rather than bypassing the custom PCM stage.
         if (format.sampleMimeType != MimeTypes.AUDIO_RAW) return AudioSink.SINK_FORMAT_UNSUPPORTED
-        val encodingSupported = runCatching { PcmFloatConverter.bytesPerSample(format.pcmEncoding) }.isSuccess
         if (format.channelCount <= 2 && !processStereo) return delegate.getFormatSupport(format)
-        val processable = format.channelCount in 2..16 && (format.sampleRate in DownmixFormat.SUPPORTED_SAMPLE_RATES || (format.channelCount == 2 && format.sampleRate == 44100)) && encodingSupported
-        if (format.channelCount <= 2 && !processable) return delegate.getFormatSupport(format)
-        return if (processable)
-            AudioSink.SINK_FORMAT_SUPPORTED_DIRECTLY else AudioSink.SINK_FORMAT_UNSUPPORTED
+        // PCM the private core cannot take still plays, unprocessed, through the delegate.
+        return if (processable(format)) AudioSink.SINK_FORMAT_SUPPORTED_DIRECTLY else delegate.getFormatSupport(format)
     }
+    private fun encodingSupported(encoding: Int) = runCatching { PcmFloatConverter.bytesPerSample(encoding) }.isSuccess
+    private fun processable(format: Format) = format.channelCount in 2..16 && renderRate(format.sampleRate) != null && encodingSupported(format.pcmEncoding)
     override fun getFormatOffloadSupport(format: Format): AudioOffloadSupport = AudioOffloadSupport.DEFAULT_UNSUPPORTED
 
     override fun configure(format: Format, specifiedBufferSize: Int, outputChannels: IntArray?) {
@@ -70,34 +69,41 @@ class DownmixAudioSink(
         clearStream()
         transition = null; report = null; rateAdapter = null
         inputFormat = format
-        val convertible = format.channelCount == 2 && format.sampleRate == 44100
-        val encodingSupported = runCatching { PcmFloatConverter.bytesPerSample(format.pcmEncoding) }.isSuccess
-        if (format.channelCount < 2 || (format.channelCount == 2 && (!processStereo || (!convertible && format.sampleRate !in DownmixFormat.SUPPORTED_SAMPLE_RATES) || !encodingSupported))) {
-            delegate.setAudioAttributes(requestedAttributes)
-            delegate.configure(format, specifiedBufferSize, outputChannels)
-            report = DownmixReport(format.sampleRate, if (format.channelCount == 2) listOf(SpeakerPosition.FL, SpeakerPosition.FR) else emptyList(),
-                processing = "Original audio", processingEnabled = false, comparisonAvailable = false,
-                unavailableReason = if (!processStereo && format.channelCount == 2) "Stereo bypass" else if (format.channelCount == 2) "Unsupported processing format" else "Mono source")
-            onReport(report)
-            return
+        when {
+            format.channelCount < 2 -> return bypass(format, specifiedBufferSize, outputChannels, emptyList(), "Mono source")
+            format.channelCount == 2 && !processStereo -> return bypass(format, specifiedBufferSize, outputChannels, STEREO, "Stereo bypass")
+            !processable(format) -> return bypass(format, specifiedBufferSize, outputChannels, if (format.channelCount == 2) STEREO else emptyList(),
+                if (format.channelCount == 2) "Unsupported processing format"
+                else "Unsupported processing format: ${format.channelCount} channels at ${format.sampleRate} Hz (${encodingName(format.pcmEncoding)})")
         }
+        val positions = if (format.channelCount == 2) STEREO else try {
+            decodedPositions(format.channelCount)
+        } catch (error: Exception) {
+            // Without known speaker positions the DSP would be guessing; play the
+            // original through Android instead of stopping playback.
+            if (error is DownmixException && error.stage == DownmixStage.LAYOUT)
+                return bypass(format, specifiedBufferSize, outputChannels, emptyList(), error.message ?: "Unknown speaker layout")
+            onReport(null)
+            throw AudioSink.ConfigurationException(error, format)
+        }
+        val renderRate = checkNotNull(renderRate(format.sampleRate))
+        val convertible = renderRate != format.sampleRate
         var created: DownmixEngine? = null
         try {
             require(format.sampleMimeType == MimeTypes.AUDIO_RAW) { "Downmix requires decoded PCM" }
             require(outputChannels == null || (format.channelCount == 2 && outputChannels.contentEquals(intArrayOf(0, 1)))) { "A decoder channel-remapping array needs explicit layout reconciliation" }
-            val positions = if (format.channelCount == 2) listOf(SpeakerPosition.FL, SpeakerPosition.FR) else decodedPositions(format.channelCount)
             require(positions.size == format.channelCount)
-            val specification = DownmixFormat(if (convertible) 48000 else format.sampleRate, positions)
+            val specification = DownmixFormat(renderRate, positions)
             frameBytes = PcmFloatConverter.bytesPerSample(format.pcmEncoding) * format.channelCount
             inputChannels = format.channelCount
             created = engineFactory(specification)
             val processed = processingEnabled()
             created.setCompareMode(!processed)
             transition = ProcessingTransition(specification.sampleRate, processed)
-            rateAdapter = if (convertible) StereoRateAdapter() else null
+            rateAdapter = if (convertible) PcmRateAdapter(inputChannels) else null
             sourceBlockFrames = rateAdapter?.inputFramesPerBlock(specification.maxBlockFrames) ?: specification.maxBlockFrames
             floatInput = ByteBuffer.allocateDirect(specification.maxBlockFrames * inputChannels * 4).order(ByteOrder.nativeOrder())
-            resampledInput = if (convertible) ByteBuffer.allocateDirect(specification.maxBlockFrames * 8).order(ByteOrder.nativeOrder()) else EMPTY
+            resampledInput = if (convertible) ByteBuffer.allocateDirect(specification.maxBlockFrames * inputChannels * 4).order(ByteOrder.nativeOrder()) else EMPTY
             floatOutput = ByteBuffer.allocateDirect(specification.maxBlockFrames * 8).order(ByteOrder.nativeOrder())
             val stereo = format.buildUpon().setChannelCount(2).setSampleRate(specification.sampleRate).setPcmEncoding(C.ENCODING_PCM_FLOAT).build()
             require(delegate.getFormatSupport(stereo) != AudioSink.SINK_FORMAT_UNSUPPORTED) { "The output cannot accept float PCM" }
@@ -113,6 +119,14 @@ class DownmixAudioSink(
             onReport(null)
             throw AudioSink.ConfigurationException(error, format)
         }
+    }
+
+    private fun bypass(format: Format, specifiedBufferSize: Int, outputChannels: IntArray?, positions: List<SpeakerPosition>, reason: String) {
+        delegate.setAudioAttributes(requestedAttributes)
+        delegate.configure(format, specifiedBufferSize, outputChannels)
+        report = DownmixReport(format.sampleRate, positions, processing = "Original audio", processingEnabled = false,
+            comparisonAvailable = false, unavailableReason = reason, sourceChannels = format.channelCount)
+        onReport(report)
     }
 
     override fun handleBuffer(buffer: ByteBuffer, presentationTimeUs: Long, encodedAccessUnitCount: Int): Boolean {
@@ -243,5 +257,13 @@ class DownmixAudioSink(
         transition?.reset()
         rateAdapter?.reset(); renderedFrames = 0
     }
-    private companion object { val EMPTY: ByteBuffer = ByteBuffer.allocateDirect(0).order(ByteOrder.nativeOrder()) }
+    private companion object {
+        val EMPTY: ByteBuffer = ByteBuffer.allocateDirect(0).order(ByteOrder.nativeOrder())
+        val STEREO = listOf(SpeakerPosition.FL, SpeakerPosition.FR)
+        fun renderRate(rate: Int): Int? = if (rate in DownmixFormat.SUPPORTED_SAMPLE_RATES) rate else PcmRateAdapter.CONVERTIBLE_RATES[rate]
+        fun encodingName(encoding: Int) = when (encoding) {
+            C.ENCODING_PCM_8BIT -> "8-bit"; C.ENCODING_PCM_16BIT -> "16-bit"; C.ENCODING_PCM_24BIT -> "24-bit"
+            C.ENCODING_PCM_32BIT -> "32-bit"; C.ENCODING_PCM_FLOAT -> "float"; else -> "encoding $encoding"
+        }
+    }
 }

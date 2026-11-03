@@ -889,7 +889,7 @@ private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () ->
                         LabelledControl(if (saved) "Saved" else "Save", if (saved) Icons.Outlined.Favorite else Icons.Outlined.FavoriteBorder, { onSave(track) }, highlighted = saved)
                     }
                     RouteLabel(state.routeLabel)
-                    if (state.audioProcessing.available && state.audioProcessing.report?.comparisonAvailable == true) AudioComparison(state, onProcessing)
+                    if (showsAudioComparison(state)) AudioComparison(state, onProcessing)
                     Spacer(Modifier.height(30.dp))
                     Row(Modifier.fillMaxWidth().padding(bottom = 6.dp), verticalAlignment = Alignment.Bottom) {
                         Text("Up next", fontSize = 20.sp, fontWeight = FontWeight.Medium, letterSpacing = (-.5).sp, modifier = Modifier.weight(1f))
@@ -911,12 +911,24 @@ private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () ->
     }
 }
 
+/** Shown for every multichannel source, and whenever the DSP is missing, so a disabled
+ * toggle explains itself; plain stereo plays the original by design and stays quiet. */
+private fun showsAudioComparison(state: MusicState): Boolean {
+    val audio = state.audioProcessing
+    val report = audio.report
+    return when {
+        !audio.available -> state.current != null
+        report == null -> false
+        else -> report.comparisonAvailable || report.sourceChannels > 2
+    }
+}
+
 @Composable
 private fun AudioComparison(state: MusicState, onProcessing: (Boolean) -> Unit) {
     val audio = state.audioProcessing
     val report = audio.report
-    val waiting = state.loadingTrack != null || report == null
-    val ready = report?.comparisonAvailable == true && state.loadingTrack == null
+    val waiting = audio.available && (state.loadingTrack != null || report == null)
+    val ready = audio.available && report?.comparisonAvailable == true && state.loadingTrack == null
     val processed = audio.selectedProcessed && (waiting || report?.comparisonAvailable == true)
     Column(Modifier.fillMaxWidth().padding(top = 14.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -926,8 +938,13 @@ private fun AudioComparison(state: MusicState, onProcessing: (Boolean) -> Unit) 
                 label = { Text("Processed") }, modifier = Modifier.semantics { contentDescription = "Processed audio" })
         }
         val detail = when {
+            !audio.available -> "Processing unavailable · ${audio.unavailableReason ?: "the DSP library did not load"}"
             state.loadingTrack != null || report == null -> "Waiting for audio…"
-            !report.comparisonAvailable -> if (report.inputPositions.size == 2) "${report.sampleRate / 1000f} kHz · processing unavailable" else "Mono · original audio"
+            !report.comparisonAvailable -> when (report.sourceChannels) {
+                1 -> "Mono · original audio"
+                2 -> "Stereo · original audio"
+                else -> "${report.sourceChannels} channels · original audio" + (report.unavailableReason?.let { " · $it" } ?: "")
+            }
             audio.comparisonPending -> {
                 val target = if (audio.selectedProcessed) "Processed" else "Original"
                 if (!state.playing || state.buffering || state.resolving) "$target · ready when you play"

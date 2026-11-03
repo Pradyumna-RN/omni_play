@@ -57,4 +57,6 @@ data class DownmixReport(
     val bitPerfect: Boolean = false,
     // PCM channel count cannot establish whether Atmos object metadata was rendered.
     val atmosVerified: Boolean = false,
+    /** Decoded channel count, known even when the speaker positions are not. */
+    val sourceChannels: Int = inputPositions.size,
 )

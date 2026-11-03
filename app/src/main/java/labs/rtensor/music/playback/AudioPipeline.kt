@@ -21,6 +21,8 @@ data class AudioProcessingState(
     val report: DownmixReport? = null,
     /** Why the last audio pipeline stopped, classified where the cause chain is intact. */
     val failure: AudioFailure? = null,
+    /** Why the private DSP cannot run in this build or on this device; null when it can. */
+    val unavailableReason: String? = null,
 ) {
     /** A selection is a request; only the render callback acknowledges it. */
     val comparisonPending: Boolean get() = report?.let { it.comparisonAvailable && it.processingEnabled != selectedProcessed } == true
@@ -34,7 +36,7 @@ data class AudioProcessingState(
 @UnstableApi
 object AudioPipeline {
     val hasPrivateRenderer: Boolean get() = NativeDownmixEngine.isAvailable
-    private val mutable = MutableStateFlow(AudioProcessingState(available = hasPrivateRenderer))
+    private val mutable = MutableStateFlow(AudioProcessingState(available = hasPrivateRenderer, unavailableReason = NativeDownmixEngine.unavailableReason))
     val state = mutable.asStateFlow()
 
     fun selectProcessing(processed: Boolean) { mutable.update { it.copy(selectedProcessed = processed) } }
@@ -58,10 +60,11 @@ object AudioPipeline {
     fun privateRenderers(context: Context): DefaultRenderersFactory? {
         selectProcessing(LibraryStore(context).processedAudio)
         logEnvironment()
+        NativeDownmixEngine.unavailableReason?.let { Log.w(TAG, "Processed audio unavailable: $it") }
         return if (!hasPrivateRenderer && !NativeDownmixEngine.wasPackaged) null else DownmixRenderersFactory(context,
             processingEnabled = { mutable.value.selectedProcessed }) { report ->
             mutable.update { it.copy(report = report, failure = if (report != null) null else it.failure) }
-            if (report != null) Log.i(TAG, "${if (report.processingEnabled) report.processing else "Original"} ${report.inputPositions} -> ${report.outputChannels} channels; source=${report.sampleRate} Hz, render=${report.renderSampleRate} Hz; Atmos verification=${report.atmosVerified}")
+            if (report != null) Log.i(TAG, "${if (report.processingEnabled) report.processing else "Original"} ${report.inputPositions} -> ${report.outputChannels} channels; source=${report.sampleRate} Hz, render=${report.renderSampleRate} Hz; source channels=${report.sourceChannels}; Atmos verification=${report.atmosVerified}${report.unavailableReason?.let { "; not processed: $it" } ?: ""}")
         }
     }
 

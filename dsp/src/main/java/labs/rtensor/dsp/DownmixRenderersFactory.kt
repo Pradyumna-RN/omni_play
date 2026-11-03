@@ -21,7 +21,8 @@ import androidx.media3.decoder.ffmpeg.FfmpegAudioRenderer
 import androidx.media3.decoder.ffmpeg.FfmpegLibrary
 
 /** Uses the software E-AC-3 bed decoder when packaged, otherwise the device decoder,
- * then the app-owned PCM render. No Apple Music SDK
+ * then the app-owned PCM render. Multichannel PCM whose speaker positions are
+ * unknown plays unprocessed through Android rather than failing. No Apple Music SDK
  * capture, Atmos object decoder or system loopback is implemented. Stereo
  * bypasses DMR without upmixing or rate conversion. */
 @UnstableApi
@@ -89,12 +90,20 @@ open class DownmixRenderersFactory(
                     require(!multichannelRequired || count > 2) { "The decoder folded the multichannel recording to stereo before DSP" }
                     val mask = if (mediaFormat?.containsKey(MediaFormat.KEY_CHANNEL_MASK) == true)
                         mediaFormat.getInteger(MediaFormat.KEY_CHANNEL_MASK).takeIf { it != 0 && it != 1 } else null
-                    layoutError = null
-                    positions = if (count <= 2) null else if (mask != null)
-                        AndroidSpeakerLayout.fromMask(mask, count)
-                    else if (format.sampleMimeType == MimeTypes.AUDIO_FLAC && count == format.channelCount)
-                        flacPositions(count)
-                    else null
+                    // A missing or unmappable layout is not fatal: the sink then plays the
+                    // original through Android and reports why the DSP stayed out.
+                    val layout = runCatching {
+                        if (count <= 2) null else if (mask != null)
+                            AndroidSpeakerLayout.fromMask(mask, count)
+                        else if (format.sampleMimeType == MimeTypes.AUDIO_FLAC && count == format.channelCount)
+                            flacPositions(count)
+                        else null
+                    }
+                    positions = layout.getOrNull()
+                    layoutError = layout.exceptionOrNull()?.let { DownmixException(DownmixStage.LAYOUT,
+                        "${it.message} (Android channel mask 0x${Integer.toHexString(mask ?: 0)}, $count channels)", it) }
+                        ?: if (count > 2 && positions == null) DownmixException(DownmixStage.LAYOUT,
+                            "The ${format.sampleMimeType ?: "audio"} decoder did not report which speaker each of its $count channels is; playing the original") else null
                     super.onOutputFormatChanged(format, mediaFormat)
                 } catch (error: IllegalArgumentException) {
                     throw createRendererException(error, format, PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED)

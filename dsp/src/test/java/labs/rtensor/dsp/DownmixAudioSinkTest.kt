@@ -85,7 +85,7 @@ class DownmixAudioSinkTest {
         engineFactory = { CountingEngine(it).also(h.engines::add) }, onReport = h.reports::add, processStereo = true)
 
     @Test fun unsupportedStereoRateBypassesWithoutChangingFormatOrBytes() {
-        val h = Harness(); val sink = wrapper(h); val f = format(2, C.ENCODING_PCM_24BIT, 88200)
+        val h = Harness(); val sink = wrapper(h); val f = format(2, C.ENCODING_PCM_24BIT, 32000)
         sink.configure(f, 1234, null)
         val samples = ByteArray(120) { it.toByte() }; val b = buffer(120).apply { put(samples); flip() }
         assertTrue(sink.handleBuffer(b, 0, 1)); assertArrayEquals(samples, h.output.bytes.toByteArray())
@@ -264,12 +264,15 @@ class DownmixAudioSinkTest {
     @Test fun aLayoutFailureReachesPlaybackDiagnosticsWithItsMask() {
         val h = Harness()
         val sink = wrapper(h) { FfmpegSpeakerLayout.positions(0x13f, it) }
-        val error = assertThrows(AudioSink.ConfigurationException::class.java) { sink.configure(format(7), 0, null) }
-        val cause = error.cause as DownmixException
-        assertEquals(DownmixStage.LAYOUT, cause.stage)
-        val failure = PlaybackDiagnostics.describe(error)!!
-        assertEquals(DownmixStage.LAYOUT, failure.stage); assertTrue(failure.message, "0x13f" in failure.message)
-        assertTrue(h.engines.isEmpty()); assertNull(h.reports.last())
+        // An unknown speaker layout must not stop playback: the original plays and the reason is shown.
+        val f = format(7); sink.configure(f, 777, null)
+        assertTrue(h.engines.isEmpty()); assertSame(f, h.output.configured); assertEquals(777, h.output.configuredBufferSize)
+        val report = h.reports.last()!!
+        assertFalse(report.comparisonAvailable); assertFalse(report.processingEnabled); assertEquals(7, report.sourceChannels)
+        assertTrue(report.unavailableReason, "0x13f" in report.unavailableReason!!)
+        val samples = ByteArray(7 * 4 * 3) { it.toByte() }
+        assertTrue(sink.handleBuffer(buffer(samples.size).apply { put(samples); flip() }, 0, 1))
+        assertArrayEquals(samples, h.output.bytes.toByteArray())
     }
     @Test fun unsupportedRateAndFloatOutputDoNotSilentlyBecomePcm16() {
         val h = Harness(); h.output.floatSupported = false
@@ -277,7 +280,7 @@ class DownmixAudioSinkTest {
         assertThrows(AudioSink.ConfigurationException::class.java) { sink.configure(format(), 0, null) }
         assertEquals(1, h.engines.single().closes); assertEquals(0, h.output.configurations)
         assertThrows(AudioSink.ConfigurationException::class.java) { sink.configure(format(rate = 44100), 0, null) }
-        assertEquals(1, h.engines.size)
+        assertEquals(2, h.engines.size); assertEquals(1, h.engines.last().closes); assertEquals(0, h.output.configurations)
     }
     @Test fun compressedInputCannotBypassTheDecoderAndDspStage() {
         val sink = wrapper(Harness())
@@ -310,15 +313,54 @@ class DownmixAudioSinkTest {
     @Test fun formatQueriesRejectUnsupportedPcmInsteadOfAdvertisingProcessing() {
         val sink = wrapper(Harness())
         assertTrue(sink.supportsFormat(format(8, C.ENCODING_PCM_24BIT, 192000)))
-        assertFalse(sink.supportsFormat(format(8, C.ENCODING_PCM_8BIT)))
-        assertFalse(sink.supportsFormat(format(rate = 44100)))
+        assertTrue(sink.supportsFormat(format(rate = 44100)))
+        assertTrue(sink.supportsFormat(format(8, rate = 88200)))
+        // PCM the core cannot take is answered by the output, and configure plays it unprocessed.
+        val h = Harness(); val bypass = wrapper(h); val pcm8 = format(8, C.ENCODING_PCM_8BIT)
+        assertEquals(AudioSink.SINK_FORMAT_SUPPORTED_DIRECTLY, bypass.getFormatSupport(pcm8))
+        bypass.configure(pcm8, 0, null)
+        assertTrue(h.engines.isEmpty()); assertSame(pcm8, h.output.configured)
+        assertTrue(h.reports.last()!!.unavailableReason!!, "8-bit" in h.reports.last()!!.unavailableReason!!)
     }
     @Test fun renderedStereoOptsOutOfASecondSpatializationPass() {
         val h = Harness(); val sink = wrapper(h)
         val original = AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build()
         sink.setAudioAttributes(original); sink.configure(format(), 0, null)
         assertEquals(C.SPATIALIZATION_BEHAVIOR_NEVER, h.output.attributes!!.spatializationBehavior)
-        sink.configure(format(2, rate = 88200), 0, null)
+        sink.configure(format(2, rate = 32000), 0, null)
         assertSame(original, h.output.attributes)
+    }
+    @Test fun cdRateMultichannelIsConvertedAndProcessedAt48k() {
+        val h = Harness(); val sink = wrapper(h); sink.configure(format(rate = 44100), 0, null)
+        assertTrue(sink.handleBuffer(input(44100), 0, 1))
+        assertEquals(48000, h.engines.single().format.sampleRate); assertEquals(6, h.engines.single().format.inputChannels)
+        assertEquals(48000, h.output.configured!!.sampleRate); assertEquals(2, h.output.configured!!.channelCount)
+        assertEquals(48000 * 8, h.output.bytes.size())
+        val report = h.reports.single()!!
+        assertEquals(44100, report.sampleRate); assertEquals(48000, report.renderSampleRate)
+        assertTrue(report.comparisonAvailable); assertEquals(6, report.sourceChannels)
+    }
+    @Test fun anUnconvertibleMultichannelRatePlaysTheOriginalWithAReason() {
+        val h = Harness(); val sink = wrapper(h); val f = format(rate = 32000)
+        assertEquals(AudioSink.SINK_FORMAT_SUPPORTED_DIRECTLY, sink.getFormatSupport(f))
+        sink.configure(f, 0, null)
+        assertTrue(h.engines.isEmpty()); assertSame(f, h.output.configured)
+        val report = h.reports.single()!!
+        assertFalse(report.comparisonAvailable); assertTrue(report.unavailableReason!!, "32000" in report.unavailableReason!!)
+    }
+    @Test fun theToggleSwitchesDuringCdRateMultichannelPlayback() {
+        var processed = true
+        val h = Harness()
+        val sink = DownmixAudioSink(h.output.sink, { roles }, engineFactory = { CountingEngine(it).also(h.engines::add) },
+            onReport = h.reports::add, processingEnabled = { processed })
+        sink.configure(format(rate = 44100), 0, null)
+        assertTrue(sink.handleBuffer(input(4410), 0, 1))
+        processed = false
+        assertTrue(sink.handleBuffer(input(4410), 100_000, 1))
+        assertTrue(sink.handleBuffer(input(44100), 200_000, 1))
+        assertEquals(1, h.engines.size); assertEquals(1, h.output.configurations); assertEquals(0, h.engines.single().resets)
+        assertEquals(listOf(false, true), h.engines.single().comparisons)
+        assertFalse(h.reports.last()!!.processingEnabled)
+        assertEquals((4800 * 2 + 48000) * 8, h.output.bytes.size())
     }
 }
