@@ -1,4 +1,26 @@
-# Current verification: local E-AC-3 → original DMR prototype
+# Current verification: Music 0.3.15 / E-AC-3 fix and normal OTA
+
+- **126 app tests and 66 DSP tests pass**, with no failures, errors or skips,
+  including Claude's real Java/JNI multiframe packet and layout-change tests.
+  Corrected uncompiled diagnostics tests without changing the private DSP core.
+- Native decoder regression tests pass under ASan/UBSan. The complete 189.856 s
+  Dolby UltraViolet / Untie JOC recording decodes identically with 1/2/3/6
+  syncframes per packet: 5,933 frames, 218,714,112 PCM bytes per pass, identical
+  SHA-256. This is host codec validation; full-music Android output/DMR listening
+  was not performed. Synthetic tests exercise the original DMR JNI separately.
+- Fatal lint and both integrated decoder/DMR APK guards pass. The ARM64/x86-64
+  FFmpeg JNI adapters are rebuilt; original private DMR bytes are unchanged.
+  Release checks verify the existing signature and 16 KiB ZIP/ELF alignment.
+- Normal OTA asset `music-debug.apk`, tag `v0.3.15`, versionCode 18. OTA tests
+  cover both installed 0.3.13/code16 and manual 0.3.14/code17, alongside older
+  releases. Decoder source, public app source and checksums accompany the APK.
+
+No phone is attached and the user's Starboy file has not been provided. A real
+decoder defect is fixed; the user's particular phone failure remains unverified.
+JOC bed decoding does not establish a full Atmos object render. See
+[fix findings](DSP_FIX_FINDINGS.md) and [testing](LOCAL_EAC3_PROTOTYPE.md).
+
+# Previous verification: local E-AC-3 → original DMR prototype
 
 - **123 app checks and 52 DSP checks pass**, with no failures, errors or skips.
   The complete final run includes player motion, compare status, source matching,

@@ -3,13 +3,18 @@ package labs.rtensor.dsp
 import androidx.media3.common.Format
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
-import androidx.media3.decoder.ffmpeg.FfmpegDecoderException
+import androidx.media3.decoder.DecoderException
 import androidx.media3.exoplayer.ExoPlaybackException
 import androidx.media3.exoplayer.audio.AudioSink
 import org.junit.Assert.*
 import org.junit.Test
 import java.io.IOException
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [35])
 class PlaybackDiagnosticsTest {
     private val pcm = Format.Builder().setSampleMimeType(MimeTypes.AUDIO_RAW).setChannelCount(6).setSampleRate(48000).build()
 
@@ -25,7 +30,7 @@ class PlaybackDiagnosticsTest {
     }
 
     @Test fun eachPipelineStageIsClassifiedByType() {
-        assertEquals(DownmixStage.DECODER, PlaybackDiagnostics.describe(renderer(FfmpegDecoderException("Error decoding (see logcat).")))!!.stage)
+        assertEquals(DownmixStage.DECODER, PlaybackDiagnostics.describe(renderer(DecoderException("Error decoding (see logcat).")))!!.stage)
         assertEquals(DownmixStage.DSP_LIBRARY, PlaybackDiagnostics.describe(renderer(AudioSink.ConfigurationException(
             DownmixException(DownmixStage.DSP_LIBRARY, "not included", UnsatisfiedLinkError("no rtensor_downmix")), pcm)))!!.stage)
         assertEquals(DownmixStage.FORMAT, PlaybackDiagnostics.describe(renderer(AudioSink.ConfigurationException(
@@ -51,7 +56,7 @@ class PlaybackDiagnosticsTest {
         assertEquals(DownmixStage.DSP, failure.stage)
         var deep: Throwable = DownmixException(DownmixStage.DSP, "deep")
         repeat(50) { deep = RuntimeException("level $it", deep) }
-        assertNotNull(PlaybackDiagnostics.describe(deep)?.detail) // depth-limited, does not throw
+        assertNull(PlaybackDiagnostics.describe(deep)) // no recognised stage in the bounded prefix
     }
 
     @Test fun theEnvironmentLineNamesAbisDecoderAndDspState() {

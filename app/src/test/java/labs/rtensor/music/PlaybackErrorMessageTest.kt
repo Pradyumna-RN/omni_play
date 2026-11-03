@@ -3,7 +3,12 @@ package labs.rtensor.music
 import androidx.media3.common.PlaybackException
 import org.junit.Assert.*
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [35])
 class PlaybackErrorMessageTest {
     private fun error(code: Int) = PlaybackException("test", null, code)
 

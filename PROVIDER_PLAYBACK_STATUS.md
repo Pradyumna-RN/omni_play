@@ -1,9 +1,9 @@
 # Provider playback checkpoint
 
 This remains work in progress, not a released native provider integration. The
-separate local E-AC-3 prototype uses version 0.3.14 / code 17; it is a manual test
-build, excluded from normal OTA. The next distributed update needs a versionCode
-greater than 17.
+earlier local E-AC-3 prototype used version 0.3.14 / code 17 and was excluded
+from normal OTA. Music **0.3.15 / code 18** includes the multiframe decoder fix
+and uses the normal OTA feed. This does not add provider subscription access.
 
 ## Implemented
 
@@ -45,7 +45,7 @@ greater than 17.
 
 ## Validation status
 
-- The complete final run passes **123 app tests and 52 DSP tests**, with no failures,
+- The complete final run passes **126 app tests and 66 DSP tests**, with no failures,
   errors or skips, plus fatal lint and both native APK packaging guards.
 - SourceSettingsUiTest passes against Claude's inline editor using the automatic
   animation clock. The navigation test now targets the clickable About tab,
@@ -53,7 +53,7 @@ greater than 17.
 - Real host JNI checks decode six distinct E-AC-3 channels into the original DMR;
   stereo bypass is byte-identical. These are synthetic fixtures, not live provider
   recordings or physical-device playback.
-- A manual prototype APK is supplied separately; it does not promote these server
+- The integrated OTA APK does not promote these server
   connectors to verified Apple Music/TIDAL/Qobuz subscription integrations.
 
 ## UI handoff

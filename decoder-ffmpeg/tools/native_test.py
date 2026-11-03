@@ -18,6 +18,8 @@ def main():
     p.add_argument("--jdk", type=pathlib.Path, default=os.environ.get("JAVA_HOME"),
                    help="JDK home for jni.h (defaults to JAVA_HOME)")
     p.add_argument("--cxx", default="g++")
+    p.add_argument("--recording", type=pathlib.Path,
+                   help="Optional clear 48 kHz 5.1 E-AC-3 recording, stream-copied to raw EC3")
     a = p.parse_args()
     assert a.jdk, "Pass --jdk or set JAVA_HOME"
     prefix = a.ffmpeg_prefix.resolve()
@@ -39,7 +41,8 @@ def main():
             "-o", str(binary)], check=True)
         audio = REPO / "dsp/src/test/resources/audio"
         env = dict(os.environ, ASAN_OPTIONS="detect_leaks=1")
-        result = subprocess.run([str(binary), str(audio / "owned-51.eac3"), str(audio / "owned-stereo.eac3")], env=env)
+        recordings = [str(a.recording.resolve())] if a.recording else []
+        result = subprocess.run([str(binary), str(audio / "owned-51.eac3"), str(audio / "owned-stereo.eac3"), *recordings], env=env)
         sys.exit(result.returncode)
 
 if __name__ == "__main__":
