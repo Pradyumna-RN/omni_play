@@ -211,8 +211,9 @@ function normalizePlayerError(client, error) {
 }
 /** Media requests must look like the client that asked for the stream. */
 function mediaHeaders(api, client) {
-  // visionOS streams are fetched like the native app: its own agent, no web origin.
+  // visionOS streams are fetched like the app that asked for them: its own agent, no web origin.
   if (client === 'VISIONOS') return { 'User-Agent': Constants.CLIENTS.VISIONOS.USER_AGENT };
+  if (client === 'VISIONOS_MUSIC') return { 'User-Agent': VISION_MUSIC.userAgent };
   return { 'User-Agent': api.session.context.client.userAgent, 'Origin': 'https://www.youtube.com', 'Referer': 'https://www.youtube.com/' };
 }
 async function streamFromInfo(api, id, client, info, tokens) {
@@ -245,18 +246,42 @@ async function streamFromInfo(api, id, client, info, tokens) {
   }
   throw lastError;
 }
-// Clients whose audio URLs YouTube serves without a BotGuard proof, as chosen by the
-// open-source YouTube Music players that benchmark them (Metrolist / innertubex): the
-// visionOS 0.1 app and the embedded web player. TV clients and Android VR are not used:
-// TV playback is unreliable, and VR audio is refused by the media server after 1 MiB.
+// Clients whose audio URLs YouTube serves without a BotGuard proof, as the maintained
+// open-source YouTube players use them (checked November 2026):
+// - NewPipe Extractor streams only from the visionOS app client (1.04, native agent,
+//   a visitor fetched by that client); yt-dlp's no-JavaScript default is visionOS too.
+// - Metrolist / innertubex benchmark visionOS 0.1 on the YouTube Music player endpoint,
+//   and the embedded web player with the embed page's host flags.
+// TV clients and Android VR are not used: TV playback is unreliable, and VR audio is
+// refused by the media server after the first 1 MiB.
 // They run as a separate signed-out session: these clients do not accept web cookies,
 // and an account must never be presented under another client's name.
-const GUEST_CLIENTS = ['VISIONOS', 'WEB_EMBEDDED'];
-const SAFARI_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15';
-// The visionOS profile that serves plain audio URLs (youtubei.js ships a newer one that does not).
-Object.assign(Constants.CLIENTS.VISIONOS, { VERSION: '0.1', DEVICE_MODEL: 'RealityDevice14,1', OS_NAME: 'VISION_OS', OS_VERSION: '1.3', USER_AGENT: SAFARI_UA });
-const EMBED_REFERER = 'https://www.reddit.com/';
+const GUEST_CLIENTS = ['VISIONOS', 'VISIONOS_MUSIC', 'WEB_EMBEDDED'];
+const guestClientType = client => client === 'VISIONOS_MUSIC' ? 'VISIONOS' : client;
+const VISION = { version: '1.04', model: 'RealityDevice17,1', os: '26.6.0.23O770', agentOs: '26_6_0' };
+Object.assign(Constants.CLIENTS.VISIONOS, { VERSION: VISION.version, DEVICE_MODEL: VISION.model, OS_NAME: 'visionOS', OS_VERSION: VISION.os,
+  USER_AGENT: `com.google.visionos.youtube/${VISION.version}(${VISION.model}; U; CPU visionOS ${VISION.agentOs} like Mac OS X; US)` });
+const VISION_MUSIC = { clientVersion: '0.1', deviceModel: 'RealityDevice14,1', osName: 'VISION_OS', osVersion: '1.3',
+  userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15' };
+// The variant each in-flight visionOS player request uses, by recording.
+const visionVariants = new Map();
+let visionVisitor = null;
+/** A visitor issued to the visionOS client itself; YouTube declines its player requests without one. */
+async function visionVisitorData(api) {
+  if (visionVisitor && Date.now() - visionVisitor.at < 1_800_000) return visionVisitor.value;
+  const c = Constants.CLIENTS.VISIONOS, client = api.session.context.client;
+  const response = await transportFetch('https://www.youtube.com/youtubei/v1/visitor_id?prettyPrint=false', { method: 'POST', headers: {
+    [guestMarker]: '1', 'X-Music-User-Agent': c.USER_AGENT, 'Content-Type': 'application/json', 'X-Goog-Api-Format-Version': '2',
+    'X-Youtube-Client-Name': Constants.CLIENT_NAME_IDS.VISIONOS, 'X-Youtube-Client-Version': c.VERSION },
+  body: JSON.stringify({ context: { client: { clientName: c.NAME, clientVersion: c.VERSION, clientScreen: 'WATCH', platform: 'MOBILE', deviceMake: 'Apple',
+    deviceModel: c.DEVICE_MODEL, osName: c.OS_NAME, osVersion: c.OS_VERSION, hl: client.hl || 'en', gl: client.gl || 'US', utcOffsetMinutes: 0 } } }) });
+  const value = response.ok ? (await response.json().catch(() => null))?.responseContext?.visitorData : null;
+  if (!value) throw failure('PLAYER_REJECTED', 'YouTube did not open the visionOS client.', `VISIONOS: visitor HTTP ${response.status}`);
+  visionVisitor = { value, at: Date.now() };
+  return value;
+}
 const guestMarker = 'X-Music-Anonymous';
+const EMBED_REFERER = 'https://www.reddit.com/';
 // Per-recording embed context: encryptedHostFlags are only honoured together with the
 // visitor that fetched the embed page.
 const embedContexts = new Map();
@@ -282,11 +307,21 @@ function guestRequest(input, init, headers) {
   let body; try { body = JSON.parse(init.body); } catch { return { url: url.toString(), body: init.body }; }
   const client = body.context?.client || {};
   if (client.clientName === 'VISIONOS') {
-    // The visionOS app asks YouTube Music's player endpoint, with no signature timestamp.
-    url.host = 'music.youtube.com';
-    headers.set('Origin', 'https://music.youtube.com'); headers.set('X-Origin', 'https://music.youtube.com'); headers.set('Referer', 'https://music.youtube.com/');
-    headers.set('X-Music-User-Agent', SAFARI_UA);
+    const variant = visionVariants.get(body.videoId);
+    // The visionOS app sends no signature timestamp.
     if (body.playbackContext?.contentPlaybackContext) delete body.playbackContext.contentPlaybackContext.signatureTimestamp;
+    if (variant?.music) {
+      // Metrolist's profile: the 0.1 app on YouTube Music's player endpoint.
+      Object.assign(client, { clientVersion: VISION_MUSIC.clientVersion, deviceModel: VISION_MUSIC.deviceModel, osName: VISION_MUSIC.osName, osVersion: VISION_MUSIC.osVersion, userAgent: VISION_MUSIC.userAgent });
+      url.host = 'music.youtube.com';
+      headers.set('Origin', 'https://music.youtube.com'); headers.set('X-Origin', 'https://music.youtube.com'); headers.set('Referer', 'https://music.youtube.com/');
+      headers.set('X-Youtube-Client-Version', VISION_MUSIC.clientVersion); headers.set('X-Music-User-Agent', VISION_MUSIC.userAgent);
+    } else {
+      // NewPipe's profile: the current app, its native agent and its own visitor, no web origin.
+      for (const name of ['Origin', 'X-Origin', 'Referer']) headers.delete(name);
+      headers.set('X-Goog-Api-Format-Version', '2'); headers.set('X-Music-User-Agent', Constants.CLIENTS.VISIONOS.USER_AGENT);
+    }
+    if (variant?.visitor) { client.visitorData = variant.visitor; headers.set('X-Goog-Visitor-Id', variant.visitor); }
   } else if (client.clientName === Constants.CLIENTS.WEB_EMBEDDED.NAME) {
     const embed = embedContexts.get(body.videoId);
     if (embed) {
@@ -330,8 +365,9 @@ async function resolve(api, id, forceProof = false) {
     if (GUEST_CLIENTS.includes(client)) {
       const guest = await guestTube(api);
       if (client === 'WEB_EMBEDDED') await embedContext(api, id);
+      if (guestClientType(client) === 'VISIONOS') visionVariants.set(id, { music: client === 'VISIONOS_MUSIC', visitor: client === 'VISIONOS' ? await visionVisitorData(api) : undefined });
       if (api.session.player) guest.session.player = api.session.player;
-      const info = await guest.getBasicInfo(id, { client });
+      const info = await guest.getBasicInfo(id, { client: guestClientType(client) });
       const stream = await streamFromInfo(guest, id, client, info);
       preferredPath = { client, verified: false };
       return stream;

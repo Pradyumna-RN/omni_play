@@ -47,8 +47,11 @@ const config = { VISITOR_DATA: 'fixture-visitor', INNERTUBE_CLIENT_VERSION: '1.2
         body = structuredClone(basePlayer);
         const clientName = bodyIn?.context?.client?.clientName, guestClient = ['VISIONOS', 'WEB_EMBEDDED_PLAYER'].includes(clientName);
         // The embedded player only plays with the embed page's flags and that page's visitor.
+        const visionMusic = clientName === 'VISIONOS' && bodyIn.context.client.clientVersion === '0.1';
+        // The current visionOS app only plays with a visitor issued to it.
+        const visionReady = clientName !== 'VISIONOS' || visionMusic || bodyIn.context.client.visitorData === 'vision-visitor';
         const embedReady = clientName !== 'WEB_EMBEDDED_PLAYER' || (bodyIn.playbackContext?.contentPlaybackContext?.encryptedHostFlags === 'fixture-host-flags' && bodyIn.context.client.visitorData === 'embed-visitor');
-        if (guestClient && (!guestPlayable || (guestPlayable === 'embed' && clientName !== 'WEB_EMBEDDED_PLAYER') || !embedReady)) body = { playabilityStatus: { status: 'UNPLAYABLE', reason: 'Fixture guest client declined.' } };
+        if (guestClient && (!guestPlayable || (guestPlayable === 'embed' && clientName !== 'WEB_EMBEDDED_PLAYER') || (guestPlayable === 'music' && !visionMusic) || !embedReady || !visionReady)) body = { playabilityStatus: { status: 'UNPLAYABLE', reason: 'Fixture guest client declined.' } };
         else if (!guestClient && playerMode === 'webBlocked') body = { playabilityStatus: { status: 'LOGIN_REQUIRED', reason: 'Sign in to confirm you’re not a bot' } };
         else {
         if (playerMode === 'rejected') body = { playabilityStatus: { status: 'ERROR', reason: 'This client is unsupported.' } };
@@ -58,6 +61,7 @@ const config = { VISITOR_DATA: 'fixture-visitor', INNERTUBE_CLIENT_VERSION: '1.2
         if (playerMode === 'cipher') { const f = body.streamingData.adaptiveFormats[0]; f.signatureCipher = new URLSearchParams({ url: f.url + '&n=abc', sp: 'sig', s: 'xyz' }).toString(); delete f.url; }
         }
       }
+      else if (u.pathname === '/youtubei/v1/visitor_id') body = { responseContext: { visitorData: 'vision-visitor' } };
       else if (u.pathname.startsWith('/embed/')) { body = `<script>ytcfg.set({"VISITOR_DATA":"embed-visitor","PLAYER_VARS":{"embedded_player_response":"{\\"encryptedHostFlags\\":\\"x\\"}"},"WEB_PLAYER_CONTEXT_CONFIGS":{"WEB_PLAYER_CONTEXT_CONFIG_ID_EMBEDDED_PLAYER":{"encryptedHostFlags":"fixture-host-flags"}}});</script>`; type = 'text/html'; }
       else if (u.pathname.endsWith('/account/accounts_list')) { body = accounts; if (rejectAccounts) status = 401; }
       else if (u.pathname.endsWith('/att/get')) body = { bgChallenge: { program: 'fixture-program', globalName: 'fixtureVM', interpreterJavascript: { privateDoNotAccessOrElseSafeScriptWrappedValue: 'fixture-only' } } };
@@ -149,13 +153,27 @@ const config = { VISITOR_DATA: 'fixture-visitor', INNERTUBE_CLIENT_VERSION: '1.2
     // The remembered attested path is retried once; its rejection must not stop playback.
     assert(proofCalls.length - guestProofs <= 1);
     const vision = calls.slice(guestStart).find(c => c.path.endsWith('/player'));
-    assert.equal(vision.body.context.client.clientName, 'VISIONOS'); assert.equal(vision.body.context.client.clientVersion, '0.1');
-    assert.equal(vision.host, 'music.youtube.com'); assert.equal(vision.headers.origin, 'https://music.youtube.com');
-    assert.match(vision.headers['x-music-user-agent'], /Version\/17\.5 Safari/); assert.equal(vision.body.playbackContext?.contentPlaybackContext?.signatureTimestamp, undefined);
-    assert.match(proofFree.headers['User-Agent'], /Version\/17\.5 Safari/); assert(!proofFree.headers.Origin);
+    // NewPipe's profile first: the current visionOS app with its own visitor and native agent.
+    const visitorCall = calls.find(c => c.path === '/youtubei/v1/visitor_id');
+    assert(visitorCall && visitorCall.headers['x-music-anonymous'] === '1' && !visitorCall.headers.cookie && visitorCall.body.context.client.clientName === 'VISIONOS');
+    assert.equal(vision.body.context.client.clientName, 'VISIONOS'); assert.equal(vision.body.context.client.clientVersion, '1.04');
+    assert.equal(vision.body.context.client.deviceModel, 'RealityDevice17,1'); assert.equal(vision.body.context.client.visitorData, 'vision-visitor');
+    assert.equal(vision.headers['x-goog-visitor-id'], 'vision-visitor'); assert.equal(vision.headers['x-goog-api-format-version'], '2');
+    assert.equal(vision.host, 'www.youtube.com'); assert(!vision.headers.origin && !vision.headers.Origin);
+    assert.match(vision.headers['x-music-user-agent'], /^com\.google\.visionos\.youtube\/1\.04\(RealityDevice17,1;/); assert.equal(vision.body.playbackContext?.contentPlaybackContext?.signatureTimestamp, undefined);
+    assert.match(proofFree.headers['User-Agent'], /^com\.google\.visionos\.youtube\//); assert(!proofFree.headers.Origin);
     const nextSong = calls.length;
     assert((await rpc('resolve', { videoId: 'bbbbbbbbbbb' })).url);
     assert.deepEqual(calls.slice(nextSong).filter(c => c.path.endsWith('/player')).map(c => c.body.context.client.clientName), ['VISIONOS'], 'The working path is remembered');
+    // The current app declined: Metrolist's visionOS 0.1 profile on the music player endpoint.
+    guestPlayable = 'music';
+    const musicStart = calls.length;
+    const musicVision = await rpc('resolve', { videoId: 'ddddddddddd' });
+    assert(musicVision.url, JSON.stringify(musicVision));
+    const musicCall = calls.slice(musicStart).find(c => c.path.endsWith('/player') && c.body.context.client.clientVersion === '0.1');
+    assert.equal(musicCall.host, 'music.youtube.com'); assert.equal(musicCall.headers.origin, 'https://music.youtube.com');
+    assert.equal(musicCall.headers['x-youtube-client-version'], '0.1'); assert.match(musicCall.headers['x-music-user-agent'], /Version\/17\.5 Safari/);
+    assert.match(musicVision.headers['User-Agent'], /Version\/17\.5 Safari/); assert(!musicVision.headers.Origin);
     // visionOS declined: the embedded player plays with the embed page's host flags and visitor.
     guestPlayable = 'embed';
     const embedStart = calls.length;
@@ -168,7 +186,7 @@ const config = { VISITOR_DATA: 'fixture-visitor', INNERTUBE_CLIENT_VERSION: '1.2
     assert.equal(embedded.headers.Origin, 'https://www.youtube.com');
     guestPlayable = false;
     const blocked = await rpc('resolve', { videoId: 'aaaaaaaaaaa' });
-    assert.equal(blocked.error.code, 'VERIFICATION_REQUIRED', JSON.stringify(blocked)); assert.match(blocked.error.diagnostic, /VISIONOS(, WEB_EMBEDDED)?: UNPLAYABLE/);
+    assert.equal(blocked.error.code, 'VERIFICATION_REQUIRED', JSON.stringify(blocked)); assert.match(blocked.error.diagnostic, /VISIONOS[A-Z_, ]*: UNPLAYABLE/);
     assert.match(blocked.error.diagnostic, /runtime verification: rejected/);
     playerMode = 'direct'; proofFailure = false;
     const sandbox = await page.evaluate(async () => (await import('/evaluator.mjs')).evaluatePlayer({ output: 'return {signature:"decoded",bridge:typeof MusicNative,dom:typeof document};' }));
@@ -203,6 +221,6 @@ const config = { VISITOR_DATA: 'fixture-visitor', INNERTUBE_CLIENT_VERSION: '1.2
     assert(both.every(a => a.url)); assert.equal(calls.filter(c => c.path.endsWith('/player')).length - startPlayers, 1);
     assert.equal((await rpc('metadata', {videoId: 'jNQXAC9IVRw'})).artist, 'Test artist');
     assert.deepEqual(errors, []);
-    console.log(JSON.stringify({ passed: ['bundled engine startup', 'upstream search parser and real artist', 'largest artwork selection', 'current WEB_REMIX bootstrap version', 'no duplicate pre-playback media download', 'signature timestamp on player request', 'actual upstream signature/n extraction in isolated Worker', 'provider feed and duplicate order', 'Explore provider browse', 'normal WEB cookie account verification', 'captured session confirms despite homepage302', 'actual Android login capture keeps selected metadata and ignores optional untrusted scripts', 'invalid account still fails confirmation', 'guest browser redirect is actionable', 'SAPISIDHASH authenticated feed', 'music-origin signed feed requests', 'safe HTTP diagnostics', 'real provider rejection preserved', 'SABR-only transport diagnosed', 'forced verification supplies signed media URL for native validation', 'guest music-client proof binding', 'full authenticated DataSyncID proof binding', 'current WEB att/get challenge without old Create discovery', 'forced retry skips unverified web player attempts', 'no OAuth, TV or VR calls; proof-free visionOS/embedded clients stay signed out', 'proof-rejected playback falls back to visionOS 0.1 on the music player endpoint', 'embedded player uses embed-page host flags and visitor', 'working proof-free path remembered', 'worker has no account bridge', 'concurrent resolution is shared', 'missing artist refresh uses YouTube metadata', 'AAC preference for progressive playback', 'signed provider content length fallback'], requests: calls.length, liveProvider: false }, null, 2));
+    console.log(JSON.stringify({ passed: ['bundled engine startup', 'upstream search parser and real artist', 'largest artwork selection', 'current WEB_REMIX bootstrap version', 'no duplicate pre-playback media download', 'signature timestamp on player request', 'actual upstream signature/n extraction in isolated Worker', 'provider feed and duplicate order', 'Explore provider browse', 'normal WEB cookie account verification', 'captured session confirms despite homepage302', 'actual Android login capture keeps selected metadata and ignores optional untrusted scripts', 'invalid account still fails confirmation', 'guest browser redirect is actionable', 'SAPISIDHASH authenticated feed', 'music-origin signed feed requests', 'safe HTTP diagnostics', 'real provider rejection preserved', 'SABR-only transport diagnosed', 'forced verification supplies signed media URL for native validation', 'guest music-client proof binding', 'full authenticated DataSyncID proof binding', 'current WEB att/get challenge without old Create discovery', 'forced retry skips unverified web player attempts', 'no OAuth, TV or VR calls; proof-free visionOS/embedded clients stay signed out', 'proof-rejected playback uses the current visionOS app with its own visitor', 'visionOS 0.1 on the music player endpoint as backup', 'embedded player uses embed-page host flags and visitor', 'working proof-free path remembered', 'worker has no account bridge', 'concurrent resolution is shared', 'missing artist refresh uses YouTube metadata', 'AAC preference for progressive playback', 'signed provider content length fallback'], requests: calls.length, liveProvider: false }, null, 2));
   } finally { await browser.close(); await new Promise(r => server.close(r)); }
 })().catch(error => { console.error(error); process.exitCode = 1; });
