@@ -209,6 +209,12 @@ function normalizePlayerError(client, error) {
   if (error.info?.status) return playerFailure(client, { playability_status: error.info });
   return error;
 }
+/** Media requests must look like the client that asked for the stream. */
+function mediaHeaders(api, client) {
+  const agent = GUEST_CLIENTS.includes(client) && Constants.CLIENTS[client]?.USER_AGENT;
+  if (client === 'ANDROID_VR') return { 'User-Agent': agent };
+  return { 'User-Agent': agent || api.session.context.client.userAgent, 'Origin': 'https://www.youtube.com', 'Referer': 'https://www.youtube.com/' };
+}
 async function streamFromInfo(api, id, client, info, tokens) {
   if (info.playability_status?.status !== 'OK') throw playerFailure(client, info);
   if (info.basic_info?.is_live) throw failure('LIVE_UNSUPPORTED', 'Live recordings are not supported in this build.', `${client}: live stream`);
@@ -229,7 +235,7 @@ async function streamFromInfo(api, id, client, info, tokens) {
       if (target.protocol !== 'https:' || !target.hostname.endsWith('.googlevideo.com') || target.pathname !== '/videoplayback') throw failure('MEDIA_URL', 'YouTube returned an unsupported media address.');
       if (tokens) target.searchParams.set('pot', tokens.streamToken);
       if (info.cpn) target.searchParams.set('cpn', info.cpn);
-      const headers = { 'User-Agent': api.session.context.client.userAgent, 'Origin': 'https://www.youtube.com', 'Referer': 'https://www.youtube.com/' };
+      const headers = mediaHeaders(api, client);
       // Media3 validates the real request. A separate probe downloaded the same
       // bytes twice and added a CDN round trip before the user could hear anything.
       const contentLength = Number(format.content_length) || Number(target.searchParams.get('clen')) || 0;
@@ -239,12 +245,51 @@ async function streamFromInfo(api, id, client, info, tokens) {
   }
   throw lastError;
 }
+// Clients whose audio URLs YouTube serves without a BotGuard proof. They play the same
+// ad-free adaptive audio streams, so they back up the web clients when attestation is
+// rejected on a device. They run as a separate signed-out session: these clients do not
+// accept web cookies, and an account must never be presented under another client's name.
+const GUEST_CLIENTS = ['ANDROID_VR', 'TV', 'WEB_EMBEDDED'];
+const guestMarker = 'X-Music-Anonymous';
+let guestPromise;
+function guestTube(api) {
+  if (!guestPromise) guestPromise = (async () => {
+    const guestFetch = (input, init = {}) => {
+      const headers = new Headers(init.headers || (input instanceof Request ? input.headers : undefined));
+      for (const name of ['Authorization', 'X-Goog-Authuser', 'X-Goog-PageId', 'Cookie']) headers.delete(name);
+      headers.set(guestMarker, '1');
+      // The native transport otherwise sends the WebView's user agent with every request.
+      const body = typeof init.body === 'string' ? init.body : '';
+      const client = Object.values(Constants.CLIENTS).find(c => c.USER_AGENT && body.includes(`"clientName":"${c.NAME}"`));
+      if (client) headers.set('X-Music-User-Agent', client.USER_AGENT);
+      return transportFetch(input, { ...init, headers });
+    };
+    const guest = await Innertube.create({ fetch: guestFetch, cache: { get: async () => undefined, set: async () => {}, remove: async () => {} },
+      visitor_data: api.session.context.client.visitorData, client_type: ClientType.WEB, generate_session_locally: true,
+      retrieve_player: false, retrieve_innertube_config: false, lang: api.session.context.client.hl, location: api.session.context.client.gl });
+    guest.session.context.client.userAgent = api.session.context.client.userAgent;
+    return guest;
+  })().catch(error => { guestPromise = undefined; throw error; });
+  return guestPromise;
+}
+const restrictedReason = /private|copyright|not available in your country|age.restrict|premium members|members.only/i;
 async function resolve(api, id, forceProof = false) {
   if (!/^[A-Za-z0-9_-]{11}$/.test(id)) throw failure('LINK', 'Choose a valid YouTube recording.');
   // STS must accompany the player request. Direct formats can still work if the player script is unavailable.
   await ensurePlayer(api).catch(() => {});
-  const errors = []; let tokens;
+  // Web-client errors explain the failure; proof-free client errors only add diagnostics
+  // (an embed-only refusal must not hide the real reason a recording is unavailable).
+  const errors = [], guestErrors = []; let tokens;
+  const record = (client, error) => { const e = normalizePlayerError(client, error); (GUEST_CLIENTS.includes(client) ? guestErrors : errors).push(e); };
   const attempt = async (client, verified) => {
+    if (GUEST_CLIENTS.includes(client)) {
+      const guest = await guestTube(api);
+      if (api.session.player) guest.session.player = api.session.player;
+      const info = await guest.getBasicInfo(id, { client });
+      const stream = await streamFromInfo(guest, id, client, info);
+      preferredPath = { client, verified: false };
+      return stream;
+    }
     if (client === 'WEB') await prepareWebPlayback(api);
     tokens = verified ? await playbackProof(api, id, client) : undefined;
     const info = await api.getBasicInfo(id, { client, ...(tokens ? { po_token: tokens.playerToken } : {}) });
@@ -252,27 +297,40 @@ async function resolve(api, id, forceProof = false) {
     preferredPath = { client, verified };
     return stream;
   };
+  const tryAll = async paths => {
+    for (const [client, verified] of paths) {
+      try { return { stream: await attempt(client, verified) }; }
+      catch (error) { record(client, error); }
+    }
+    return null;
+  };
+  const hopeless = () => errors.some(e => e.code === 'AUTH_REQUIRED' || e.code === 'LIVE_UNSUPPORTED' || restrictedReason.test(e.message));
   const preferred = preferredPath;
+  // A forced retry follows a media rejection: skip the path that produced the rejected URL.
+  const skip = (client, verified) => preferred && preferred.client === client && preferred.verified === verified;
   if (preferred && (!forceProof || preferred.verified)) {
     try { return await attempt(preferred.client, preferred.verified); }
-    catch (error) { preferredPath = null; errors.push(normalizePlayerError(preferred.client, error)); /* Fall back to the remaining paths. */ }
+    catch (error) { preferredPath = null; record(preferred.client, error); /* Fall back to the remaining paths. */ }
   }
-  for (const verified of (forceProof ? [true] : [false, true])) {
-    if (verified) {
-      const requiresAccount = errors.some(e => e.code === 'AUTH_REQUIRED');
-      const restricted = errors.some(e => /private|copyright|not available in your country|age.restrict|premium members|members.only/i.test(e.message));
-      if (requiresAccount || restricted || (errors.length > 0 && !errors.some(e => ['VERIFICATION_REQUIRED', 'NO_AUDIO'].includes(e.code)))) break;
-    }
-    // Ordinary web clients only. Same recording, same session and same account.
-    for (const client of ['YTMUSIC', 'WEB']) {
-      if (preferred && preferred.client === client && preferred.verified === verified) continue;
-      try { return await attempt(client, verified); }
-      catch (error) { errors.push(normalizePlayerError(client, error)); }
-    }
+  const web = verified => ['YTMUSIC', 'WEB'].filter(c => !skip(c, verified)).map(c => [c, verified]);
+  const guests = GUEST_CLIENTS.filter(c => !skip(c, false)).map(c => [c, false]);
+  // Proof-free clients first: web-client audio URLs are now often refused at the media
+  // server without a proof (a 403 after resolution, then a forced retry). The account's
+  // web clients follow, and the slow attested web path comes last.
+  const stages = forceProof ? [guests, web(true)] : [guests, web(false), web(true)];
+  for (const stage of stages) {
+    if (errors.length && hopeless()) break;
+    // Attestation only helps when YouTube asked for it (or withheld audio from the plain request).
+    if (!forceProof && stage[0]?.[1] && errors.length && !errors.some(e => ['VERIFICATION_REQUIRED', 'NO_AUDIO'].includes(e.code))) break;
+    const found = await tryAll(stage);
+    if (found) return found.stream;
   }
-  const useful = errors.find(e => e.code === 'AUTH_REQUIRED') || errors.find(e => e.code?.startsWith('MEDIA_HTTP')) || errors.find(e => e.code === 'PLAYER_REJECTED') || errors.find(e => e.code === 'SABR_UNSUPPORTED') || errors.at(-1);
+  const pick = list => list.find(e => e.code === 'AUTH_REQUIRED') || list.find(e => e.code?.startsWith('MEDIA_HTTP')) || list.find(e => e.code === 'PLAYER_REJECTED') || list.find(e => e.code === 'SABR_UNSUPPORTED') || list.at(-1);
+  const useful = pick(errors) || pick(guestErrors);
   const result = safeError(useful);
-  throw failure(result.code, result.message, errors.map(e => safeError(e).diagnostic || safeError(e).code).join(' | ').slice(0, 800));
+  throw failure(result.code, result.message, [...new Set([...errors.map(e => safeError(e).diagnostic || safeError(e).code),
+    // Diagnostics are capped at 200 characters: keep the web reasons, and only the guest status.
+    ...guestErrors.map(e => (safeError(e).diagnostic || safeError(e).code).split('. ')[0])])].join(' | ').slice(0, 800));
 }
 
 function emitMetadata(id, info) {

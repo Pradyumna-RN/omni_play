@@ -52,6 +52,19 @@ class ProviderTransportRedirectTest {
         }
     }
 
+    @Test fun anonymousPlayerRequestsCarryNoAccountAndUseTheClientAgent() {
+        val o = JSONObject(options("POST"))
+        o.getJSONObject("headers").put("X-Music-Anonymous", "1").put("X-Music-User-Agent", "com.google.android.apps.youtube.vr.oculus/1.65.10")
+        val request = ProviderTransport().request("https://www.youtube.com/youtubei/v1/player", o.toString(), "fixture-agent", session)
+        assertNull(request.header("Cookie")); assertNull(request.header("Authorization"))
+        assertNull(request.header("X-Goog-Authuser")); assertNull(request.header("X-Goog-PageId"))
+        assertNull(request.header("X-Music-Anonymous")); assertNull(request.header("X-Music-User-Agent"))
+        assertEquals("com.google.android.apps.youtube.vr.oculus/1.65.10", request.header("User-Agent"))
+        val signed = ProviderTransport().request("https://www.youtube.com/youtubei/v1/player", JSONObject(options("POST")).apply {
+            getJSONObject("headers").put("X-Music-User-Agent", "spoofed") }.toString(), "fixture-agent", session)
+        assertEquals(session.cookie, signed.header("Cookie")); assertEquals("fixture-agent", signed.header("User-Agent"))
+    }
+
     @Test fun crossingOriginDropsCredentialsAndDoesNotReintroduceThemOnReturning() {
         val seen = mutableListOf<Request>()
         val client = OkHttpClient.Builder().addInterceptor { chain ->

@@ -42,13 +42,18 @@ internal class ProviderTransport(private val proofOnly: Boolean = false, client:
         require(method in setOf("GET", "POST", "HEAD"))
         if (media) require(method == "GET" && (headers.optString("range") == "bytes=0-1" || URI(url).rawQuery.orEmpty().split('&').contains("range=0-1048575")))
         val body = if (method == "POST") o.optString("body").toRequestBody(headers.optString("content-type", "application/json").toMediaTypeOrNull()) else null
-        val request = Request.Builder().url(url).method(method, body).header("User-Agent", userAgent)
+        // Signed-out requests for the proof-free player clients: no account cookie or
+        // account headers, and the user agent of the client named in the request body.
+        val anonymous = headers.keys().asSequence().any { it.equals(ANONYMOUS_HEADER, true) && headers.optString(it) == "1" }
+        val clientAgent = headers.keys().asSequence().firstOrNull { it.equals(CLIENT_AGENT_HEADER, true) }?.let(headers::optString)
+            ?.takeIf { anonymous && it.length in 1..256 && it.all { c -> c in ' '..'~' } }
+        val request = Request.Builder().url(url).method(method, body).header("User-Agent", clientAgent ?: userAgent)
         headers.keys().forEach { key ->
             val lower = key.lowercase()
-            if (lower !in setOf("host", "connection", "content-length", "cookie", "user-agent") &&
-                (!(proofOnly || media) || lower !in setOf("authorization", "x-goog-authuser", "x-goog-pageid", "x-goog-visitor-id"))) request.header(key, headers.getString(key))
+            if (lower !in setOf("host", "connection", "content-length", "cookie", "user-agent", ANONYMOUS_HEADER.lowercase(), CLIENT_AGENT_HEADER.lowercase()) &&
+                (!(proofOnly || media || anonymous) || lower !in setOf("authorization", "x-goog-authuser", "x-goog-pageid", "x-goog-visitor-id"))) request.header(key, headers.getString(key))
         }
-        if (!proofOnly && !media && session != null) request.header("Cookie", session.cookie)
+        if (!proofOnly && !media && !anonymous && session != null) request.header("Cookie", session.cookie)
         return request.build()
     }
 
@@ -103,6 +108,8 @@ internal class ProviderTransport(private val proofOnly: Boolean = false, client:
     }
 
     companion object {
+        const val ANONYMOUS_HEADER = "X-Music-Anonymous"
+        const val CLIENT_AGENT_HEADER = "X-Music-User-Agent"
         private const val MAX_RESPONSE = 8 * 1024 * 1024
         private const val MAX_REDIRECTS = 4
         private val REDIRECT_CODES = setOf(301, 302, 303, 307, 308)
