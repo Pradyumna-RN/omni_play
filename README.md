@@ -3,6 +3,40 @@
 Temporary name: **Music**. Native Android player from RTensorLabs with the approved
 Margin visual direction: warm paper, DM Sans, original provider artwork and raspberry controls.
 
+## Version 0.3.11 — DSP built into Music and delivered through OTA
+
+The normal Music APK now bundles the original native DSP and its player adapter.
+Install it through Settings → Updates; no separate DSP application or library
+installation is needed. The standalone library remains available for reuse.
+
+The existing player routes supported decoded multichannel audio through the
+renderer automatically. Stereo bypasses DSP. The UI and account/library storage
+stay in the same `labs.rtensor.music` application, with the same signing identity.
+The private source and coefficients stay outside this repository; compiled Android
+libraries are embedded in the APK.
+
+Official OTA builds must run `:app:verifyOtaDspBundle` with the private artifact
+directory. That task rejects an APK missing either native ABI or containing a
+different library. Source-only contributor builds remain supported.
+
+## Previous preview: private DSP build (0.3.10)
+
+Adds a standalone Android `dsp` library and Media3 sink adapter. The optional private
+native build reuses the original Downmix Renderer processing core, with explicit
+speaker-position mapping and float32 stereo output. Stereo sources bypass the DSP.
+The app's UI is unchanged from Claude's `a33d6bf` update.
+
+Ordinary source builds contain only the public adapter. The private processing
+implementation, coefficients and native binaries are not committed to this repo.
+Supply `-PrtensorDspJniDir=/absolute/path/to/private/android-output` to build the
+DSP-enabled APK and AAR. See [adapter build and format contract](dsp/README.md).
+
+The initial core supports 48/96/192 kHz and known multichannel speaker positions.
+Unsupported configurations fail explicitly. The adapter handles float output,
+high-bit-depth conversion, partial writes, seek resets and bounded end draining.
+The processed render is not bit-perfect. This is a decoded-PCM integration, not
+an Apple Music integration or an Atmos object decoder. Phone playback is unverified.
+
 ## Version 0.3.9 — player motion and gestures
 
 Includes Claude's `73e4cb6` update: a queue below the player, calmer transitions,
@@ -238,9 +272,11 @@ repository. Checksums supplement Android's certificate validation.
 
 ## DSP
 
-DSP is off. `playback/AudioPipeline.kt` is the after-decode integration point. The
-private Downmix Renderer implementation has not been copied into this repository.
-Its Windows DLL needs an Android/ARM port and JNI integration under the author's
-terms. Stereo enhancement is separate from multichannel downmix.
+DSP is optional. `playback/AudioPipeline.kt` selects the Android sink wrapper when
+the separate private native artifact is supplied. The `dsp` module contains its
+public interfaces, JNI owner, speaker mapping and Media3 adapter. The private
+Downmix Renderer source and coefficients remain outside this repository. Ordinary
+source builds retain the normal audio path; stereo bypasses the renderer even in
+DSP-enabled builds. See [the DSP module](dsp/README.md).
 
 See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

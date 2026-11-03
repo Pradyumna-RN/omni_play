@@ -2,14 +2,25 @@ package labs.rtensor.music.playback
 
 import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.util.UnstableApi
+import android.content.Context
+import android.util.Log
+import androidx.media3.exoplayer.DefaultRenderersFactory
+import labs.rtensor.dsp.DownmixRenderersFactory
+import labs.rtensor.dsp.NativeDownmixEngine
 
 /**
- * The native DSP will attach here, after decode and before the Android audio sink.
- * Currently the signal is unprocessed. No private DSP code is shipped or emulated.
- * A future processor must negotiate format, handle flush/seek and avoid blocking
- * the audio thread. The supplied Windows DLL cannot run on Android.
+ * The optional private Android core processes explicit multichannel PCM before
+ * output. Public-source builds contain the adapter only; ordinary stereo bypasses
+ * DSP. This does not capture or decode a provider-owned protected player.
  */
 @UnstableApi
 object AudioPipeline {
+    val hasPrivateRenderer: Boolean get() = NativeDownmixEngine.isAvailable
+    fun privateRenderers(context: Context): DefaultRenderersFactory? =
+        if (!hasPrivateRenderer && !NativeDownmixEngine.wasPackaged) null else DownmixRenderersFactory(context) { report ->
+            if (report != null) Log.i("AudioPipeline", "DSP ${report.inputPositions} -> ${report.outputChannels} channels at ${report.sampleRate} Hz; Atmos verification=${report.atmosVerified}")
+        }
+
+    /** Retained for ordinary builds; float/multichannel DSP uses the sink wrapper. */
     fun processors(): Array<AudioProcessor> = emptyArray()
 }

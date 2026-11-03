@@ -1,4 +1,89 @@
-# v0.3.9 verification
+# Current verification: Music 0.3.11 / integrated DSP OTA
+
+The original compiled renderer is bundled inside the existing Music APK. No
+separate DSP application or library installation is required. The reusable library
+remains available; its implementation source and coefficients stay private. The UI
+is unchanged. The normal OTA feed is `RTensorLabs/music-app`.
+
+- **90 app checks and 32 DSP-library checks passed**, with no failures, errors or
+  skips. Seven checks execute the actual host JNI library. The app checks include
+  OTA selection and upgrade identity for both 0.3.9 and the private 0.3.10 preview.
+- `:app:verifyOtaDspBundle` verifies the ARM64 and x86-64 renderer bytes inside the
+  Music APK against the supplied private artifacts. Official OTA builds must run
+  this task. Contributor builds can still omit the private core.
+- Package `labs.rtensor.music`, version `0.3.11`, versionCode `14`; same signing
+  certificate SHA-256
+  `43dffb7aa7b922220c9063c0f2ee9126a30c7d663e1971c8f214bdd2ac7b571f`.
+  Release assets use the installed updater's `music-debug.apk` and `SHA256SUMS`
+  names. VersionCode 14 upgrades the previous public and private preview APKs.
+- The DSP adapter and native processing implementation are unchanged from the
+  preview validation below. Publication removes unneeded native symbols without
+  changing processing code. The 630-second reference comparison and sanitizer
+  results below apply to that same native implementation.
+
+Supported multichannel PCM is rendered automatically; stereo bypasses DSP. No
+Android device is attached, so phone playback, routing and ARM execution still need
+device validation. This does not add Apple Music protected-audio access or an Atmos
+object decoder. See the release's `ota-validation.json` for package checks.
+
+# Previous verification: private DSP preview, app 0.3.10 / library 0.1.0
+
+Based on Claude's `a33d6bf30d6fe1b9785d781e824a02d85639c22b`. No UI implementation
+was changed for the DSP work. The native processing implementation is a separate
+private artifact; the public repository contains interfaces and the Android adapter.
+
+## Current validation
+
+- **89 app Android/JVM checks and 32 DSP-library checks passed**, with no failures,
+  errors or skips. Seven library checks load and execute the actual host-built JNI
+  library. The remaining checks cover format/position contracts, PCM conversion,
+  partial writes, seek/reset, EOF/backpressure, format changes and spatializer opt-out.
+- In the private source tree, **18 portable-core checks**, **56 existing Python DSP
+  checks** and **15 existing native-reference checks** passed. The portable core
+  matches the original renderer, including independently reordered speaker positions.
+- Native processing/reset performed **zero allocations and frees** in the instrumented
+  test. AddressSanitizer/UndefinedBehaviorSanitizer checks passed for processing,
+  concurrent reset/process, repeated lifetimes, invalid buffers and overlap handling.
+- Three complete generated multichannel recordings passed through the real portable
+  core and a host build of the original native desktop core. All output samples and
+  SHA-256 digests matched: 180 s / 6 channels, 210 s / 8 channels, 240 s / 16 channels.
+  Total source audio: **630 seconds**. These are synthetic PCM fixtures, not streamed
+  songs, phone decoding or listening tests.
+- **16 JavaScript unit, 43 Chromium engine and 6 isolated proof checks** passed.
+  Browser provider/account/attestation responses are fixtures.
+- Android ARM64 and x86-64 libraries compiled against API 26; ELF load segments and
+  APK ZIP placement meet 16 KiB page alignment. APK/AAR DSP bytes match the separate
+  private native build. Bundled engine assets match source.
+- Package `labs.rtensor.music`, version `0.3.10`, versionCode `13`; the signing
+  certificate remains SHA-256
+  `43dffb7aa7b922220c9063c0f2ee9126a30c7d663e1971c8f214bdd2ac7b571f`.
+
+## Boundaries of this preview
+
+No Android device is attached. Actual Android codec layouts, AudioTrack routing,
+ARM runtime output, Bluetooth, OEM effects, startup/seek latency and complete-song
+listening need phone validation. JNI execution above is on the host JVM; Android
+native binaries were cross-compiled. The test build includes a generated 24-bit,
+48 kHz 5.1 FLAC separately for Settings → Import audio → Library playback checks.
+
+The existing native core accepts 48/96/192 kHz. Mono/stereo bypass the DSP; unsupported
+multichannel rates/layouts fail. Known decoder positions are required, with FLAC's
+standard assignment as a documented fallback. Generic multichannel WAV without a
+known layout is not guessed. An unavailable private core in a DSP-enabled build
+causes a render error rather than a claimed successful downmix.
+
+The adapter drains latency plus a bounded 50 ms filter tail; gapless/crossfade
+certification is outside this preview. Processed output opts out of Android's
+spatializer, but device/OEM effects still require validation. DSP rendering is not
+bit-perfect hardware output. No Apple Music authentication, protected PCM access,
+new streaming source or Atmos object decoder is implemented. PCM channel counts
+alone do not establish full Atmos rendering.
+
+The 0.3.10 preview was distributed privately. Music 0.3.11 embeds the compiled core
+in its normal public OTA APK, as described above. Public source builds without the
+private artifact retain the normal playback path. See [DSP build instructions](dsp/README.md).
+
+# Previous verification: v0.3.9
 
 Reviewed Claude's `73e4cb6cea4ebba3ee240212adb69566eec9a870` update, including
 the recommendation changes in `7faea75` and the previous media transport fixes.

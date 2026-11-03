@@ -1,5 +1,6 @@
 import groovy.json.JsonSlurper
 import java.security.MessageDigest
+import java.util.zip.ZipFile
 
 plugins {
     id("com.android.application")
@@ -15,8 +16,8 @@ android {
         applicationId = "labs.rtensor.music"
         minSdk = 26
         targetSdk = 35
-        versionCode = 12
-        versionName = "0.3.9"
+        versionCode = 14
+        versionName = "0.3.11"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildFeatures { compose = true; buildConfig = true }
@@ -38,7 +39,7 @@ android {
             // Android accepts Origin; JDK HttpURLConnection silently removes it by default.
             // Let the loopback Media3 regression test observe the actual Android headers.
             test.systemProperty("sun.net.http.allowRestrictedHeaders", "true")
-            listOf("https.proxyHost", "https.proxyPort", "http.proxyHost", "http.proxyPort", "javax.net.ssl.trustStore").forEach { key ->
+            listOf("https.proxyHost", "https.proxyPort", "http.proxyHost", "http.proxyPort", "javax.net.ssl.trustStore", "music.otaReleaseFixture").forEach { key ->
                 System.getProperty(key)?.let { test.systemProperty(key, it) }
             }
         }
@@ -47,6 +48,7 @@ android {
 }
 
 dependencies {
+    implementation(project(":dsp"))
     val composeBom = platform("androidx.compose:compose-bom:2025.04.01")
     implementation(composeBom)
     implementation("androidx.activity:activity-compose:1.10.1")
@@ -94,3 +96,27 @@ val verifyYouTubeEngine by tasks.registering {
     }
 }
 tasks.named("preBuild") { dependsOn(verifyYouTubeEngine) }
+
+// Official OTA artifacts must carry the tested native renderer inside Music.
+// Contributor builds without the private source/artifact remain supported.
+tasks.register("verifyOtaDspBundle") {
+    dependsOn("assembleDebug")
+    doLast {
+        val directory = providers.gradleProperty("rtensorDspJniDir").orNull
+            ?: error("Music OTA builds require -PrtensorDspJniDir pointing to the private Android libraries")
+        val artifact = layout.buildDirectory.file("outputs/apk/debug/app-debug.apk").get().asFile
+        ZipFile(artifact).use { zip ->
+            listOf("arm64-v8a", "x86_64").forEach { abi ->
+                val expected = file(directory).resolve("$abi/librtensor_downmix.so")
+                check(expected.isFile) { "Missing private DSP for $abi" }
+                val entry = zip.getEntry("lib/$abi/librtensor_downmix.so")
+                    ?: error("The Music OTA APK does not contain the $abi renderer")
+                val packaged = zip.getInputStream(entry).use { it.readBytes() }
+                check(packaged.contentEquals(expected.readBytes())) {
+                    "The Music OTA APK contains a different renderer for $abi"
+                }
+            }
+        }
+        logger.lifecycle("Verified: Music OTA APK bundles the supplied ARM64 and x86-64 DSP libraries")
+    }
+}
