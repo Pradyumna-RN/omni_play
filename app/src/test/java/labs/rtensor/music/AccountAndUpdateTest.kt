@@ -123,24 +123,24 @@ class AccountAndUpdateTest {
         assertEquals("0.10.0", GitHubUpdater.selectRelease(list, "0.2.0")?.version)
     }
     @Test fun integratedMusicOtaUpdatesStableAndPrivatePreviewInstallations() {
-        val tag = "v0.3.20"
+        val tag = "v0.3.21"
         fun asset(name: String) = JSONObject().put("name", name).put("size", 18000000)
             .put("browser_download_url", "https://github.com/RTensorLabs/music-app/releases/download/$tag/$name")
         val fixturePath = System.getProperty("music.otaReleaseFixture")
         val release = if (fixturePath == null) JSONObject().put("tag_name", tag).put("draft", false)
             .put("assets", JSONArray().put(asset("music-debug.apk")).put(asset("SHA256SUMS")))
         else JSONObject(java.io.File(fixturePath).readText())
-        for (installed in listOf("0.3.9", "0.3.10", "0.3.11", "0.3.12", "0.3.13", "0.3.14", "0.3.15", "0.3.16", "0.3.17", "0.3.18", "0.3.19")) {
+        for (installed in listOf("0.3.9", "0.3.10", "0.3.11", "0.3.12", "0.3.13", "0.3.14", "0.3.15", "0.3.16", "0.3.17", "0.3.18", "0.3.19", "0.3.20")) {
             val update = GitHubUpdater.selectRelease(JSONArray().put(release), installed)
             assertNotNull("Music $installed must receive the integrated OTA", update)
-            assertEquals("0.3.20", update!!.version)
+            assertEquals("0.3.21", update!!.version)
             assertEquals("music-debug.apk", update.apkName)
             assertEquals("https://github.com/RTensorLabs/music-app/releases/download/$tag/music-debug.apk", update.apkUrl)
             assertTrue(GitHubUpdater.isReleaseAsset(update.checksumUrl))
         }
-        for (installedCode in listOf(12L, 13L, 14L, 15L, 16L, 17L, 18L, 19L, 20L, 21L, 22L)) GitHubUpdater.verifyIdentity(
+        for (installedCode in listOf(12L, 13L, 14L, 15L, 16L, 17L, 18L, 19L, 20L, 21L, 22L, 23L)) GitHubUpdater.verifyIdentity(
             AppIdentity("labs.rtensor.music", installedCode, setOf("same-signing-key")),
-            AppIdentity("labs.rtensor.music", 23, setOf("same-signing-key")),
+            AppIdentity("labs.rtensor.music", 24, setOf("same-signing-key")),
         )
     }
 }

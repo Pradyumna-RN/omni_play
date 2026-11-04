@@ -1,4 +1,22 @@
-# Current verification: Music 0.3.20 / library removal and consistent history
+# Current verification: Music 0.3.21 / simplified Settings
+
+**178 app tests, 88 DSP tests and 8 scene-decoder tests pass** (274 total), with
+no failures, errors or skipped tests. Android lint and all three integrated
+APK packaging guards pass.
+
+- Settings updates remain reachable by scrolling after removing the pinned
+  section selector; the Reduce motion option is absent.
+- The shared Import audio entry reaches the existing file picker only after
+  choosing a file, and it retains folder selection, rescan and removal callbacks.
+- Existing account, source-editor, history, player-motion and library-removal
+  checks remain part of the app suite. Audio import/decoding and native artifacts
+  are unchanged from 0.3.20.
+
+These are host Robolectric/Compose checks, with screenshots of the laid-out UI.
+No Android phone is connected. Version 0.3.21/code24 keeps the existing package,
+signing certificate and normal OTA asset names.
+
+# Previous verification: Music 0.3.20 / library removal and consistent history
 
 **177 app tests, 88 DSP tests and 8 scene-decoder tests pass** (273 total), with
 no failures, errors or skipped tests. Fatal Android lint and all three integrated

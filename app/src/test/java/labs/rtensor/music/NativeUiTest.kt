@@ -208,19 +208,22 @@ class NativeUiTest {
         capture("mini-player")
     }
 
-    @Test fun settingsJumpBarNavigatesToAboutAndItsUpdateAction() {
+    @Test fun settingsKeepsUpdatesReachableByScrollingWithoutASectionSelector() {
         compose.setContent { MusicApp(MusicState(reducedMotion = true, theme = "light"), initialPage = "settings") }
-        compose.onNode(hasText("About") and hasClickAction()).performScrollTo().performClick()
-        compose.onNodeWithText("Check updates").assertIsDisplayed()
-        capture("settings-about-jump")
+        compose.onNodeWithText("Reduce motion").assertDoesNotExist()
+        compose.onNode(hasText("Account") and hasClickAction()).assertDoesNotExist()
+        compose.onNodeWithText("Check updates").performScrollTo().assertIsDisplayed()
+        capture("settings-scroll-about")
     }
 
     @Test fun settingsImportActionOpensTheFilePickerCallback() {
         var imported = false
         compose.setContent { MusicApp(MusicState(reducedMotion = true), initialPage = "settings", onOpenLocal = { imported = true }) }
         compose.onNodeWithText("Import audio").performScrollTo().performClick()
+        org.junit.Assert.assertFalse(imported)
+        compose.onNodeWithText("Choose file").performClick()
         org.junit.Assert.assertTrue(imported)
-        compose.onNodeWithText("Add a file from this device to Saved").assertIsDisplayed()
+        compose.onNodeWithText("Stereo, lossless and Atmos files").assertIsDisplayed()
     }
 
 }

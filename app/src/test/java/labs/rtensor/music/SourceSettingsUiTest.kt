@@ -33,6 +33,22 @@ class SourceSettingsUiTest {
         compose.runOnIdle { assertEquals(listOf(true), sceneRequests); assertEquals(1, signIns) }
     }
 
+    @Test fun unifiedImportKeepsFolderSelectionAndExistingFolderManagementReachable() {
+        var folderPicks = 0; var forgotten = false
+        compose.setContent { MusicApp(MusicState(reducedMotion = true, mastersSummary = "8 files · 3 Atmos"), initialPage = "settings",
+            onChooseMasters = { folderPicks++ }, onClearMasters = { forgotten = true }) }
+        compose.onNodeWithText("Atmos & lossless folder").assertDoesNotExist()
+        compose.onNodeWithText("Import audio").performScrollTo().performClick()
+        compose.onNodeWithText("Choose folder").performClick()
+        compose.runOnIdle { assertEquals(1, folderPicks) }
+        compose.onNodeWithText("Import audio").performClick()
+        compose.onNodeWithText("Rescan folder").performClick()
+        compose.runOnIdle { assertEquals(2, folderPicks) }
+        compose.onNodeWithText("Import audio").performClick()
+        compose.onNodeWithText("Forget folder").performClick()
+        compose.runOnIdle { assertTrue(forgotten) }
+    }
+
     @Test fun settingsOffersAccountServersAndUserInstalledAddonsWithoutChangingDiscovery() {
         val requests = mutableListOf<Pair<MusicProvider, SourceProtocol>>()
         compose.setContent { MusicApp(MusicState(reducedMotion = true), initialPage = "settings",

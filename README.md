@@ -143,6 +143,14 @@ the Android installer. Installation still needs the user's confirmation.
 | [dsp](dsp/) | Public PCM/rate/layout adapter, private DMR JNI boundary, listening modes, binaural stage and diagnostics. |
 | [Updates](app/src/main/java/labs/rtensor/music/updates/) | GitHub release discovery and verified in-place APK updates. |
 
+## Music 0.3.21 — simpler Settings
+
+Settings is one scrolling page, without the pinned section selector or Reduce
+motion option. Sources has one **Import audio** entry for stereo, lossless and
+Atmos recordings. Its shared dialog opens the file or folder picker and keeps
+existing folder rescan/removal controls together. Audio decoding, provider
+connections and the library-removal fixes are unchanged.
+
 ## Music 0.3.20 — consistent history and local recording removal
 
 Settings counts unique recordings using the same identities as History. Repeated

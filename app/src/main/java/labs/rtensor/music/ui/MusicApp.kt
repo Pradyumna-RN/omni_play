@@ -74,8 +74,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -191,7 +189,7 @@ fun MusicApp(
     onPlay: (Track, List<Track>) -> Unit = { _, _ -> }, onToggle: () -> Unit = {},
     onPrevious: () -> Unit = {}, onNext: () -> Unit = {}, onSkipTo: (Int) -> Unit = {},
     onSeek: (Long) -> Unit = {}, onSave: (Track) -> Unit = {},
-    onTheme: (String) -> Unit = {}, onReducedMotion: (Boolean) -> Unit = {},
+    onTheme: (String) -> Unit = {},
     onOpenLocal: () -> Unit = {},
     onChooseMasters: () -> Unit = {},
     onClearMasters: () -> Unit = {},
@@ -296,7 +294,7 @@ fun MusicApp(
                             "library" -> LibraryScreen(state, ::play, onSave, ::focusSearch, onRemovePlay)
                             "now" -> NowScreen(state, onToggle, onPrevious, onNext, onSeek, onSave, onSkipTo, onProcessing, onSpatial, playbackPosition)
                             "collection" -> CollectionScreen(state, ::play, onSave)
-                            "settings" -> SettingsScreen(state, onTheme, onReducedMotion, onOpenLocal, onChooseMasters, onClearMasters, onClearHistory,
+                            "settings" -> SettingsScreen(state, onTheme, onOpenLocal, onChooseMasters, onClearMasters, onClearHistory,
                                 onConnect, onWebSignIn, onDisconnect, onCancelConnect, onGoogleSignIn, onGoogleSignOut, onCancelGoogle, onCheckUpdates, onDownloadUpdate, onInstallUpdate,
                                 onAutoplay, onTrackHistory, onConnectSource, onRemoveSource, onConnectTidal, onDisconnectTidal, onCancelTidal, onObjectDecoding)
                             else -> HomeScreen(state, ::focusSearch, ::play, ::openEntry, { onRefreshFeed(); onRefreshForYou() }, onMoreFeed, onConnect)
@@ -1225,21 +1223,21 @@ private fun ProgressLine(position: Long, duration: Long, playing: Boolean, reduc
 
 
 // ---------------------------------------------------------------------------------------
-// Settings: grouped cards with icon headers and a jump bar, so each option is easy to find.
+// Settings: one scrolling page of grouped cards with a shared audio-import entry.
 // ---------------------------------------------------------------------------------------
 
-private data class SettingsSection(val id: String, val label: String, val icon: ImageVector)
+private data class SettingsSection(val label: String, val icon: ImageVector)
 private val settingsSections = listOf(
-    SettingsSection("account", "Account", Icons.Outlined.AccountCircle),
-    SettingsSection("playback", "Playback", Glyph.MusicNote),
-    SettingsSection("sources", "Sources", Glyph.AudioFile),
-    SettingsSection("appearance", "Appearance", Glyph.Contrast),
-    SettingsSection("privacy", "Privacy", Glyph.Shield),
-    SettingsSection("about", "About", Icons.Outlined.Info),
+    SettingsSection("Account", Icons.Outlined.AccountCircle),
+    SettingsSection("Playback", Glyph.MusicNote),
+    SettingsSection("Sources", Glyph.AudioFile),
+    SettingsSection("Appearance", Glyph.Contrast),
+    SettingsSection("Privacy", Glyph.Shield),
+    SettingsSection("About", Icons.Outlined.Info),
 )
 
 @Composable
-private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onReduced: (Boolean) -> Unit, onLocal: () -> Unit,
+private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onLocal: () -> Unit,
     onChooseMasters: () -> Unit, onClearMasters: () -> Unit, onClearHistory: () -> Unit,
     onConnect: () -> Unit, onWebSignIn: () -> Unit, onDisconnect: () -> Unit, onCancelConnect: () -> Unit,
     onGoogleSignIn: () -> Unit, onGoogleSignOut: () -> Unit, onCancelGoogle: () -> Unit,
@@ -1253,132 +1251,116 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onReduc
     val context = LocalContext.current
     val notices = remember { context.resources.openRawResource(R.raw.third_party_notices).bufferedReader().use { it.readText() } }
     val scroll = rememberScrollState()
-    val scope = rememberCoroutineScope()
     val scheme = MaterialTheme.colorScheme
-    val anchors = remember { mutableStateMapOf<String, Int>() }
-    fun Modifier.anchor(id: String) = onGloballyPositioned { anchors[id] = it.positionInParent().y.toInt() }
-    // The chip for the section under the top edge lights up while you scroll. derivedStateOf
-    // means scrolling recomposes the bar only when the section actually changes.
-    val active by remember { derivedStateOf {
-        if (scroll.maxValue > 0 && scroll.value >= scroll.maxValue) settingsSections.last().id
-        else settingsSections.lastOrNull { (anchors[it.id] ?: Int.MAX_VALUE) <= scroll.value + 48 }?.id ?: settingsSections.first().id
-    } }
-    val scrolled by remember { derivedStateOf { scroll.value > 0 } }
-    Column(Modifier.fillMaxSize()) {
-        // Jump bar stays visible while the page scrolls; a hairline appears once content passes under it.
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            settingsSections.forEach { section ->
-                FilterChip(
-                    selected = active == section.id,
-                    onClick = { scope.launch { scroll.animateScrollTo(((anchors[section.id] ?: 0) - 8).coerceAtLeast(0), tween(if (state.reducedMotion) 0 else 360, easing = Standard)) } },
-                    label = { Text(section.label, fontSize = 13.sp) },
-                    leadingIcon = { Icon(section.icon, null, Modifier.size(16.dp)) },
-                    shape = RoundedCornerShape(20.dp),
-                )
+    var showImport by remember { mutableStateOf(false) }
+    Column(Modifier.fillMaxSize().verticalScroll(scroll).padding(horizontal = 20.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        PageTitle("Settings")
+
+        SettingsGroupHeader(settingsSections[0])
+        AccountCard(state, onGoogleSignIn, onGoogleSignOut, onCancelGoogle, onConnect, onWebSignIn, onDisconnect, onCancelConnect)
+
+        SettingsGroupHeader(settingsSections[1])
+        SettingsCard {
+            SettingItem("Autoplay radio", "When the queue ends, keep playing similar songs", Glyph.Sparkle, onClick = { onAutoplay(!state.autoplay) }) {
+                Switch(checked = state.autoplay, onCheckedChange = onAutoplay, modifier = Modifier.semantics { contentDescription = "Autoplay radio" })
+            }
+            if (state.audioProcessing.objectDecoderAvailable) {
+                CardDivider()
+                SettingItem("Scene decoding (experimental)", "Decode supported JOC scenes to 7.1.4 · used when loading a track", Glyph.MusicNote,
+                    onClick = { onObjectDecoding(!state.audioProcessing.selectedObjectDecoding) }) {
+                    Switch(checked = state.audioProcessing.selectedObjectDecoding, onCheckedChange = onObjectDecoding,
+                        modifier = Modifier.semantics { contentDescription = "Scene decoding (experimental)" })
+                }
             }
         }
-        Box(Modifier.fillMaxWidth().height(.5.dp).graphicsLayer { alpha = if (scrolled) 1f else 0f }.background(scheme.outline))
-        Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(scroll).padding(horizontal = 20.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            PageTitle("Settings")
 
-            SettingsGroupHeader(settingsSections[0], Modifier.anchor("account"))
-            AccountCard(state, onGoogleSignIn, onGoogleSignOut, onCancelGoogle, onConnect, onWebSignIn, onDisconnect, onCancelConnect)
-
-            SettingsGroupHeader(settingsSections[1], Modifier.anchor("playback"))
-            SettingsCard {
-                SettingItem("Autoplay radio", "When the queue ends, keep playing similar songs", Glyph.Sparkle, onClick = { onAutoplay(!state.autoplay) }) {
-                    Switch(checked = state.autoplay, onCheckedChange = onAutoplay, modifier = Modifier.semantics { contentDescription = "Autoplay radio" })
-                }
-                if (state.audioProcessing.objectDecoderAvailable) {
-                    CardDivider()
-                    SettingItem("Scene decoding (experimental)", "Decode supported JOC scenes to 7.1.4 · used when loading a track", Glyph.MusicNote,
-                        onClick = { onObjectDecoding(!state.audioProcessing.selectedObjectDecoding) }) {
-                        Switch(checked = state.audioProcessing.selectedObjectDecoding, onCheckedChange = onObjectDecoding,
-                            modifier = Modifier.semantics { contentDescription = "Scene decoding (experimental)" })
-                    }
-                }
-            }
-
-            SettingsGroupHeader(settingsSections[2], Modifier.anchor("sources"))
-            SettingsCard {
-                val count = state.playbackSources.size
-                // A saved server is only a candidate; each song is checked before anything plays from it.
-                SettingItem("Playback sources",
-                    if (state.tidalAccount.connected) "TIDAL signed in${if (count > 0) " · $count saved servers" else ""}"
-                    else if (count == 0) "Sign in to TIDAL or connect another music source"
-                    else "$count saved ${if (count == 1) "server" else "servers"} · checked per song before it plays",
-                    Glyph.MusicNote, onClick = { showSources = !showSources }, expanded = showSources)
-                if (showSources) PlaybackSourcesEditor(state, { showSources = false }, onConnectSource, onRemoveSource,
-                    onConnectTidal, onDisconnectTidal, onCancelTidal)
-                CardDivider()
-                SettingItem("Atmos & lossless folder",
-                    state.mastersSummary.ifBlank { "Songs you own in Atmos or lossless play from your files instead of YouTube" },
-                    Glyph.AudioFile, onClick = { if (!state.mastersBusy) onChooseMasters() })
-                if (state.mastersSummary.isNotBlank() && !state.mastersBusy) {
-                    FlowRow(Modifier.padding(start = 66.dp, end = 16.dp, bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = onChooseMasters, shape = RoundedCornerShape(12.dp)) { Text("Rescan", fontSize = 14.sp) }
-                        TextButton(onClick = onClearMasters) { Text("Forget folder", fontSize = 14.sp) }
-                    }
-                }
-                CardDivider()
-                SettingItem("Import audio", "Add a file from this device to Saved", Icons.Outlined.Add, onClick = onLocal)
-                state.importMessage?.let { Text(it, fontSize = 13.sp, lineHeight = 19.sp, color = scheme.onSurfaceVariant, modifier = Modifier.padding(start = 66.dp, end = 16.dp, bottom = 12.dp)) }
-            }
-
-            SettingsGroupHeader(settingsSections[3], Modifier.anchor("appearance"))
-            SettingsCard {
-                Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                    Text("Theme", fontSize = 16.sp, fontWeight = FontWeight.Medium)
-                    Spacer(Modifier.height(10.dp))
-                    ThemeSelector(state.theme, state.reducedMotion, onTheme)
-                }
-                CardDivider(start = 16.dp)
-                SettingItem("Reduce motion", "Calmer transitions and a still progress line", Glyph.Contrast, onClick = { onReduced(!state.reducedMotion) }) {
-                    Switch(checked = state.reducedMotion, onCheckedChange = onReduced, modifier = Modifier.semantics { contentDescription = "Reduce motion" })
-                }
-            }
-
-            SettingsGroupHeader(settingsSections[4], Modifier.anchor("privacy"))
-            SettingsCard {
-                SettingItem("Keep listening history", "Powers the History tab and “Mixed for you”. Stays on this device.", Glyph.History, onClick = { onTrackHistory(!state.trackHistory) }) {
-                    Switch(checked = state.trackHistory, onCheckedChange = onTrackHistory, modifier = Modifier.semantics { contentDescription = "Keep listening history" })
-                }
-                CardDivider()
-                val hasHistory = state.history.isNotEmpty() || state.playEvents.isNotEmpty()
-                val recordings = remember(state.playEvents) { ListeningHistory.latestPerSong(state.playEvents).size }
-                val recent = remember(state.history) { state.history.distinctBy { it.libraryKey() }.size }
-                val count = if (recordings > 0) "$recordings ${if (recordings == 1) "recording" else "recordings"} in History"
-                    else "$recent recent ${if (recent == 1) "recording" else "recordings"}"
-                SettingItem("Clear listening history", if (!hasHistory) "Nothing to clear" else count, Icons.Outlined.Delete,
-                    onClick = if (hasHistory) ({ confirmClear = true }) else null)
-                CardDivider(start = 16.dp)
-                Text("Saved recordings, history and encrypted account sessions stay on this device. Connected music servers receive song searches and playback requests. YouTube receives your discovery requests; GitHub receives update checks.",
-                    fontSize = 13.sp, lineHeight = 19.sp, color = scheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp))
-            }
-
-            SettingsGroupHeader(settingsSections[5], Modifier.anchor("about"))
-            SettingsCard {
-                SettingItem("Music ${BuildConfig.VERSION_NAME}", "Preview channel · GitHub Releases", Icons.Outlined.Refresh)
-                Column(Modifier.padding(start = 66.dp, end = 16.dp, bottom = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    if (state.update.message.isNotBlank()) Text(state.update.message, fontSize = 13.sp, lineHeight = 19.sp, color = scheme.onSurfaceVariant)
-                    if (state.update.downloading) {
-                        val progress by animateFloatAsState(state.update.progress / 100f, tween(if (state.reducedMotion) 0 else EnterMs), label = "update progress")
-                        LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth(), strokeCap = StrokeCap.Round)
-                        Text("${state.update.progress}%", fontSize = 13.sp, color = scheme.onSurfaceVariant)
-                    }
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = onCheckUpdates, enabled = !state.update.checking && !state.update.downloading, shape = RoundedCornerShape(12.dp)) { Text("Check updates", fontSize = 14.sp) }
-                        if (state.update.apkPath != null) Button(onClick = onInstallUpdate, shape = RoundedCornerShape(12.dp)) { Text("Install update", fontSize = 14.sp) }
-                        else if (state.update.release != null) Button(onClick = onDownloadUpdate, enabled = !state.update.downloading && !state.update.checking, shape = RoundedCornerShape(12.dp)) { Text("Download", fontSize = 14.sp) }
-                    }
-                }
-                CardDivider()
-                SettingItem("Open-source licences", "Libraries and fonts used by Music", Icons.Outlined.Info, onClick = { showLicences = true })
-            }
-            Text("Music · RTensorLabs · Early build ${BuildConfig.VERSION_NAME}", fontSize = 12.sp, color = scheme.onSurfaceVariant,
-                textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 28.dp))
+        SettingsGroupHeader(settingsSections[2])
+        SettingsCard {
+            val count = state.playbackSources.size
+            // A saved server is only a candidate; each song is checked before anything plays from it.
+            SettingItem("Playback sources",
+                if (state.tidalAccount.connected) "TIDAL signed in${if (count > 0) " · $count saved servers" else ""}"
+                else if (count == 0) "Sign in to TIDAL or connect another music source"
+                else "$count saved ${if (count == 1) "server" else "servers"} · checked per song before it plays",
+                Glyph.MusicNote, onClick = { showSources = !showSources }, expanded = showSources)
+            if (showSources) PlaybackSourcesEditor(state, { showSources = false }, onConnectSource, onRemoveSource,
+                onConnectTidal, onDisconnectTidal, onCancelTidal)
+            CardDivider()
+            SettingItem("Import audio", if (state.mastersBusy) state.mastersSummary else "Stereo, lossless and Atmos files", Icons.Outlined.Add, onClick = { showImport = true })
+            state.importMessage?.let { Text(it, fontSize = 13.sp, lineHeight = 19.sp, color = scheme.onSurfaceVariant, modifier = Modifier.padding(start = 66.dp, end = 16.dp, bottom = 12.dp)) }
         }
+
+        SettingsGroupHeader(settingsSections[3])
+        SettingsCard {
+            Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                Text("Theme", fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                Spacer(Modifier.height(10.dp))
+                ThemeSelector(state.theme, state.reducedMotion, onTheme)
+            }
+        }
+
+        SettingsGroupHeader(settingsSections[4])
+        SettingsCard {
+            SettingItem("Keep listening history", "Powers the History tab and “Mixed for you”. Stays on this device.", Glyph.History, onClick = { onTrackHistory(!state.trackHistory) }) {
+                Switch(checked = state.trackHistory, onCheckedChange = onTrackHistory, modifier = Modifier.semantics { contentDescription = "Keep listening history" })
+            }
+            CardDivider()
+            val hasHistory = state.history.isNotEmpty() || state.playEvents.isNotEmpty()
+            val recordings = remember(state.playEvents) { ListeningHistory.latestPerSong(state.playEvents).size }
+            val recent = remember(state.history) { state.history.distinctBy { it.libraryKey() }.size }
+            val count = if (recordings > 0) "$recordings ${if (recordings == 1) "recording" else "recordings"} in History"
+                else "$recent recent ${if (recent == 1) "recording" else "recordings"}"
+            SettingItem("Clear listening history", if (!hasHistory) "Nothing to clear" else count, Icons.Outlined.Delete,
+                onClick = if (hasHistory) ({ confirmClear = true }) else null)
+            CardDivider(start = 16.dp)
+            Text("Saved recordings, history and encrypted account sessions stay on this device. Connected music servers receive song searches and playback requests. YouTube receives your discovery requests; GitHub receives update checks.",
+                fontSize = 13.sp, lineHeight = 19.sp, color = scheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp))
+        }
+
+        SettingsGroupHeader(settingsSections[5])
+        SettingsCard {
+            SettingItem("Music ${BuildConfig.VERSION_NAME}", "Preview channel · GitHub Releases", Icons.Outlined.Refresh)
+            Column(Modifier.padding(start = 66.dp, end = 16.dp, bottom = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (state.update.message.isNotBlank()) Text(state.update.message, fontSize = 13.sp, lineHeight = 19.sp, color = scheme.onSurfaceVariant)
+                if (state.update.downloading) {
+                    val progress by animateFloatAsState(state.update.progress / 100f, tween(if (state.reducedMotion) 0 else EnterMs), label = "update progress")
+                    LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth(), strokeCap = StrokeCap.Round)
+                    Text("${state.update.progress}%", fontSize = 13.sp, color = scheme.onSurfaceVariant)
+                }
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = onCheckUpdates, enabled = !state.update.checking && !state.update.downloading, shape = RoundedCornerShape(12.dp)) { Text("Check updates", fontSize = 14.sp) }
+                    if (state.update.apkPath != null) Button(onClick = onInstallUpdate, shape = RoundedCornerShape(12.dp)) { Text("Install update", fontSize = 14.sp) }
+                    else if (state.update.release != null) Button(onClick = onDownloadUpdate, enabled = !state.update.downloading && !state.update.checking, shape = RoundedCornerShape(12.dp)) { Text("Download", fontSize = 14.sp) }
+                }
+            }
+            CardDivider()
+            SettingItem("Open-source licences", "Libraries and fonts used by Music", Icons.Outlined.Info, onClick = { showLicences = true })
+        }
+        Text("Music · RTensorLabs · Early build ${BuildConfig.VERSION_NAME}", fontSize = 12.sp, color = scheme.onSurfaceVariant,
+            textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 28.dp))
     }
+    if (showImport) AlertDialog(
+        onDismissRequest = { showImport = false },
+        title = { Text("Import audio") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Choose audio from your device.")
+                Button(onClick = { showImport = false; onLocal() }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) { Text("Choose file") }
+                OutlinedButton(onClick = { showImport = false; onChooseMasters() }, enabled = !state.mastersBusy,
+                    modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) { Text("Choose folder") }
+                if (state.mastersSummary.isNotBlank()) {
+                    Text(state.mastersSummary, fontSize = 13.sp, color = scheme.onSurfaceVariant)
+                    if (!state.mastersBusy) {
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            TextButton(onClick = { showImport = false; onChooseMasters() }) { Text("Rescan folder") }
+                            TextButton(onClick = { onClearMasters(); showImport = false }) { Text("Forget folder") }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = { showImport = false }) { Text("Close") } },
+    )
     if (confirmClear) AlertDialog(
         onDismissRequest = { confirmClear = false },
         title = { Text("Clear listening history?") },

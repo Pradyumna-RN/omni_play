@@ -16,8 +16,8 @@ android {
         applicationId = "labs.rtensor.music"
         minSdk = 26
         targetSdk = 35
-        versionCode = 23
-        versionName = "0.3.20"
+        versionCode = 24
+        versionName = "0.3.21"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // An integrated build must not install as 32-bit using a dependency's
         // unrelated JNI library when the renderer is supplied only for 64-bit.
