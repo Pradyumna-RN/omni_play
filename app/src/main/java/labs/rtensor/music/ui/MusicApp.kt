@@ -212,6 +212,7 @@ fun MusicApp(
     playbackPosition: StateFlow<Long>? = null,
     audioLevels: StateFlow<labs.rtensor.dsp.AudioLevelFrame?>? = null,
     onMetering: (Boolean) -> Unit = {},
+    onDeveloperOptions: (Boolean) -> Unit = {},
 ) {
     val startPage = if (initialPage == "saved") "library" else initialPage
     var page by rememberSaveable { mutableStateOf(startPage) }
@@ -301,7 +302,7 @@ fun MusicApp(
                             "settings" -> SettingsScreen(state, onTheme, onOpenLocal, onChooseMasters, onClearMasters, onClearHistory,
                                 onConnect, onWebSignIn, onDisconnect, onCancelConnect, onGoogleSignIn, onGoogleSignOut, onCancelGoogle, onCheckUpdates, onDownloadUpdate, onInstallUpdate,
                                 onAutoplay, onTrackHistory, onConnectSource, onRemoveSource, onConnectTidal, onDisconnectTidal, onCancelTidal,
-                                onConnectApple, onNativeApple, onDisconnectApple, onCancelApple)
+                                onConnectApple, onNativeApple, onDisconnectApple, onCancelApple, onDeveloperOptions)
                             else -> HomeScreen(state, ::focusSearch, ::play, onToggle, ::openEntry, { onRefreshFeed(); onRefreshForYou() }, onMoreFeed, onConnect)
                         }
                     }
@@ -925,7 +926,7 @@ private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () ->
                     }
                     RouteLabel(state.routeLabel)
                     if (showsAudioComparison(state)) AudioComparison(state, onProcessing)
-                    ChannelMonitor(state.audioProcessing.report, playing && !loading, track.id, audioLevels, onMetering)
+                    if (state.developerOptions) ChannelMonitor(state.audioProcessing.report, playing && !loading, track.id, audioLevels, onMetering)
                     Spacer(Modifier.height(30.dp))
                     Row(Modifier.fillMaxWidth().padding(bottom = 6.dp), verticalAlignment = Alignment.Bottom) {
                         Text("Up next", fontSize = 20.sp, fontWeight = FontWeight.Medium, letterSpacing = (-.5).sp, modifier = Modifier.weight(1f))
@@ -1277,7 +1278,8 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onLocal
     onAutoplay: (Boolean) -> Unit, onTrackHistory: (Boolean) -> Unit,
     onConnectSource: (MusicProvider, SourceProtocol, String, String) -> Unit, onRemoveSource: (String) -> Unit,
     onConnectTidal: () -> Unit, onDisconnectTidal: () -> Unit, onCancelTidal: () -> Unit,
-    onConnectApple: () -> Unit, onNativeApple: () -> Unit, onDisconnectApple: () -> Unit, onCancelApple: () -> Unit) {
+    onConnectApple: () -> Unit, onNativeApple: () -> Unit, onDisconnectApple: () -> Unit, onCancelApple: () -> Unit,
+    onDeveloperOptions: (Boolean) -> Unit) {
     var confirmClear by remember { mutableStateOf(false) }
     var showLicences by remember { mutableStateOf(false) }
     var showSources by remember { mutableStateOf(false) }
@@ -1362,6 +1364,12 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onLocal
             }
             CardDivider()
             SettingItem("Open-source licences", "Libraries and fonts used by Music", Icons.Outlined.Info, onClick = { showLicences = true })
+            CardDivider()
+            SettingItem("Developer options", "Show the channel monitor in the player", Glyph.ChannelMonitor,
+                onClick = { onDeveloperOptions(!state.developerOptions) }) {
+                Switch(checked = state.developerOptions, onCheckedChange = onDeveloperOptions,
+                    modifier = Modifier.semantics { contentDescription = "Developer options" })
+            }
         }
         Text("Music · RTensorLabs · Early build ${BuildConfig.VERSION_NAME}", fontSize = 12.sp, color = scheme.onSurfaceVariant,
             textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 28.dp))

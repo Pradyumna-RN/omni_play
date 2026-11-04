@@ -76,6 +76,7 @@ data class MusicState(
     val queueIndex: Int = -1,
     val theme: String = "system",
     val reducedMotion: Boolean = false,
+    val developerOptions: Boolean = false,
     val error: String? = null,
     val errorDiagnostic: String = "",
     val account: AccountState = AccountState(),
@@ -129,6 +130,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val mutable = MutableStateFlow(MusicState(
         saved = library.tracks("saved"), history = library.tracks("history"), googleProfile = googleProfiles.load(),
         theme = library.theme, reducedMotion = library.reducedMotion, playEvents = initialEvents.filterNot { library.isRemoved(it.track) },
+        developerOptions = library.developerOptions,
         autoplay = library.autoplay, trackHistory = library.trackHistory,
         mastersSummary = summary(masters.entries, masters.folder != null),
         playbackSources = sources.settings.connections.value.map { it.summary() },
@@ -137,7 +139,12 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val mutablePosition = MutableStateFlow(0L)
     val playbackPosition = mutablePosition.asStateFlow()
     val audioLevels = AudioPipeline.levels
-    fun setMetering(enabled: Boolean) { AudioPipeline.setMetering(enabled) }
+    fun setMetering(enabled: Boolean) { AudioPipeline.setMetering(enabled && mutable.value.developerOptions) }
+    fun developerOptions(enabled: Boolean) {
+        library.developerOptions = enabled
+        mutable.update { it.copy(developerOptions = enabled) }
+        if (!enabled) AudioPipeline.setMetering(false)
+    }
     private val catalogueCache = CatalogueTrackCache()
     private val metadata = mutableMapOf<String, YouTubeMetadata>()
     private fun enrich(track: Track) = metadata[track.id]?.enrich(track) ?: track

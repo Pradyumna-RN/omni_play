@@ -64,4 +64,7 @@ class LibraryStore(context: Context) {
     var processedAudio: Boolean
         get() = prefs.getBoolean("processed_audio", true)
         set(value) { prefs.edit().putBoolean("processed_audio", value).apply() }
+    var developerOptions: Boolean
+        get() = prefs.getBoolean("developer_options", false)
+        set(value) { prefs.edit().putBoolean("developer_options", value).apply() }
 }

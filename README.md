@@ -191,6 +191,19 @@ the Android installer. Installation still needs the user's confirmation.
 | [dsp](dsp/) | PCM/rate/layout adapter, original private DMR JNI boundary, Original/Processed comparison and diagnostics. |
 | [Updates](app/src/main/java/labs/rtensor/music/updates/) | GitHub release discovery and verified in-place APK updates. |
 
+## Music 0.3.29 — developer-only monitor and release builds
+
+The channel monitor is hidden unless **Settings → About → Developer options** is
+enabled. The switch defaults off for existing and fresh installations, persists
+between launches, and disabling it immediately stops meter observation. Playback
+and Original/Processed comparison stay available independently of this switch.
+
+Distributed builds now use the signed `release` variant with R8 code optimization
+and resource shrinking, preserving the existing OTA signing identity. The release
+artifact is named `music-release.apk`, which existing updaters already recognize.
+The package checks validate the release output, retained JNI entry points and the
+100 MB download target. Source/debug builds remain available for development.
+
 ## Music 0.3.28 — fixed speaker lights
 
 The monitor keeps Claude's speaker plan and Original/Processed distinction, with

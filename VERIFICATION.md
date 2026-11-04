@@ -1,4 +1,32 @@
-# Current verification: Music 0.3.28 / fixed speaker lights
+# Current verification: Music 0.3.29 / developer-only monitor and release build
+
+35 targeted app checks pass with no failures, errors or skips: three developer
+options checks, seven channel-monitor checks, ten player-comparison checks, four
+source-settings checks and eleven account/updater checks.
+
+- Developer options defaults off and is stored on this device. The normal player
+  has no channel-monitor entry. Enabling the setting makes it available; turning
+  it off removes an open monitor and stops observation immediately. Playback and
+  Original/Processed comparison remain independent of the setting.
+- Distribution uses the actual release variant, with R8 optimization, resource
+  shrinking and a non-debuggable manifest. A build guard requires the universal
+  APK to stay below 100,000,000 bytes and preserves the five required JNI class
+  names. Exact native/runtime payload checks target the release APK by default.
+- The existing updater supports `music-release.apk`; the OTA regression covers
+  the release filename and upgrades from 0.3.28/code31. The existing signing
+  identity is retained to allow installed copies to update without uninstalling.
+- Both ARM64 and x86-64, Android 11+, providers, the previous volume correction
+  and original stereo/surround routing are retained. Native and vendor payloads
+  are compared with 0.3.28; no private renderer implementation is copied.
+
+The UI checks run through Robolectric against the debug test variant. They do
+not constitute running the optimized release on a physical phone. Live Apple
+subscriber playback, old vendor-runtime compatibility and phone performance
+remain unverified; the prior native evidence below is unchanged-source evidence.
+
+Version **0.3.29/code32** retains the package/signing identity and normal OTA feed.
+
+# Previous verification: Music 0.3.28 / fixed speaker lights
 
 31 targeted app checks pass: seven channel-monitor checks, ten player-comparison
 checks, three processing-state checks and eleven account/updater checks. The

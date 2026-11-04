@@ -128,6 +128,7 @@ class MainActivity : ComponentActivity() {
                 onProcessing = model::processing,
                 playbackPosition = model.playbackPosition,
                 audioLevels = model.audioLevels, onMetering = model::setMetering,
+                onDeveloperOptions = model::developerOptions,
                 onRemovePlay = model::removePlay, onRefreshForYou = model::refreshForYou,
             )
         }

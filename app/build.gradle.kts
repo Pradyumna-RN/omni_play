@@ -8,6 +8,11 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+val verificationVariant = providers.gradleProperty("rtensorVerificationVariant").orElse("release")
+check(verificationVariant.get() in setOf("debug", "release"))
+val verificationAssemble = verificationVariant.map { "assemble${it.replaceFirstChar(Char::uppercaseChar)}" }
+val verificationApk = layout.buildDirectory.file(verificationVariant.map { "outputs/apk/$it/app-$it.apk" })
+
 android {
     namespace = "labs.rtensor.music"
     compileSdk = 35
@@ -16,8 +21,8 @@ android {
         applicationId = "labs.rtensor.music"
         minSdk = 30
         targetSdk = 35
-        versionCode = 31
-        versionName = "0.3.28"
+        versionCode = 32
+        versionName = "0.3.29"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("boolean", "APPLE_NATIVE_INCLUDED", providers.gradleProperty("rtensorAppleJniDir").isPresent.toString())
         buildConfigField("boolean", "APPLE_RUNTIME_INCLUDED", providers.gradleProperty("rtensorAppleRuntimeAssetsDir").isPresent.toString())
@@ -43,7 +48,12 @@ android {
             isDebuggable = !providers.gradleProperty("rtensorOta").map { it.toBoolean() }.getOrElse(false)
         }
         release {
+            isDebuggable = false
             isMinifyEnabled = true
+            isShrinkResources = true
+            // Preserve the existing OTA identity while switching to the optimized
+            // release variant. A new signing identity would break installed updates.
+            signingConfig = signingConfigs.getByName("debug")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
@@ -135,14 +145,14 @@ tasks.named("preBuild") { dependsOn(verifyYouTubeEngine) }
 // Official OTA artifacts must carry the tested native renderer inside Music.
 // Contributor builds without the private source/artifact remain supported.
 tasks.register("verifyOtaDspBundle") {
-    dependsOn("assembleDebug")
+    dependsOn(verificationAssemble.get())
     doLast {
-        check(!android.buildTypes.getByName("debug").isDebuggable) {
+        check(!android.buildTypes.getByName(verificationVariant.get()).isDebuggable) {
             "Music OTA artifacts must be non-debuggable; build with -PrtensorOta=true"
         }
         val directory = providers.gradleProperty("rtensorDspJniDir").orNull
             ?: error("Music OTA builds require -PrtensorDspJniDir pointing to the private Android libraries")
-        val artifact = layout.buildDirectory.file("outputs/apk/debug/app-debug.apk").get().asFile
+        val artifact = verificationApk.get().asFile
         ZipFile(artifact).use { zip ->
             listOf("arm64-v8a", "x86_64").forEach { abi ->
                 val expected = file(directory).resolve("$abi/librtensor_downmix.so")
@@ -162,11 +172,11 @@ tasks.register("verifyOtaDspBundle") {
 // Prototype builds opt in explicitly. Prevent an APK with only one ABI or a
 // loader missing one of its shared LGPL libraries from passing verification.
 tasks.register("verifyEac3DecoderBundle") {
-    dependsOn("assembleDebug")
+    dependsOn(verificationAssemble.get())
     doLast {
         val directory = providers.gradleProperty("rtensorFfmpegJniDir").orNull
             ?: error("Pass -PrtensorFfmpegJniDir for the E-AC-3 prototype")
-        val artifact = layout.buildDirectory.file("outputs/apk/debug/app-debug.apk").get().asFile
+        val artifact = verificationApk.get().asFile
         ZipFile(artifact).use { zip ->
             listOf("arm64-v8a", "x86_64").forEach { abi ->
                 val root = file(directory).resolve(abi)
@@ -185,7 +195,7 @@ tasks.register("verifyEac3DecoderBundle") {
 }
 
 tasks.register("verifyAppleNativeBundle") {
-    dependsOn("assembleDebug")
+    dependsOn(verificationAssemble.get())
     doLast {
         val root = file(providers.gradleProperty("rtensorAppleJniDir").get())
         val source = file("src/main/cpp/apple-runtime")
@@ -196,7 +206,7 @@ tasks.register("verifyAppleNativeBundle") {
             digest.update(it.readBytes())
         }
         val sourceSha = digest.digest().joinToString("") { "%02x".format(it) }
-        ZipFile(layout.buildDirectory.file("outputs/apk/debug/app-debug.apk").get().asFile).use { zip ->
+        ZipFile(verificationApk.get().asFile).use { zip ->
             for (abi in listOf("arm64-v8a", "x86_64")) {
                 val metadata = JsonSlurper().parse(root.resolve("$abi/build-info.json")) as Map<*, *>
                 check(metadata["sourceSha256"] == sourceSha && metadata["minimumAndroidApi"] == 30 && metadata["containsAppleLibraries"] == false)
@@ -244,9 +254,9 @@ tasks.register("verifyAppleNativeBundle") {
 // Music uses the standard decoded surround bed. Retired scene and binaural
 // implementations must stay out of the distributed app.
 tasks.register("verifySurroundBedBundle") {
-    dependsOn("assembleDebug")
+    dependsOn(verificationAssemble.get())
     doLast {
-        ZipFile(layout.buildDirectory.file("outputs/apk/debug/app-debug.apk").get().asFile).use { zip ->
+        ZipFile(verificationApk.get().asFile).use { zip ->
             check(zip.entries().asSequence().none { it.name.contains("toa_hrir") || it.name.substringAfterLast('/') in setOf("libopenjoc_capi.so", "libopenjocJNI.so") }) {
                 "Retired spatial assets or experimental scene libraries were packaged"
             }
@@ -256,5 +266,28 @@ tasks.register("verifySurroundBedBundle") {
             }
         }
         logger.lifecycle("Verified: surround-bed playback; no Spatial renderer, HRIR assets or OpenJOC runtime")
+    }
+}
+
+tasks.register("verifyReleaseOptimization") {
+    dependsOn("assembleRelease")
+    doLast {
+        val release = android.buildTypes.getByName("release")
+        check(!release.isDebuggable && release.isMinifyEnabled && release.isShrinkResources)
+        check(layout.buildDirectory.file("outputs/mapping/release/mapping.txt").get().asFile.length() > 0) {
+            "The release APK must be processed by R8"
+        }
+        val apk = layout.buildDirectory.file("outputs/apk/release/app-release.apk").get().asFile
+        check(apk.length() < 100_000_000) { "The release APK exceeds the 100 MB download target" }
+        ZipFile(apk).use { zip ->
+            val dex = zip.entries().asSequence().filter { it.name.matches(Regex("classes[0-9]*\\.dex")) }
+                .map { entry -> zip.getInputStream(entry).use { it.readBytes().toString(Charsets.ISO_8859_1) } }.toList()
+            for (name in listOf("labs/rtensor/dsp/NativeBindings", "androidx/media3/decoder/ffmpeg/FfmpegLibrary",
+                "androidx/media3/decoder/ffmpeg/FfmpegAudioDecoder", "labs/rtensor/music/apple/NativeJson",
+                "labs/rtensor/music/apple/NativeAppleBridge")) {
+                check(dex.any { it.contains("L$name;") }) { "R8 removed or renamed a required JNI entry point: $name" }
+            }
+        }
+        logger.lifecycle("Verified: optimized release APK below 100 MB; JNI entry points retained")
     }
 }
