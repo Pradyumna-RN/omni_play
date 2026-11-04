@@ -101,12 +101,10 @@ full recording. Advertised Atmos tracks also request an EAC3_JOC manifest throug
 selection has a six-second budget and retains candidates found before a later
 edition fails or times out. A valid sign-in alone is not proof of quality availability.
 
-Settings → Playback → Scene decoding (experimental) enables OpenJOC for the next
-track load. Reload a clear 48 kHz JOC file to compare its 7.1.4 reconstruction via
-Original/Processed/Spatial. With it disabled, the existing FFmpeg bed decoder is
-used. Actual height inputs disable the DMR adapter's synthetic height upmix.
-OpenJOC is an independent experimental reconstruction with upstream fidelity
-limits; it does not recover original authored stems or claim Dolby equivalence.
+Music decodes E-AC-3 JOC to its standard 5.1/7.1 surround bed before DMR.
+The experimental scene decoder, Spatial mode and synthetic upmix are removed.
+The displayed channel count describes the decoded input; DMR output remains
+stereo. No full Atmos-object rendering is claimed.
 
 ## Account gateway contract, version 1
 

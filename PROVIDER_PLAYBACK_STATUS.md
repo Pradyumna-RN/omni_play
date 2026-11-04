@@ -1,4 +1,13 @@
-# Provider playback checkpoint — 0.3.24
+# Provider playback checkpoint — 0.3.26
+
+## Current audio route
+
+Music uses standard E-AC-3/JOC surround-bed decoding into the original DMR.
+Spatial/binaural processing, synthetic 9.1.6 upmix and the scene-decoder setting
+are removed from the app. Old saved selections are cleared. Stereo bypass and
+Original/Processed comparison remain. Standalone decoder research is separate
+and is not packaged into Music. The historical checkpoints below retain their
+original test results and do not describe the current audio route.
 
 ## Apple account integration added in 0.3.24
 

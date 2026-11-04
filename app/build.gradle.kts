@@ -16,8 +16,8 @@ android {
         applicationId = "labs.rtensor.music"
         minSdk = 30
         targetSdk = 35
-        versionCode = 28
-        versionName = "0.3.25"
+        versionCode = 29
+        versionName = "0.3.26"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("boolean", "APPLE_NATIVE_INCLUDED", providers.gradleProperty("rtensorAppleJniDir").isPresent.toString())
         // An integrated build must not install as 32-bit using a dependency's
@@ -196,31 +196,20 @@ tasks.register("verifyAppleNativeBundle") {
     }
 }
 
-// Optional experimental scene decoding must be the exact evaluated public native
-// build. This is separate from the private DMR and shared LGPL bed-decoder guards.
-tasks.register("verifyOpenJocBundle") {
+// Music uses the standard decoded surround bed. Retired scene and binaural
+// implementations must stay out of the distributed app.
+tasks.register("verifySurroundBedBundle") {
     dependsOn("assembleDebug")
-    val directory = providers.gradleProperty("rtensorOpenJocJniDir")
     doLast {
-        val root = file(directory.get())
-        val metadata = JsonSlurper().parse(root.parentFile.resolve("native-build.json")) as Map<*, *>
-        check(metadata["sourceCommit"] == "e3e330a2000f8d0bced3460756473c8774eb16f0" && metadata["abi"] == "1.7-experimental")
-        check(metadata["embeddedHrtf"] == false && metadata["speakerLayout"] == "7.1.4")
-        val bridge = rootProject.file("decoder-openjoc/src/main/jni/openjoc_jni.cpp")
-        val bridgeSha = MessageDigest.getInstance("SHA-256").digest(bridge.readBytes()).joinToString("") { "%02x".format(it) }
-        check(metadata["bridgeSha256"] == bridgeSha) { "Scene decoder JNI is stale; rebuild the native adapter" }
-        val artifacts = metadata["artifacts"] as Map<*, *>
         ZipFile(layout.buildDirectory.file("outputs/apk/debug/app-debug.apk").get().asFile).use { zip ->
-            for (abi in listOf("arm64-v8a", "x86_64")) {
-                val expected = artifacts[abi] as Map<*, *>
-                for (name in listOf("libopenjoc_capi.so", "libopenjocJNI.so")) {
-                    val packaged = zip.getInputStream(checkNotNull(zip.getEntry("lib/$abi/$name"))).use { it.readBytes() }
-                    check(packaged.contentEquals(root.resolve("$abi/$name").readBytes()))
-                    val sha = MessageDigest.getInstance("SHA-256").digest(packaged).joinToString("") { "%02x".format(it) }
-                    check(sha == expected[name]) { "Unverified scene decoder: $abi/$name" }
-                }
+            check(zip.entries().asSequence().none { it.name.contains("toa_hrir") || it.name.substringAfterLast('/') in setOf("libopenjoc_capi.so", "libopenjocJNI.so") }) {
+                "Retired spatial assets or experimental scene libraries were packaged"
+            }
+            for (entry in zip.entries().asSequence().filter { it.name.matches(Regex("classes[0-9]*\\.dex")) }) {
+                val dex = zip.getInputStream(entry).use { it.readBytes().toString(Charsets.ISO_8859_1) }
+                check(!dex.contains("Llabs/rtensor/dsp/BinauralRenderer;") && !dex.contains("Llabs/rtensor/decoder/openjoc/OpenJocAudioRenderer;"))
             }
         }
-        logger.lifecycle("Verified: pinned, speaker-only OpenJOC and JNI for ARM64 and x86-64")
+        logger.lifecycle("Verified: surround-bed playback; no Spatial renderer, HRIR assets or OpenJOC runtime")
     }
 }

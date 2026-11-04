@@ -6,6 +6,12 @@ import org.json.JSONArray
 class LibraryStore(context: Context) {
     private val prefs = context.getSharedPreferences("music_library", Context.MODE_PRIVATE)
 
+    init {
+        // Retired modes must not return after an upgrade or a later playback restart.
+        if (prefs.contains("spatial_audio") || prefs.contains("joc_objects"))
+            prefs.edit().remove("spatial_audio").remove("joc_objects").apply()
+    }
+
     fun tracks(key: String): List<Track> = runCatching {
         val array = JSONArray(prefs.getString(key, "[]"))
         (0 until array.length()).mapNotNull { i -> runCatching { Track.fromJson(array.getJSONObject(i)) }.getOrNull() }
@@ -58,12 +64,4 @@ class LibraryStore(context: Context) {
     var processedAudio: Boolean
         get() = prefs.getBoolean("processed_audio", true)
         set(value) { prefs.edit().putBoolean("processed_audio", value).apply() }
-    /** Headphone (binaural) render selected instead of the speaker downmix. */
-    var spatialAudio: Boolean
-        get() = prefs.getBoolean("spatial_audio", false)
-        set(value) { prefs.edit().putBoolean("spatial_audio", value).apply() }
-    /** Experimental scene reconstruction, used when a compatible track loads. */
-    var jocObjects: Boolean
-        get() = prefs.getBoolean("joc_objects", false)
-        set(value) { prefs.edit().putBoolean("joc_objects", value).apply() }
 }

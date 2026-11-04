@@ -20,17 +20,16 @@ import org.robolectric.annotation.GraphicsMode
 class SourceSettingsUiTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
 
-    @Test fun nativeAccountAndSceneControlsReachTheirCallbacksWithoutAServer() {
+    @Test fun nativeAccountControlsRemainWithoutExperimentalSceneControls() {
         var signIns = 0
-        val sceneRequests = mutableListOf<Boolean>()
         compose.setContent { MusicApp(MusicState(reducedMotion = true,
-            audioProcessing = labs.rtensor.music.playback.AudioProcessingState(available = true, objectDecoderAvailable = true)),
-            initialPage = "settings", onConnectTidal = { signIns++ }, onObjectDecoding = sceneRequests::add) }
-        compose.onNodeWithContentDescription("Scene decoding (experimental)").performScrollTo().performClick()
+            audioProcessing = labs.rtensor.music.playback.AudioProcessingState(available = true)),
+            initialPage = "settings", onConnectTidal = { signIns++ }) }
+        compose.onNodeWithContentDescription("Scene decoding (experimental)").assertDoesNotExist()
         compose.onNodeWithText("Playback sources").performScrollTo().performClick()
         compose.onNodeWithText("TIDAL · experimental").assertExists()
         compose.onNodeWithText("Sign in to TIDAL").performScrollTo().performClick()
-        compose.runOnIdle { assertEquals(listOf(true), sceneRequests); assertEquals(1, signIns) }
+        compose.runOnIdle { assertEquals(1, signIns) }
     }
 
     @Test fun unifiedImportKeepsFolderSelectionAndExistingFolderManagementReachable() {

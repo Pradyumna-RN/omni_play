@@ -9,7 +9,7 @@ enum class SpeakerPosition(val id: Int) {
     BLC(8), BRC(9), TFL(10), TFR(11), TSL(12), TSR(13), TBL(14), TBR(15),
 }
 
-enum class RenderLayout(val id: Int) { WINDOWS_71(0), SHARUR_916(1) }
+enum class RenderLayout(val id: Int) { WINDOWS_71(0), EXTENDED_DISCRETE(1) }
 
 /** What the listener hears from a multichannel source. */
 enum class ListeningMode {
@@ -17,8 +17,6 @@ enum class ListeningMode {
     ORIGINAL,
     /** The private renderer's speaker downmix. */
     PROCESSED,
-    /** Headphone (binaural) render of every speaker channel. */
-    SPATIAL,
 }
 
 class DownmixFormat(
@@ -29,13 +27,13 @@ class DownmixFormat(
     val preampDb: Float = if (positions.size == 2) 0f else -14f,
 ) {
     val positions: List<SpeakerPosition> = Collections.unmodifiableList(ArrayList(positions))
-    val layout: RenderLayout = layout ?: if (this.positions.any { it.id >= 8 }) RenderLayout.SHARUR_916 else RenderLayout.WINDOWS_71
+    val layout: RenderLayout = layout ?: if (this.positions.any { it.id >= 8 }) RenderLayout.EXTENDED_DISCRETE else RenderLayout.WINDOWS_71
     init {
         require(sampleRate in SUPPORTED_SAMPLE_RATES) { "The renderer supports 48000, 96000 and 192000 Hz; received $sampleRate Hz" }
         require(this.positions.size in 2..16 && this.positions.distinct().size == this.positions.size) { "Explicit, unique speaker positions are required" }
         require(this.positions.size != 2 || this.positions.toSet() == setOf(SpeakerPosition.FL, SpeakerPosition.FR)) { "Stereo processing requires the front left/right pair" }
-        require(this.positions.size != 2 || this.layout == RenderLayout.WINDOWS_71) { "Stereo is a front-pair input, not an existing 9.1.6 field" }
-        require(this.layout != RenderLayout.WINDOWS_71 || this.positions.all { it.id < 8 }) { "This speaker layout requires the 9.1.6 renderer" }
+        require(this.positions.size != 2 || this.layout == RenderLayout.WINDOWS_71) { "Stereo requires the front-pair layout" }
+        require(this.layout != RenderLayout.WINDOWS_71 || this.positions.all { it.id < 8 }) { "This source requires explicit extended speaker mapping" }
         require(maxBlockFrames in 1..8192)
         require(preampDb.isFinite() && preampDb in -60f..12f)
     }
@@ -69,10 +67,6 @@ data class DownmixReport(
     val processing: String = "Downmix DSP",
     val processingEnabled: Boolean = true,
     val listeningMode: ListeningMode = if (processingEnabled) ListeningMode.PROCESSED else ListeningMode.ORIGINAL,
-    /** Whether a headphone (binaural) render can be selected for this stream. */
-    val spatialAvailable: Boolean = false,
-    /** Whether the speaker field includes generated 9.1.6 channels. */
-    val upmix916: Boolean = false,
     val comparisonAvailable: Boolean = true,
     val unavailableReason: String? = null,
     val renderSampleRate: Int = sampleRate,
@@ -81,6 +75,4 @@ data class DownmixReport(
     val atmosVerified: Boolean = false,
     /** Decoded channel count, known even when the speaker positions are not. */
     val sourceChannels: Int = inputPositions.size,
-    /** Experimental JOC reconstruction, not certified Dolby renderer equivalence. */
-    val objectDecoded: Boolean = false,
 )

@@ -194,12 +194,10 @@ class Eac3DecoderTest {
         assertThrows(DownmixException::class.java) { FfmpegSpeakerLayout.positions(0x3f, 8) }
     }
 
-    @Test fun experimentalSceneDecoderRequiresOptInAndRejectsStereoOtherRatesAndProtection() {
-        if (System.getProperty("rtensor.openjoc.expectNative") == "true") assertTrue(labs.rtensor.decoder.openjoc.OpenJocLibrary.isAvailable())
-        else assumeTrue(labs.rtensor.decoder.openjoc.OpenJocLibrary.isAvailable())
+    @Test fun standardBedRendererHandlesJocWithoutRegisteringASceneRenderer() {
+        native()
         val context: Context = RuntimeEnvironment.getApplication()
-        var enabled = false
-        val factory = object : DownmixRenderersFactory(context, objectDecodingEnabled = { enabled }) {
+        val factory = object : DownmixRenderersFactory(context) {
             fun audio(): List<Renderer> {
                 val out = ArrayList<Renderer>()
                 buildAudioRenderers(context, 0, MediaCodecSelector.DEFAULT, true, buildAudioSink(context, true, false),
@@ -209,13 +207,11 @@ class Eac3DecoderTest {
         }
         val renderers = factory.audio()
         val scene = renderers.first()
-        assertEquals("MusicOpenJocSceneRenderer", scene.name)
+        assertEquals("MusicFfmpegBedAudioRenderer", scene.name)
+        assertFalse(renderers.any { it.name.contains("OpenJoc") })
         val joc = format(6, MimeTypes.AUDIO_E_AC3_JOC)
-        assertEquals(C.FORMAT_UNSUPPORTED_TYPE, scene.capabilities.supportsFormat(joc) and 7)
-        enabled = true
         assertEquals(C.FORMAT_HANDLED, scene.capabilities.supportsFormat(joc) and 7)
         assertEquals(C.FORMAT_UNSUPPORTED_TYPE, scene.capabilities.supportsFormat(format(2, MimeTypes.AUDIO_AAC)) and 7)
-        assertEquals(C.FORMAT_UNSUPPORTED_SUBTYPE, scene.capabilities.supportsFormat(joc.buildUpon().setSampleRate(96000).build()) and 7)
         assertEquals(C.FORMAT_UNSUPPORTED_DRM, scene.capabilities.supportsFormat(joc.buildUpon().setCryptoType(C.CRYPTO_TYPE_FRAMEWORK).build()) and 7)
         assertTrue(renderers.any { it.name == "MusicFfmpegBedAudioRenderer" })
     }

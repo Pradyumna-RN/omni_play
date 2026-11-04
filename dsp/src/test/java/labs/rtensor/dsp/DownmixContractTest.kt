@@ -11,7 +11,7 @@ class DownmixContractTest {
         val stereo = listOf(SpeakerPosition.FL, SpeakerPosition.FR)
         assertEquals(2, DownmixFormat(48000, stereo).inputChannels)
         assertThrows(IllegalArgumentException::class.java) { DownmixFormat(48000, listOf(SpeakerPosition.FL, SpeakerPosition.FC)) }
-        assertThrows(IllegalArgumentException::class.java) { DownmixFormat(48000, stereo, layout = RenderLayout.SHARUR_916) }
+        assertThrows(IllegalArgumentException::class.java) { DownmixFormat(48000, stereo, layout = RenderLayout.EXTENDED_DISCRETE) }
     }
     @Test fun decoderMaskDistinguishesBackAndSideSurrounds() {
         val back = AndroidSpeakerLayout.fromMask(4 or 8 or 16 or 32 or 64 or 128, 6)
@@ -40,7 +40,7 @@ class DownmixContractTest {
     }
     @Test fun heightsSelectTheFullLayoutAndReportsDoNotInventAtmosOrBitPerfect() {
         val format = DownmixFormat(96000, listOf(SpeakerPosition.FL, SpeakerPosition.FR, SpeakerPosition.TFL))
-        assertEquals(RenderLayout.SHARUR_916, format.layout)
+        assertEquals(RenderLayout.EXTENDED_DISCRETE, format.layout)
         val report = DownmixReport(format.sampleRate, format.positions)
         assertFalse(report.atmosVerified); assertFalse(report.bitPerfect)
         assertEquals(2, report.outputChannels)

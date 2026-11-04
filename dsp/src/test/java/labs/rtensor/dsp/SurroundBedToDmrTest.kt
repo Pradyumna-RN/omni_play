@@ -4,8 +4,8 @@ import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.common.MimeTypes
 import androidx.media3.exoplayer.audio.AudioSink
-import labs.rtensor.decoder.openjoc.OpenJocAudioDecoder
-import labs.rtensor.decoder.openjoc.OpenJocLibrary
+import androidx.media3.decoder.ffmpeg.FfmpegAudioDecoder
+import androidx.media3.decoder.ffmpeg.FfmpegLibrary
 import org.junit.Assert.*
 import org.junit.Assume.assumeTrue
 import org.junit.Test
@@ -16,24 +16,23 @@ import java.io.File
 import java.lang.reflect.Proxy
 import java.nio.ByteOrder
 
-/** Real reference recording, real object decoder and real private renderer.
+/** Real reference recording, real standard E-AC-3 bed decoder and real private renderer.
  * The terminal AudioSink consumes PCM without Android hardware. */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], manifest = Config.NONE)
-class OpenJocToDmrTest {
-    @Test fun completeJocMusicPassesThroughAllThreeListeningModesWithoutSyntheticHeights() {
-        if (System.getProperty("rtensor.openjoc.expectNative") == "true") assertTrue(OpenJocLibrary.isAvailable())
-        else assumeTrue(OpenJocLibrary.isAvailable())
+class SurroundBedToDmrTest {
+    @Test fun completeJocRecordingUsesTheStandardSixChannelBedAndOriginalDmr() {
+        if (System.getProperty("rtensor.ffmpeg.expectNative") == "true") assertTrue(FfmpegLibrary.isAvailable())
+        else assumeTrue(FfmpegLibrary.isAvailable())
         if (System.getProperty("rtensor.dsp.expectNative") == "true") assertTrue(NativeDownmixEngine.isAvailable)
         else assumeTrue(NativeDownmixEngine.isAvailable)
-        val path = System.getProperty("rtensor.openjoc.recording")
+        val path = System.getProperty("rtensor.surround.recording")
         assumeTrue("Supply an authorized reference recording", path != null)
         val encoded = File(path!!).readBytes()
         assertEquals(18226176, encoded.size) // the published 189.856 s Dolby reference fixture
-        val decoder = OpenJocAudioDecoder(65536)
-        val positions = FfmpegSpeakerLayout.positions(decoder.channelLayoutMask, decoder.channelCount)
+        val decoder = FfmpegAudioDecoder(Format.Builder().setSampleMimeType(MimeTypes.AUDIO_E_AC3_JOC).setSampleRate(48000).setChannelCount(6).build(),4,4,65536,true)
         var mode = ListeningMode.PROCESSED
-        var writtenFrames = 0L; var sourceFrames = 0L; var heightEnergy = 0.0
+        var writtenFrames = 0L; var sourceFrames = 0L
         var peak = 0f; var ended = false; var outputConfigurations = 0
         val reports = mutableListOf<DownmixReport?>()
         val modeEnergy = mutableMapOf<ListeningMode, Double>()
@@ -57,10 +56,9 @@ class OpenJocToDmrTest {
                 else -> null
             }
         } as AudioSink
-        val sink = DownmixAudioSink(output, { positions }, onReport = reports::add, listeningMode = { mode })
+        val sink = DownmixAudioSink(output, { FfmpegSpeakerLayout.positions(decoder.channelLayoutMask, decoder.channelCount) }, onReport = reports::add, listeningMode = { mode })
         try {
-            sink.configure(Format.Builder().setSampleMimeType(MimeTypes.AUDIO_RAW).setChannelCount(12).setSampleRate(48000)
-                .setPcmEncoding(C.ENCODING_PCM_FLOAT).build(),0,null)
+            var configured = false
             var at=0;var queuedEos=false;var done=false
             val deadline=System.nanoTime()+600_000_000_000L
             while(!done && System.nanoTime()<deadline) {
@@ -77,11 +75,14 @@ class OpenJocToDmrTest {
                     try {
                         if(out.isEndOfStream()) { done=true;continue }
                         val pcm=out.data!!.order(ByteOrder.nativeOrder())
-                        val view=pcm.duplicate().order(ByteOrder.nativeOrder())
-                        var channel=0
-                        while(view.hasRemaining()) { val v=view.float.toDouble();if(channel>=8)heightEnergy+=v*v;channel=(channel+1)%12 }
-                        mode=when(out.timeUs/32_000_000) { 1L,5L -> ListeningMode.ORIGINAL;3L -> ListeningMode.SPATIAL;else -> ListeningMode.PROCESSED }
-                        sourceFrames+=pcm.remaining()/(12*4)
+                        if (!configured) {
+                            assertEquals(6, decoder.channelCount); assertEquals(48000, decoder.sampleRate)
+                            sink.configure(Format.Builder().setSampleMimeType(MimeTypes.AUDIO_RAW).setChannelCount(6)
+                                .setSampleRate(48000).setPcmEncoding(C.ENCODING_PCM_FLOAT).build(),0,null)
+                            configured = true
+                        }
+                        mode=when(out.timeUs/32_000_000) { 1L,5L -> ListeningMode.ORIGINAL;else -> ListeningMode.PROCESSED }
+                        sourceFrames+=pcm.remaining()/(6*4)
                         assertTrue(sink.handleBuffer(pcm,out.timeUs,1))
                     } finally { out.release() }
                 }
@@ -90,13 +91,12 @@ class OpenJocToDmrTest {
             assertTrue("The whole reference recording must finish",done)
             sink.playToEndOfStream()
             assertTrue(sink.isEnded)
-            assertEquals(9113088L+32,sourceFrames) // includes the decoder's drain padding
+            assertEquals(9113088L,sourceFrames) // exactly the encoded surround bed; no scene-decoder padding
             assertTrue(writtenFrames>=sourceFrames)
-            assertTrue(heightEnergy>1.0)
             assertTrue("Every listening mode must produce finite audio",ListeningMode.entries.all { modeEnergy.getOrDefault(it,0.0)>1e-5 })
             assertTrue(peak<=1.0001f)
             assertEquals(1,outputConfigurations)
-            assertTrue(reports.filterNotNull().all { it.sourceChannels==12 && !it.upmix916 })
+            assertTrue(reports.filterNotNull().all { it.sourceChannels==6 && it.inputPositions.size==6 })
             assertTrue(reports.filterNotNull().map { it.listeningMode }.toSet().containsAll(ListeningMode.entries))
             assertEquals(sourceFrames*1_000_000/48000,sink.getCurrentPositionUs(true))
         } finally { sink.release();decoder.release() }

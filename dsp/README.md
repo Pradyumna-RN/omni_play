@@ -17,7 +17,7 @@ To package the separately built private ARM64/x86-64 libraries:
   -PrtensorDspJniDir=/absolute/path/to/private/android-output -PrtensorOta=true
 ```
 
-The directory must contain ABI **2** native libraries. Ordinary AAR builds accept
+The directory must contain ABI **2 or 3** native libraries. Ordinary AAR builds accept
 `arm64-v8a/librtensor_downmix.so` and/or `x86_64/librtensor_downmix.so`; official
 OTA validation requires both. ABI 1 belongs to the earlier private 0.1.0 preview.
 AAR output is `dsp/build/outputs/aar/dsp-release.aar`.
@@ -46,7 +46,8 @@ multichannel render explicitly instead of silently claiming DSP processing.
 - Supported multichannel PCM16/24/32/float maps to the original core and outputs
   stereo float. Mono and stereo bypass by default. Other library consumers may
   opt into native stereo enhancement using `processStereo`; Music does not do so.
-  Generated spatial channels are not original Atmos metadata.
+  Music explicitly disables synthetic upmixing, including on ABI 3. The decoded
+  surround bed retains its actual speaker positions; no HRIR/binaural stage runs.
 - Live comparison calls the original native compare control: FL/FR only, with
   common delay/gain. A 10 ms fade out followed by a 10 ms fade in changes the mix
   at silence. It keeps native history warm and does not reconfigure the sink or
@@ -92,3 +93,8 @@ kernel output against the existing desktop implementation.
 
 Tryptify was consulted for integration concepts and float/multichannel lifecycle
 considerations; no Tryptify implementation or coefficients are imported.
+
+Music exposes Original and Processed only. Scene reconstruction is not a runtime
+dependency. The ABI-3 speaker-field bindings remain for native regression checks,
+including proving that absent height channels stay silent; they are not an app
+listening mode. The separate private renderer retains its standalone features.

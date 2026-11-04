@@ -420,7 +420,7 @@ class DownmixAudioSinkTest {
         }
     }
 
-    @Test fun realAbi3FieldSwitchesOriginalProcessedAndSpatialWithoutReloading() {
+    @Test fun realAbi3BedSwitchesOriginalAndProcessedWithoutReloading() {
         org.junit.Assume.assumeTrue(NativeBindings.hasField)
         var mode = ListeningMode.PROCESSED
         val output = RecordingOutput()
@@ -433,7 +433,7 @@ class DownmixAudioSinkTest {
             sink.configure(format(), 0, null)
             val levels = mutableListOf<Double>()
             for ((segment, target) in listOf(ListeningMode.PROCESSED, ListeningMode.ORIGINAL,
-                ListeningMode.SPATIAL, ListeningMode.PROCESSED).withIndex()) {
+                ListeningMode.PROCESSED).withIndex()) {
                 mode = target
                 val start = output.bytes.size()
                 val pcm = buffer(4800 * roles.size * 4).apply {
@@ -443,7 +443,7 @@ class DownmixAudioSinkTest {
                 }
                 assertTrue(sink.handleBuffer(pcm, segment * 100_000L, 1))
                 assertEquals(target, reports.last()!!.listeningMode)
-                assertTrue(reports.last()!!.upmix916)
+                assertEquals(roles, reports.last()!!.inputPositions)
                 val samples = ByteBuffer.wrap(output.bytes.toByteArray()).order(ByteOrder.nativeOrder())
                 samples.position(start + 2400 * 8) // measure after the fade/filter settling
                 var power = 0.0
@@ -455,93 +455,13 @@ class DownmixAudioSinkTest {
                 levels += kotlin.math.sqrt(power / 4800)
             }
             assertTrue("Both render paths must contain the centre speaker: $levels",
-                levels[0] > 1e-5 && levels[2] > 1e-5 && levels[3] > 1e-5)
+                levels[0] > 1e-5 && levels[2] > 1e-5)
             assertTrue("Original must omit the centre speaker: $levels", levels[1] < 1e-7)
             assertEquals(1, engines)
             assertEquals(1, output.configurations)
-            assertEquals(19200 * 8, output.bytes.size())
-            assertEquals(listOf(ListeningMode.PROCESSED, ListeningMode.ORIGINAL, ListeningMode.SPATIAL,
-                ListeningMode.PROCESSED), reports.filterNotNull().map { it.listeningMode })
+            assertEquals(14400 * 8, output.bytes.size())
+            assertEquals(listOf(ListeningMode.PROCESSED, ListeningMode.ORIGINAL, ListeningMode.PROCESSED), reports.filterNotNull().map { it.listeningMode })
         } finally { sink.release() }
     }
 
-    /** Exposes a 16-speaker field the way the ABI 3 private core does. */
-    private class FieldEngine(format: DownmixFormat) : DownmixEngine by CountingEngine(format) {
-        var fields = 0; var processes = 0; var resets = 0
-        override val providesField = true
-        override val upmix916 = true
-        override fun process(input: ByteBuffer, output: ByteBuffer, frames: Int) {
-            processes++
-            repeat(frames) { output.putFloat(input.float); output.putFloat(input.float); repeat(format.inputChannels - 2) { input.float } }
-        }
-        override fun processField(input: ByteBuffer, field: ByteBuffer, frames: Int) {
-            fields++
-            repeat(frames) {
-                val values = FloatArray(format.inputChannels) { input.float }
-                val byId = FloatArray(16)
-                format.positions.forEachIndexed { index, position -> byId[position.id] = values[index] }
-                byId[SpeakerPosition.TFL.id] = .02f // a generated height channel
-                byId.forEach(field::putFloat)
-            }
-        }
-        override fun reset() { resets++ }
-    }
-    private fun outputFloats(h: Harness): FloatArray {
-        val bytes = ByteBuffer.wrap(h.output.bytes.toByteArray()).order(ByteOrder.nativeOrder())
-        return FloatArray(bytes.remaining() / 4) { bytes.float }
-    }
-
-    @Test fun spatialRendersTheDecodedSpeakersForHeadphonesAndSwitchesLive() {
-        var mode = ListeningMode.SPATIAL
-        val h = Harness()
-        val sink = DownmixAudioSink(h.output.sink, { roles }, engineFactory = { CountingEngine(it).also(h.engines::add) },
-            onReport = h.reports::add, listeningMode = { mode })
-        sink.configure(format(), 0, null)
-        val report = h.reports.last()!!
-        assertTrue(report.spatialAvailable); assertEquals(ListeningMode.SPATIAL, report.listeningMode); assertTrue(report.processingEnabled)
-        assertTrue(sink.handleBuffer(input(1024), 0, 1))
-        val engine = h.engines.single()
-        assertEquals(0, engine.processed)
-        assertEquals(listOf(false), engine.comparisons)
-        val rendered = outputFloats(h)
-        assertEquals(2048, rendered.size)
-        assertTrue(rendered.all { it.isFinite() } && rendered.any { kotlin.math.abs(it) > 1e-4f })
-        mode = ListeningMode.PROCESSED
-        assertTrue(sink.handleBuffer(input(1024), 21_333, 1))
-        assertTrue(sink.handleBuffer(input(1024), 42_666, 1))
-        assertEquals(ListeningMode.PROCESSED, h.reports.last()!!.listeningMode)
-        assertEquals("stale history after a direct headphone render", 1, engine.resets)
-        assertTrue(engine.processed > 0)
-        mode = ListeningMode.ORIGINAL
-        assertTrue(sink.handleBuffer(input(1024), 64_000, 1)); assertTrue(sink.handleBuffer(input(1024), 85_333, 1))
-        assertEquals(ListeningMode.ORIGINAL, h.reports.last()!!.listeningMode); assertFalse(h.reports.last()!!.processingEnabled)
-        assertEquals(listOf(false, false, true), engine.comparisons)
-        assertEquals(1, h.output.configurations)
-    }
-
-    @Test fun withTheRendererFieldTheUpmixedSpeakersFeedTheHeadphoneRender() {
-        val h = Harness(); var engine: FieldEngine? = null
-        val sink = DownmixAudioSink(h.output.sink, { roles }, engineFactory = { FieldEngine(it).also { e -> engine = e } },
-            onReport = h.reports::add, listeningMode = { ListeningMode.SPATIAL })
-        sink.configure(format(rate = 96000), 0, null)
-        assertTrue(h.reports.last()!!.upmix916); assertTrue(h.reports.last()!!.spatialAvailable)
-        val silent = buffer(512 * 6 * 4).apply { repeat(512 * 6) { putFloat(0f) }; flip() }
-        assertTrue(sink.handleBuffer(silent, 0, 1))
-        assertEquals(1, engine!!.fields); assertEquals(0, engine!!.processes)
-        // Only the generated height channel carries signal, so it reached the ears.
-        assertTrue(outputFloats(h).any { kotlin.math.abs(it) > 1e-4f })
-        sink.flush()
-        assertEquals(1, engine!!.resets)
-    }
-
-    @Test fun spatialFallsBackToProcessedWhereThereIsNothingToPlace() {
-        val h = Harness()
-        val sink = DownmixAudioSink(h.output.sink, { roles }, engineFactory = { CountingEngine(it).also(h.engines::add) },
-            onReport = h.reports::add, processStereo = true, listeningMode = { ListeningMode.SPATIAL })
-        sink.configure(format(channels = 2), 0, null)
-        assertFalse(h.reports.last()!!.spatialAvailable)
-        assertEquals(ListeningMode.PROCESSED, h.reports.last()!!.listeningMode)
-        assertTrue(sink.handleBuffer(input(256, 2), 0, 1))
-        assertEquals(1, h.engines.single().processed)
-    }
 }

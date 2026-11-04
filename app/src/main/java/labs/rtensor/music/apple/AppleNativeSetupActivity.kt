@@ -78,7 +78,7 @@ internal class AppleNativeSetupActivity : ComponentActivity() {
                     Text("Native Apple account connected. Matching songs will be checked when you play.")
                     Button(onClick = { finish() }) { Text("Done") }
                 }
-                Text("Availability depends on this runtime, the account and the recording. The player reports the actual codec and decoded channels. Headphone Spatial output is binaural; speaker multichannel depends on the output device.", style = MaterialTheme.typography.bodySmall)
+                Text("Availability depends on this runtime, the account and the recording. The player reports the actual codec and decoded channels. The original DMR processes the decoded surround bed; stereo plays unchanged.", style = MaterialTheme.typography.bodySmall)
             } }
             BackHandler { account.cancel(); finish() }
         } }

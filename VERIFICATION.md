@@ -1,4 +1,32 @@
-# Current verification: Music 0.3.25 / runtime import fixes
+# Current verification: Music 0.3.26 / standard surround bed
+
+**236 app tests and 79 DSP tests pass** (315 total), with no failures, errors or
+skips. Android lint, APK assembly and all four native packaging guards pass.
+All four updated README architecture diagrams render successfully.
+
+- The actual FFmpeg Java/JNI decoder plays the complete 189.856-second E-AC-3
+  reference through the actual private DMR: six channels, 48 kHz and 9,113,088
+  decoded frames. Original/Processed switching, finite output, end-of-stream and
+  playback position pass. The terminal audio sink is a host stand-in, not a phone.
+- Native tests confirm synthetic upmix is disabled and produces zero generated
+  height-channel energy. Genuine extended source positions remain supported.
+- Music has only Original and Processed modes. Stereo sources bypass DMR unchanged.
+  Multichannel sources use the original renderer and render two-channel output;
+  this does not claim physical 5.1/7.1 speaker output or full Atmos object rendering.
+- Upgrade tests confirm obsolete Spatial and scene-decoding preferences are cleared
+  while the Processed preference is preserved. The APK contains no binaural renderer,
+  HRIR assets or OpenJOC runtime. The standalone renderer/research source is retained.
+- Existing 24-bit ALAC sample-preservation, account, import, provider and player tests
+  pass. Native binaries that remain packaged are unchanged from the prior baseline.
+
+No physical Android phone or live Apple subscriber session was used. Listening
+quality, hardware output and commercial Apple lossless/multichannel availability
+remain unverified. The older sanitizer and runtime-inspection results below are
+baseline evidence, not newly executed checks for this release.
+
+Version **0.3.26/code29** retains the package and signing identity for OTA updates.
+
+# Previous verification: Music 0.3.25 / runtime import fixes
 
 43 targeted app tests pass with no failures, errors or skips: archive/protocol
 checks on Android API 30/35, account/update checks and settings callbacks.

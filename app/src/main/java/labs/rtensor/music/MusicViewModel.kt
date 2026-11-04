@@ -187,8 +187,6 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         AudioPipeline.selectProcessing(library.processedAudio)
-        AudioPipeline.selectSpatial(library.spatialAudio)
-        AudioPipeline.selectObjectDecoding(library.jocObjects)
         viewModelScope.launch {
             AudioPipeline.state.collect { audio -> mutable.update { it.copy(audioProcessing = audio, routeLabel = currentRoute(audio)) } }
         }
@@ -403,7 +401,6 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             if (report.inputPositions.size <= 2) return "Local file · ${report.sampleRate / 1000f} kHz · stereo unchanged"
             return when (report.listeningMode) {
                 ListeningMode.ORIGINAL -> "Local file · original front L/R"
-                ListeningMode.SPATIAL -> "Local file · ${report.inputPositions.size} ch → headphones"
                 ListeningMode.PROCESSED -> "Local file · ${report.inputPositions.size} ch → DMR"
             }
         }
@@ -704,14 +701,6 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     fun processing(processed: Boolean) {
         library.processedAudio = processed
         AudioPipeline.selectProcessing(processed)
-    }
-    fun spatial(enabled: Boolean) {
-        library.spatialAudio = enabled
-        AudioPipeline.selectSpatial(enabled)
-    }
-    fun objectDecoding(enabled: Boolean) {
-        library.jocObjects = enabled
-        AudioPipeline.selectObjectDecoding(enabled)
     }
     fun autoplay(value: Boolean) {
         library.autoplay = value; mutable.update { it.copy(autoplay = value) }

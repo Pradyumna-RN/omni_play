@@ -43,12 +43,11 @@ android {
         }
         if (providers.gradleProperty("rtensorFfmpegHostLibraryDir").isPresent) it.systemProperty("rtensor.ffmpeg.expectNative", "true")
         if (providers.gradleProperty("rtensorOpenJocHostLibraryDir").isPresent) it.systemProperty("rtensor.openjoc.expectNative", "true")
-        System.getProperty("rtensor.openjoc.recording")?.let { path -> it.systemProperty("rtensor.openjoc.recording", path) }
+        System.getProperty("rtensor.surround.recording")?.let { path -> it.systemProperty("rtensor.surround.recording", path) }
     }
 }
 dependencies {
     implementation(project(":decoder-ffmpeg"))
-    implementation(project(":decoder-openjoc"))
     api("androidx.media3:media3-exoplayer:1.6.1")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.robolectric:robolectric:4.14.1")

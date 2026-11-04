@@ -41,12 +41,15 @@ class NativeDownmixEngine(override val format: DownmixFormat) : DownmixEngine {
         handle = NativeBindings.create(format.sampleRate, format.positions.map { it.id }.toIntArray(), format.layout.id, format.maxBlockFrames, format.preampDb)
         if (handle == 0L) throw DownmixException(DownmixStage.FORMAT,
             "The private DSP could not configure ${format.inputChannels} channels at ${format.sampleRate} Hz (${format.positions.joinToString(" ")}, ${format.layout})")
-        // Multichannel renders through the 9.1.6 monitor so the speakers the source
-        // lacks are generated, as the desktop renderer's "9.1.6 monitor" option does.
-        // Explicit height inputs are already a spatial speaker scene. Generating
-        // heights again would overwrite/add ambience to the decoded scene.
-        upmix916 = NativeBindings.hasField && format.inputChannels > 2 && format.positions.none { it.id >= SpeakerPosition.TFL.id } &&
-            NativeBindings.setUpmix916(handle, true) == 0
+        // Preserve the decoded surround bed. Never synthesize extra speakers.
+        upmix916 = false
+        // This ABI control applies only to multichannel streams; the stereo
+        // renderer rejects the control. Music bypasses stereo without creating
+        // this engine; the legacy AAR stereo-enhancement opt-in remains separate.
+        if (NativeBindings.hasField && format.inputChannels > 2 && NativeBindings.setUpmix916(handle, false) != 0) {
+            NativeBindings.destroy(handle); handle = 0
+            throw DownmixException(DownmixStage.DSP, "The renderer could not disable synthetic upmixing")
+        }
         latencyFrames = NativeBindings.latency(handle)
     }
     override val providesField: Boolean get() = NativeBindings.hasField

@@ -18,10 +18,9 @@ data class SourcePlaybackInfo(val stream: ProviderStream?, val fallbackLabel: St
     fun label(render: DownmixReport?): String {
         val remote = stream ?: return fallbackLabel
         val f = actualFormat ?: return remote.requestedLabel
-        val codec = when (f.sampleMimeType) { "audio/flac" -> "FLAC"; "audio/alac" -> "ALAC"; "audio/eac3-joc" -> "Atmos"; "audio/eac3" -> "E-AC-3"; "audio/mp4a-latm" -> "AAC"; else -> "Audio" }
+        val codec = when (f.sampleMimeType) { "audio/flac" -> "FLAC"; "audio/alac" -> "ALAC"; "audio/eac3-joc" -> "E-AC-3 JOC"; "audio/eac3" -> "E-AC-3"; "audio/mp4a-latm" -> "AAC"; else -> "Audio" }
         val multichannel = render?.inputPositions?.size?.let { it > 2 } == true
         val route = when {
-            multichannel && render?.listeningMode == ListeningMode.SPATIAL -> "${render.inputPositions.size} ch → headphones"
             multichannel && render?.processingEnabled == true -> "${render.inputPositions.size} ch → DMR"
             multichannel -> "${render!!.inputPositions.size} ch · original front L/R"
             render == null -> "checking decoded channels"

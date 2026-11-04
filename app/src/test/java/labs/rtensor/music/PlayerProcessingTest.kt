@@ -54,25 +54,12 @@ class PlayerProcessingTest {
         }
     }
 
-    @Test fun spatialAndProcessedWaitForTheirDistinctRendererAcknowledgements() {
-        val state = mutableStateOf(initial(DownmixReport(48000, surround, spatialAvailable = true, upmix916 = true)))
-        var seeks = 0; var pauses = 0
-        compose.setContent { MusicApp(state.value, initialPage = "now", onSeek = { seeks++ }, onToggle = { pauses++ },
-            onSpatial = { selected -> state.value = state.value.copy(audioProcessing =
-                state.value.audioProcessing.copy(selectedSpatial = selected)) },
-            onProcessing = { selected -> state.value = state.value.copy(audioProcessing =
-                state.value.audioProcessing.copy(selectedProcessed = selected)) }) }
-        compose.onNodeWithContentDescription("Spatial headphone audio").performScrollTo().performClick().assertIsSelected()
-        compose.onNodeWithText("Switching to spatial…").assertIsDisplayed()
-        compose.runOnIdle { state.value = state.value.copy(audioProcessing = state.value.audioProcessing.copy(
-            report = state.value.audioProcessing.report!!.copy(listeningMode = ListeningMode.SPATIAL))) }
-        compose.onNodeWithText("6 channels + 9.1.6 upmix → headphones (binaural)").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithContentDescription("Processed audio").performClick().assertIsSelected()
-        compose.onNodeWithText("Switching to processed…").assertIsDisplayed()
-        compose.runOnIdle { state.value = state.value.copy(audioProcessing = state.value.audioProcessing.copy(
-            report = state.value.audioProcessing.report!!.copy(listeningMode = ListeningMode.PROCESSED))) }
-        compose.onNodeWithText("6 channels + 9.1.6 upmix → stereo").performScrollTo().assertIsDisplayed()
-        compose.runOnIdle { assertEquals(0, seeks); assertEquals(0, pauses); assertEquals(72000L, state.value.positionMs) }
+    @Test fun playerOffersOnlyOriginalAndProcessedForTheUnmodifiedSurroundBed() {
+        compose.setContent { MusicApp(initial(DownmixReport(48000, surround)), initialPage = "now") }
+        compose.onNodeWithContentDescription("Processed audio").performScrollTo().assertIsSelected()
+        compose.onNodeWithContentDescription("Original audio").assertExists()
+        compose.onNodeWithContentDescription("Spatial headphone audio").assertDoesNotExist()
+        compose.onNodeWithText("6 channels → stereo").assertIsDisplayed()
     }
 
     @Test fun unsupportedStereoRateCannotPretendProcessingIsActive() {
@@ -98,10 +85,11 @@ class PlayerProcessingTest {
         assertFalse(LibraryStore(compose.activity).processedAudio)
         first.processedAudio = true
         assertTrue(LibraryStore(compose.activity).processedAudio)
-        first.spatialAudio = true
-        assertTrue(LibraryStore(compose.activity).spatialAudio)
-        first.spatialAudio = false
-        assertFalse(LibraryStore(compose.activity).spatialAudio)
+        val prefs = compose.activity.getSharedPreferences("music_library", android.content.Context.MODE_PRIVATE)
+        prefs.edit().putBoolean("spatial_audio", true).putBoolean("joc_objects", true).putBoolean("processed_audio", false).commit()
+        val upgraded = LibraryStore(compose.activity)
+        assertFalse(upgraded.processedAudio)
+        assertFalse(prefs.contains("spatial_audio")); assertFalse(prefs.contains("joc_objects"))
     }
 
     @Test fun pausedSelectionWaitsForAudioInsteadOfShowingTheOppositeMode() {

@@ -1,3 +1,8 @@
+> Music 0.3.26 no longer registers or packages this experimental decoder. The
+> app uses standard E-AC-3/JOC surround-bed decoding. This module remains available
+> for standalone research and tests; historical Music integration instructions
+> below describe earlier builds, including the retired verifyOpenJocBundle task.
+
 # Optional OpenJOC speaker decoder
 
 Independent, experimental JOC reconstruction before DMR. This module uses OpenJOC

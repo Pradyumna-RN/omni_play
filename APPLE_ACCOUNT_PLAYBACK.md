@@ -1,4 +1,4 @@
-# Apple Music account playback — 0.3.24
+# Apple Music account playback — 0.3.26
 
 Music now contains two experimental account paths. Both require the listener's
 active subscription and run inside this app on Android 11+ (ARM64/x86-64).
@@ -56,9 +56,10 @@ feeding damaged audio into the decoder. Encoded clear audio is not written to a
 disk cache. Requests to media hosts contain no Apple account authorization.
 
 FFmpeg now includes ALAC and emits float PCM for it, preserving 24-bit input detail.
-Stereo plays unchanged. Discrete surround enters the existing DMR; E-AC-3 JOC can
-use the optional OpenJOC reconstruction or the ordinary surround-bed decoder.
-Original/Processed/Spatial all render stereo. There is no claim of Dolby-certified
+Stereo plays unchanged. Discrete surround enters the existing DMR; E-AC-3 JOC uses
+the standard surround-bed decoder. Synthetic upmix and binaural processing are
+disabled; the original decoded speaker layout feeds DMR.
+Original/Processed all render stereo. There is no claim of Dolby-certified
 rendering, authored stem recovery, physical multichannel output or system-wide
 bit-perfect playback.
 

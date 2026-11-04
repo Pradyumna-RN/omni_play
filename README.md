@@ -62,10 +62,9 @@ position StateFlow updates the timelines without rebuilding the whole screen.
 ```mermaid
 flowchart TB
     INPUT["Selected file or stream"] --> DEMUX["Media3 demux / manifest parsing<br/>Actual encoded audio format"]
-    DEMUX -->|"48 kHz clear JOC<br/>Scene decoder enabled"| JOC["OpenJOC - experimental<br/>7.1.4 float PCM<br/>Explicit speaker positions"]
-    DEMUX -->|"ALAC / AC-3 / E-AC-3<br/>FFmpeg packaged"| FFMPEG["FFmpeg decoder<br/>24-bit ALAC or surround bed PCM"]
+    DEMUX -->|"ALAC / AC-3 / E-AC-3 / JOC<br/>Standard decoder"| FFMPEG["FFmpeg decoder<br/>24-bit ALAC or original 5.1/7.1 bed"]
     DEMUX -->|"Other supported codecs<br/>Platform fallback"| PLATFORM["Android / Media3 decoder"]
-    JOC --> PCM["Decoded PCM<br/>Channel-layout information"]
+    PCM["Decoded PCM<br/>Original channel-layout information"]
     FFMPEG --> PCM
     PLATFORM --> PCM
     PCM --> CHANNELS{"PCM route?"}
@@ -76,10 +75,8 @@ flowchart TB
     ADAPT --> MODE{"Mode?"}
     MODE -->|"Original"| FRONT["DMR comparison<br/>Front L/R only<br/>Shared gain and delay"]
     MODE -->|"Processed"| DMR["Private DMR<br/>Speaker downmix"]
-    MODE -->|"Spatial"| SPATIAL["DMR field + HRIRs<br/>Binaural for headphones"]
     FRONT --> STEREO["Two-channel rendered PCM"]
     DMR --> STEREO
-    SPATIAL --> STEREO
     STEREO --> SINK["DefaultAudioSink<br/>Android AudioTrack"]
     BYPASS --> SINK
     ORIGINAL -->|"If supported"| SINK
@@ -87,26 +84,26 @@ flowchart TB
 ```
 
 The adapter converts known multichannel **44.1/88.2/176.4 kHz → 48/96/192 kHz**
-for the core. Stereo bypasses that conversion. Original/Processed/Spatial share
-the stream's processing lifecycle and switch with a fade, without loading another
-recording. When decoded input already contains height speakers, synthetic height
-upmix stays off. Plain surround beds may use the renderer's synthetic 9.1.6 field.
+for the core. Stereo bypasses that conversion. Original and Processed share the
+stream lifecycle and switch with a fade, without loading another recording.
+The private adapter explicitly disables synthetic upmixing. The standard decoder
+feeds its original 5.1/7.1 bed to DMR; no invented side, rear or height speakers,
+HRIR convolution or app binaural stage is added.
 
 The private DMR is bundled into integrated APKs through JNI; there is no separate
 DSP app to install. Its implementation and coefficients stay outside this public
-repository. **Multichannel here describes the decoded input:** processed and
-spatial output is two-channel PCM. Spatial targets headphones; physical output
-routing is still Android's responsibility. Android's mixer/hardware may convert
+repository. **Multichannel here describes the decoded input:** processed output is two-channel PCM. Physical output routing remains Android's
+responsibility. Android's mixer/hardware may convert
 audio, so stereo bypass does not establish system-wide bit-perfect output.
 
 Unsupported layouts use the Android delegate only when it accepts the format.
 Other failures are classified by decoder, layout, DSP or output stage and reported
 back to the player.
 
-OpenJOC reconstructs supported JOC signals experimentally and does not claim Dolby
-renderer equivalence. Its reported 609-sample speaker latency is uncompensated.
-FFmpeg's bed decode is a separate route. See [decoder details](decoder-openjoc/README.md),
-[PCM/DSP integration](dsp/README.md) and [current provider status](PROVIDER_PLAYBACK_STATUS.md).
+Music uses FFmpeg's standard E-AC-3/JOC surround-bed decode. The experimental
+scene decoder is not registered or packaged, and its setting is removed.
+[PCM/DSP integration](dsp/README.md) and [provider status](PROVIDER_PLAYBACK_STATUS.md)
+describe the current route. Decoder research remains in its standalone module.
 
 ### Accounts, storage and updates
 
@@ -120,7 +117,7 @@ Apple Music has experimental in-app account playback: first-party web sign-in
 for Widevine AAC, and a subscriber-native adapter for ALAC and multichannel
 recordings. The native path requires a compatible, user-imported Apple runtime;
 Apple libraries are not distributed in Music. Qobuz still uses a connected gateway.
-Native TIDAL account playback and OpenJOC remain experimental; live subscription
+Native TIDAL account playback remains experimental; live subscription
 playback and physical-phone performance need separate validation.
 
 ### Apple account and audio paths
@@ -137,8 +134,8 @@ flowchart TB
     HLS --> DEMUX["Media3 sample extraction<br/>Per-segment key / MP4 sample metadata"]
     DEMUX <--> SDK["Imported native runtime<br/>Account-authorized sample processing"]
     DEMUX --> CLEAR["Encoded audio in memory<br/>ALAC / E-AC-3 / JOC"]
-    CLEAR --> DECODE["FFmpeg ALAC / surround decoder<br/>Optional OpenJOC scene decoder"]
-    DECODE --> PCM["Stereo bypass or multichannel DMR<br/>Original / Processed / Spatial"]
+    CLEAR --> DECODE["FFmpeg ALAC / standard surround-bed decoder"]
+    DECODE --> PCM["Stereo bypass or multichannel DMR<br/>Original / Processed"]
     CHOICE -->|"AAC account fallback"| DRM["Apple license callback<br/>Android Widevine + AAC decoder"]
     DRM --> STEREO["Stereo unchanged"]
     PCM --> OUT["Android AudioTrack"]
@@ -151,7 +148,7 @@ installer is not compatible with that ABI. The adapter and parser are compiled
 for Android 11+, without phone-brand restrictions. Runtime loading and subscriber
 playback remain unverified on a phone. A successful import or sign-in does not
 establish lossless/Atmos availability. The player reports actual delivered audio;
-JOC reconstruction is experimental, and DMR's rendered output remains stereo.
+JOC uses its standard surround bed, and DMR's rendered output remains stereo.
 See [Apple setup and test boundaries](APPLE_ACCOUNT_PLAYBACK.md).
 
 ```mermaid
@@ -181,6 +178,15 @@ the Android installer. Installation still needs the user's confirmation.
 | [decoder-ffmpeg](decoder-ffmpeg/), [decoder-openjoc](decoder-openjoc/) | Optional software bed decoding and experimental JOC reconstruction, before the PCM sink. |
 | [dsp](dsp/) | Public PCM/rate/layout adapter, private DMR JNI boundary, listening modes, binaural stage and diagnostics. |
 | [Updates](app/src/main/java/labs/rtensor/music/updates/) | GitHub release discovery and verified in-place APK updates. |
+
+## Music 0.3.26 — original surround-bed rendering
+
+Music now uses the standard decoded 5.1/7.1 surround bed and the original DMR
+speaker downmix. Synthetic 9.1.6 upmixing, Spatial/binaural filtering and the
+experimental scene-decoder control/runtime are removed from Music. Previously
+saved Spatial and scene selections are cleared on upgrade. Original/Processed
+comparison remains, and stereo continues to bypass DMR unchanged. The standalone
+renderer and decoder research source are retained separately.
 
 ## Music 0.3.25 — Apple runtime import fixes
 
