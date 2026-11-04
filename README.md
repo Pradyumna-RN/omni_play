@@ -191,6 +191,20 @@ the Android installer. Installation still needs the user's confirmation.
 | [dsp](dsp/) | PCM/rate/layout adapter, original private DMR JNI boundary, Original/Processed comparison and diagnostics. |
 | [Updates](app/src/main/java/labs/rtensor/music/updates/) | GitHub release discovery and verified in-place APK updates. |
 
+## Music 0.3.28 — fixed speaker lights
+
+The monitor keeps Claude's speaker plan and Original/Processed distinction, with
+missing source positions shown only as unlit reference outlines. Audio changes
+only the brightness of fixed-size nodes and labels. Filling output bars and
+sweeping peak arcs are removed; the output pair uses the same light-only style.
+Measurements remain real PCM RMS/peak data and are available to accessibility.
+
+Original comparison dims decoded speakers outside front L/R. A plain PCM bypass
+keeps every actual source channel active and is labelled separately; it is not
+presented as a renderer downmix or a front-pair-only comparison. Original retains
+its shared gain/delay description. Physical L/R stays correct in RTL layouts for
+both the map and output pair. No DSP, provider, volume or runtime payload changes.
+
 ## Music 0.3.27 — channel monitor, volume and automatic Apple setup
 
 Adds an expandable channel monitor to the player. Input nodes represent only the

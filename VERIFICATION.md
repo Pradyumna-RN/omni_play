@@ -1,4 +1,29 @@
-# Current verification: Music 0.3.27 / volume, channel monitor and bundled setup
+# Current verification: Music 0.3.28 / fixed speaker lights
+
+31 targeted app checks pass: seven channel-monitor checks, ten player-comparison
+checks, three processing-state checks and eleven account/updater checks. The
+monitor checks are repeated after refreshing the animated preview fixture.
+Android lint and all four native/runtime packaging guards pass. No DSP, decoder,
+provider or Apple account source changes from the validated 0.3.27 baseline.
+
+- Audio activity changes only opacity/brightness of fixed-size input and output
+  nodes. Growing bars and sweeping peak arcs are removed. Bounds remain identical
+  as measurements change; silence/non-finite measurements do not produce light.
+- Preserves Claude's speaker plan: absent positions are unlit reference outlines.
+  Native Original comparison dims non-front inputs; Processed displays actual
+  renderer inputs. Bypass is explicitly distinguished and never labelled as a
+  renderer downmix or front-pair-only comparison. Native Original keeps its
+  shared gain/delay description instead of claiming untouched source PCM.
+- Tests cover stereo, 5.1, compact-screen 7.1, unknown layouts, pause/collapse,
+  unchanged player composition during observations and physical L/R under RTL in
+  both the map and output pair. The previews use generated test measurements.
+- The prior surround-volume correction, stereo bypass, native libraries and
+  bundled Apple runtime are unchanged. Prior native/phone limitations below
+  remain; no new physical phone, performance or live Apple playback claim.
+
+Version **0.3.28/code31** retains the package/signing identity and normal OTA feed.
+
+# Previous verification: Music 0.3.27 / volume, channel monitor and bundled setup
 
 **331 unique app/DSP checks pass, with no failures, errors or skips.** The full
 244-app/86-DSP run passed first. After the compression-only asset representation

@@ -81,7 +81,8 @@ decode Atmos objects itself, capture another app or provide a streaming catalogu
 ## Channel metering and Music gain
 
 `AudioLevelMeter` reads consumed PCM without altering bytes, buffer positions or
-marks. Independent channel RMS/peaks use full-scale dBFS, never relative per-channel
+marks. The player displays these measurements as fixed-size speaker lights,
+without filling bars, growing geometry or sweeping arcs. Independent channel RMS/peaks use full-scale dBFS, never relative per-channel
 normalization. Approximately 50 ms windows publish through a dedicated flow only
 while the player monitor is open and playing in the foreground. Stereo bypass is
 still unchanged. Source and output channels are distinct; unknown speaker layouts

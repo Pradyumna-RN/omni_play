@@ -19,6 +19,7 @@ import labs.rtensor.dsp.*
 import labs.rtensor.music.ui.ChannelMonitor
 import labs.rtensor.music.ui.MusicApp
 import labs.rtensor.music.ui.MusicTheme
+import labs.rtensor.music.ui.channelGlow
 import labs.rtensor.music.playback.AudioProcessingState
 import labs.rtensor.music.data.Track
 import org.junit.Assert.*
@@ -63,7 +64,9 @@ class ChannelMonitorTest {
         for (p in listOf(SpeakerPosition.SL, SpeakerPosition.SR, SpeakerPosition.TFL, SpeakerPosition.TFR, SpeakerPosition.TBL, SpeakerPosition.TBR))
             compose.onNodeWithTag("input-channel-${p.name}").assertDoesNotExist()
         compose.onNodeWithText("Stereo output").assertIsDisplayed()
-        compose.onNodeWithText("−60 to 0 dBFS · before device volume").assertIsDisplayed()
+        compose.onNodeWithTag("output-channel-0").assertExists()
+        compose.onNodeWithTag("output-channel-1").assertExists()
+        compose.onNodeWithText("Measured activity · before device volume").assertIsDisplayed()
         capture("channel-monitor-light-51")
         compose.runOnIdle { assertTrue(requests.last());playing.value = false }
         compose.onNodeWithText("Paused · 6 input channels").assertIsDisplayed()
@@ -84,22 +87,28 @@ class ChannelMonitorTest {
         compose.onNodeWithTag("input-channel-FL").performScrollTo().assertExists()
         compose.onNodeWithTag("input-channel-FR").assertExists()
         compose.onNodeWithTag("input-channel-FC").assertDoesNotExist()
+        compose.onNodeWithText("Original PCM · no DMR").assertExists()
+        compose.onNodeWithText("Renderer stereo downmix").assertDoesNotExist()
         val before = roots
         repeat(5) { n -> compose.runOnIdle { levels.value = frame(stereo).copy(measuredAtNs = System.nanoTime() + n) };compose.waitForIdle() }
         assertEquals(before, roots)
-        compose.onNodeWithText("−60 to 0 dBFS · before device volume").performScrollTo()
+        compose.onNodeWithText("Measured activity · before device volume").performScrollTo()
         capture("channel-monitor-dark-stereo")
         compose.onNodeWithText("Pause").performScrollTo().performClick()
         compose.runOnIdle { assertEquals(1, toggles) }
     }
     @Test fun unknownLayoutUsesNumberedChannelsInsteadOfInventingSpeakerPositions() {
         compose.setContent { MusicTheme("light") { ChannelMonitor(DownmixReport(48000, emptyList(),
-            sourceChannels = 6, outputChannels = 6, comparisonAvailable = false), true, "unknown", null, {}) } }
+            sourceChannels = 6, outputChannels = 6, processingEnabled = false, comparisonAvailable = false), true, "unknown", null, {}) } }
         compose.onNodeWithContentDescription("Expand channel monitor").performClick()
         compose.onNodeWithText("Speaker positions unavailable").assertIsDisplayed()
         compose.onAllNodesWithText("Ch 6").assertCountEquals(2)
         compose.onNodeWithTag("input-channel-FL").assertDoesNotExist()
         compose.onNodeWithText("Sink output · 6 channels").assertIsDisplayed()
+        compose.onNodeWithText("Original audio · 6 decoded channels").assertExists()
+        compose.onNodeWithText("Original PCM · no DMR").assertExists()
+        compose.onNodeWithText("Original · front L/R of 6 decoded channels").assertDoesNotExist()
+        compose.onNodeWithText("Renderer stereo downmix").assertDoesNotExist()
     }
     @Test @Config(qualifiers = "w360dp-h800dp-mdpi")
     fun sevenPointOneFitsACompactScreenWithoutInventedHeightChannels() {
@@ -112,7 +121,7 @@ class ChannelMonitorTest {
         compose.runOnIdle { levels.value = frame(positions) }
         positions.forEach { compose.onNodeWithTag("input-channel-${it.name}").assertIsDisplayed() }
         compose.onNodeWithTag("input-channel-TFL").assertDoesNotExist()
-        compose.onNodeWithText("−60 to 0 dBFS · before device volume").assertIsDisplayed()
+        compose.onNodeWithText("Measured activity · before device volume").assertIsDisplayed()
         capture("channel-monitor-dark-71-compact")
     }
     @Test fun rightToLeftInterfaceNeverSwapsPhysicalLeftAndRightSpeakers() {
@@ -123,6 +132,9 @@ class ChannelMonitorTest {
         val left = compose.onNodeWithTag("input-channel-FL").fetchSemanticsNode().boundsInRoot
         val right = compose.onNodeWithTag("input-channel-FR").fetchSemanticsNode().boundsInRoot
         assertTrue(left.right < right.left)
+        val outputLeft = compose.onNodeWithTag("output-channel-0").fetchSemanticsNode().boundsInRoot
+        val outputRight = compose.onNodeWithTag("output-channel-1").fetchSemanticsNode().boundsInRoot
+        assertTrue(outputLeft.right < outputRight.left)
     }
     @Test fun originalAndProcessedDrawDifferentMapsOnTheFull916Layout() {
         val report = mutableStateOf(DownmixReport(48000, surround, listeningMode = ListeningMode.PROCESSED))
@@ -139,14 +151,35 @@ class ChannelMonitorTest {
         compose.onNodeWithText("Renderer stereo downmix").assertExists()
         assertFalse(compose.onNodeWithTag("input-channel-FC").fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsProperties.ContentDescription]
             .single().contains("not played"))
+        compose.runOnIdle { levels.value = frame(surround) }
+        compose.mainClock.advanceTimeBy(120)
         capture("channel-monitor-processed-916")
-        compose.runOnIdle { report.value = report.value.copy(listeningMode = ListeningMode.ORIGINAL);levels.value = frame(surround) }
+        compose.runOnIdle { report.value = report.value.copy(listeningMode = ListeningMode.ORIGINAL, processingEnabled = false);levels.value = frame(surround) }
         compose.onNodeWithText("Original · front L/R of 6 decoded channels").assertExists()
-        compose.onNodeWithText("Source front L/R, unprocessed").assertExists()
+        compose.onNodeWithText("Front L/R comparison · shared gain and delay").assertExists()
         val desc = { tag: String -> compose.onNodeWithTag(tag).fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsProperties.ContentDescription].single() }
         assertTrue(desc("input-channel-FC").contains("not played in Original"))
         assertTrue(desc("input-channel-BL").contains("not played in Original"))
         assertFalse(desc("input-channel-FL").contains("not played"))
+        compose.runOnIdle { levels.value = frame(surround) }
+        compose.mainClock.advanceTimeBy(120)
+        compose.onNodeWithContentDescription("L input, RMS -12 dBFS, peak -6 dBFS").assertExists()
         capture("channel-monitor-original-916")
+    }
+    @Test fun activityChangesBrightnessWithoutGrowingTheNodesOrMovingTheLayout() {
+        val levels = MutableStateFlow<AudioLevelFrame?>(null)
+        compose.setContent { MusicTheme("light") { ChannelMonitor(DownmixReport(48000, stereo,
+            processingEnabled = false, comparisonAvailable = false), true, "fixed", levels, {}) } }
+        compose.onNodeWithContentDescription("Expand channel monitor").performClick()
+        val before = compose.onNodeWithTag("input-channel-FL").fetchSemanticsNode().boundsInRoot
+        val beforeOutput = compose.onNodeWithTag("output-channel-0").fetchSemanticsNode().boundsInRoot
+        compose.runOnIdle { levels.value = frame(stereo) }
+        compose.waitForIdle()
+        assertEquals(before, compose.onNodeWithTag("input-channel-FL").fetchSemanticsNode().boundsInRoot)
+        assertEquals(beforeOutput, compose.onNodeWithTag("output-channel-0").fetchSemanticsNode().boundsInRoot)
+        assertEquals(0f, channelGlow(ChannelLevel(SpeakerPosition.FL, -120f, -120f)), 0f)
+        assertTrue(channelGlow(ChannelLevel(SpeakerPosition.FL, -12f, -6f)) > channelGlow(ChannelLevel(SpeakerPosition.FL, -40f, -30f)))
+        assertEquals(0f, channelGlow(ChannelLevel(SpeakerPosition.FL, Float.NaN, Float.NaN)), 0f)
+        compose.onNodeWithText("−60 to 0 dBFS · before device volume").assertDoesNotExist()
     }
 }
