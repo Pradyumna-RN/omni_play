@@ -558,9 +558,11 @@ Implementation research: [YouTube integration](YOUTUBE_INTEGRATION.md) and
 
 ## Build
 
-Use JDK 17+, Android SDK 35/build tools 35.0.0. Android 8.0+ and a recent Android
-System WebView are required. The committed bundles build in Android Studio without
-Python, Node or an extraction server:
+Use JDK 17+, Android SDK 35/build tools 35.0.0. Android 11+ (API 30) and a recent
+Android System WebView are required. Support is device-independent; integrated
+native builds currently include ARM64 and x86-64. Decoder and output capabilities
+are checked at runtime rather than assumed from a phone brand. The committed
+bundles build in Android Studio without Python, Node or an extraction server:
 
 ```sh
 ./gradlew :app:assembleDebug :app:testDebugUnitTest

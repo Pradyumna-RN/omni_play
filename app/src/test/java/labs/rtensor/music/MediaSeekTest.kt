@@ -22,7 +22,7 @@ import java.util.concurrent.Executors
 /** Real HTTP and MP4 seek-map/extractor; no provider or fake successful decoder. */
 @UnstableApi
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [35])
+@Config(sdk = [30, 35])
 class MediaSeekTest {
     @Test fun realMp4ExtractorCanSeekForwardAndBackOverQueryRanges() {
         val bytes = checkNotNull(javaClass.getResourceAsStream("/audio/seek-fixture.m4a")).readBytes()

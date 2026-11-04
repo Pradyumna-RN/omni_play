@@ -1,4 +1,30 @@
-# Current verification: Music 0.3.23 / live Home controls and provider radio
+# Current verification: unreleased Android 11 baseline and Apple runtime investigation
+
+**195 app tests, 88 DSP tests and 8 scene-decoder tests pass** (291 total), with
+no failures, errors or skipped tests. Android lint, APK assembly and all three
+integrated native packaging guards pass. The read-only Apple runtime checker has
+15 additional passing tests, including real generated ARM64/x86-64 ELF fixtures.
+
+- The merged manifest and built APK both declare minimum Android API 30 (Android
+  11), with target API 35. Native packaging retains ARM64 and x86-64. There is no
+  Motorola or other phone-brand restriction; the Edge 50 Neo is one test device.
+- The existing real HTTP/MP4 forward/backward seek test now runs under both
+  Android API 30 and 35 in Robolectric and passes on each.
+- Static native checks distinguish ELF architecture, 4 KiB/16 KiB load alignment,
+  dependency-name gaps, malformed images and conflicting APK splits. Matching
+  bytes or dependency names never mark runtime/account/playback verification true.
+- Read-only inspection of three current-distribution Apple ARM64 images confirms
+  their ELF architecture and 16 KiB alignment. The archive lacks the old wrapper's
+  required libstoreservicescore.so. These observations do not establish a working
+  native adapter or any delivered audio format; see the provider research record.
+
+No Android phone or Apple subscriber session was used. Apple account playback,
+lossless streaming and multichannel input to DMR have not been integrated by
+this work. No private Apple code or binary was added to the app. The app version
+is still 0.3.23/code26 and no new OTA release was published for this working-tree
+validation. The previously published release is described below.
+
+# Previous verification: Music 0.3.23 / live Home controls and provider radio
 
 **194 app tests, 88 DSP tests and 8 scene-decoder tests pass** (290 total), with
 no failures, errors or skipped tests. Android lint and all three integrated

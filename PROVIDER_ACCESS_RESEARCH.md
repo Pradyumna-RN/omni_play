@@ -317,3 +317,68 @@ an ALAC decoder in a repository or a stereo binaural render is insufficient.
 
 No provider was removed or disabled. No application source, credentials, private
 libraries or third-party implementation code changed in this research update.
+
+## Phone-only requirement and ARM64 feasibility — 2026-11-04
+
+The user's follow-up makes **everything inside Music on the Android phone** a
+requirement. The desktop/backend option above is therefore outside the requested
+solution. A tester has an Apple Music subscription and a Motorola Edge 50 Neo;
+their Android version and memory-page size are unknown. The subsequent user
+clarification sets Android 11+ (API 30) across brands as the baseline: the Motorola
+is one test device, not a support restriction. Existing ARM64/x86-64 native builds
+are retained. Subscriber sign-in must
+take place privately on the device, not by sending account credentials here.
+
+There is an ARM64 worker in wrapper-v2, so the x86 QEMU guest is not the only
+architecture worth investigating. Its [top-level build](https://github.com/glomatico/wrapper-v2/blob/100e0a864e883e03a3ac450a780dd9563fff5271/CMakeLists.txt)
+cross-compiles an Android NDK executable, but its [launcher](https://github.com/glomatico/wrapper-v2/blob/100e0a864e883e03a3ac450a780dd9563fff5271/src/launcher/wrapper.c)
+bind-mounts device files and calls chroot. Its [worker build](https://github.com/glomatico/wrapper-v2/blob/100e0a864e883e03a3ac450a780dd9563fff5271/src/daemon/CMakeLists.txt)
+targets an old Android/Bionic environment and shares the Apple package's C++
+runtime. That is not an existing normal-app JNI integration. Modern Android
+library namespaces, dependency/ABI compatibility and isolation from Music's
+existing native libraries still need to be established.
+
+A newly inspected Android reference does not solve the quality requirement:
+[ThePixelMusic's Apple resolver](https://github.com/ianshulyadav/ThePixelMusic/blob/7fbc64d3e49bc899c903246c9a1a7d9ab4e93bfb/app/src/main/java/com/unshoo/pixelmusic/data/lossless/applemusic/AppleMusicAudioProvider.kt)
+filters web-playback assets to `ctrp`, choosing `ctrp64` for its AAC setting and
+`ctrp256` otherwise. Its lossless setting name therefore does not establish ALAC
+or multichannel. Independently, [Adam's provider](https://github.com/silentone12725/apple-music-linux/blob/ffe107161d4847d8a6b6f1752a06d3ef453d0207/engine/core/apple/provider.go)
+separates the AAC web-playback route from its ALAC/Atmos FairPlay route. No shared
+account pool, fallback credential, application implementation or DRM code from
+these projects was copied into Music.
+
+The read-only [runtime checker](tools/apple/README.md) now optionally uses the
+NDK's llvm-readobj to inspect a supplied package's selected-ABI ELF headers,
+load-segment alignment and dependency names without extracting or executing the
+libraries. Fifteen tests pass, including generated real ARM64/x86-64 ELF files,
+4 KiB versus 16 KiB alignment, wrong-ABI files, truncated ELF, split-package
+conflicts, dependency gaps and non-extraction. Those are tooling tests only.
+
+An additional source check avoided asking the tester to export an installer.
+[Apple's Android distribution guide](https://support.apple.com/en-us/109340) links
+Tencent's store, whose current Apple Music listing supplies an APK listed as
+7.0.0. Read-only HTTP byte ranges were used to inspect its archive inventory and
+three ARM64 core images: androidappmusic, mediaplatform and storeapi. See the
+[recorded metadata](tools/apple/research/current-distribution-2026-11-04.json).
+No package was installed, native code loaded, account accessed or native files
+written to disk. APK signing/origin was not independently verified; this is
+metadata inspection of the linked distribution, not installation validation.
+
+All three inspected images are ARM64 ELF with 16 KiB load alignment, and their
+dependency names are present in the package or the public API-30 library set.
+This is inventory evidence, not proof of runtime dependency loading. The current
+archive lacks the old wrapper's required libstoreservicescore.so, along with
+libcurl.so and libicutest_sv_apple.so. None of the three inspected image hashes
+matches its old pinned counterpart. Nine of 82 old declared C++ symbols were
+found in those three images; the remaining 73 were not found in that limited
+scope, which is not a search of every runtime library. The older wrapper cannot
+be dropped into the current package unchanged.
+
+The existing private ABI reference remains pinned to 3.6.0-beta/build 1109. A
+locally supplied matching package would be needed to reproduce that old worker;
+the current package requires a separately validated native port. Hash mismatches
+must not be bypassed or described as compatible. Even a matching static report
+cannot establish native loading, account authorization, full-track ALAC/EC-3
+playback, seeking or multichannel PCM at DMR's input. No private runtime has been
+staged and no Apple subscriber session is available in this workspace. Apple
+sign-in/playback has not been integrated by this change.

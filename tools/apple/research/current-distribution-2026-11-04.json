@@ -1,0 +1,104 @@
+{
+  "inspectedDate": "2026-11-04",
+  "method": "read-only HTTP byte ranges and LLVM metadata; no native files written or loaded",
+  "appleDistributionGuide": "https://support.apple.com/en-us/109340",
+  "storePage": "https://sj.qq.com/appdetail/com.apple.android.music",
+  "storeListedVersion": "7.0.0",
+  "archiveSize": 225383026,
+  "packageSignerVerified": false,
+  "minimumAndroidApi": 30,
+  "scope": "selected ARM64 core libraries",
+  "images": {
+    "libandroidappmusic.so": {
+      "sha256": "ceea7c2c8d5e68a900cda37a454e651a27166196d8881db2fcbfaba2bd8f9b4b",
+      "validElf": true,
+      "elfArchitecture": "aarch64",
+      "matchesRequestedArchitecture": true,
+      "loadSegments16KiBAligned": true,
+      "neededLibraries": [
+        "libBlocksRuntime.so",
+        "libCoreADI.so",
+        "libCoreFP.so",
+        "libCoreFoundation.so",
+        "libCoreLSKD.so",
+        "libOpenSLES.so",
+        "libandroid.so",
+        "libc++_shared.so",
+        "libc.so",
+        "libdaapkit.so",
+        "libdispatch.so",
+        "libdl.so",
+        "libicudata_sv_apple.so",
+        "libicui18n_sv_apple.so",
+        "libicuuc_sv_apple.so",
+        "liblog.so",
+        "libm.so",
+        "libmedialibrarycore.so",
+        "libmediaplatform.so",
+        "libxml2.so",
+        "libz.so"
+      ]
+    },
+    "libmediaplatform.so": {
+      "sha256": "e55be476b0d5a1f91e03e561670251826529c335eff8b1c2a7ee69f14f61d90b",
+      "validElf": true,
+      "elfArchitecture": "aarch64",
+      "matchesRequestedArchitecture": true,
+      "loadSegments16KiBAligned": true,
+      "neededLibraries": [
+        "libCoreFoundation.so",
+        "libandroid.so",
+        "libc++_shared.so",
+        "libc.so",
+        "libdispatch.so",
+        "libdl.so",
+        "libicudata_sv_apple.so",
+        "libicui18n_sv_apple.so",
+        "libicuuc_sv_apple.so",
+        "liblog.so",
+        "libm.so",
+        "libxml2.so",
+        "libz.so"
+      ]
+    },
+    "libstoreapi.so": {
+      "sha256": "a32a57498b283da81d74d7b3cf473f8335d57a74f0fbada722da2c04d6d219ae",
+      "validElf": true,
+      "elfArchitecture": "aarch64",
+      "matchesRequestedArchitecture": true,
+      "loadSegments16KiBAligned": true,
+      "neededLibraries": [
+        "libCoreADI.so",
+        "libCoreFP.so",
+        "libCoreLSKD.so",
+        "libFPDIFor3P.so",
+        "libc.so",
+        "libdl.so",
+        "liblog.so",
+        "libm.so"
+      ]
+    }
+  },
+  "dependenciesNotInPackageOrPublicNdk30": [],
+  "oldWrapperReference": "glomatico/wrapper-v2@100e0a864e883e03a3ac450a780dd9563fff5271",
+  "oldWrapperProfile": {
+    "package": "com.apple.android.music",
+    "version": "3.6.0-beta",
+    "build": "1109",
+    "ndk_version": "r23b"
+  },
+  "missingOldWrapperLibraryNames": [
+    "libcurl.so",
+    "libicutest_sv_apple.so",
+    "libstoreservicescore.so"
+  ],
+  "oldWrapperDeclaredMangledSymbolsCompared": 82,
+  "oldWrapperSymbolsFoundInInspectedImages": 9,
+  "oldWrapperSymbolsNotFoundInInspectedImages": 73,
+  "symbolComparisonScope": "Only the three inspected images, not all Apple runtime libraries",
+  "runtimeLoaded": false,
+  "accountTested": false,
+  "playbackTested": false,
+  "proprietaryFilesExtracted": false,
+  "conclusion": "These metadata checks do not establish a working native adapter, sign-in, lossless playback or multichannel DMR input."
+}
