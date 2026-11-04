@@ -225,3 +225,51 @@ a proven phone SDK. The app contains only a read-only compatibility checker and
 public library hashes; no Apple libraries, device credentials or GPL CDM code
 were copied. A user-supplied APK/APKM and private account testing are still needed
 before claiming Apple native playback.
+
+
+## Official MusicKit sign-in reassessment — 2026-11-04
+
+Apple Music account authorization is implementable on Android. It is separate
+from generic Sign in with Apple and does not, by itself, establish lossless or
+multichannel playback through Music's DMR pipeline.
+
+Official sources checked:
+
+- [MusicKit overview](https://developer.apple.com/musickit/) explicitly offers
+  Android authentication/playback libraries. Its SDK download link currently
+  redirects to Apple Developer account sign-in in this environment.
+- [Generating developer tokens](https://developer.apple.com/documentation/applemusicapi/generating-developer-tokens)
+  requires a trusted developer/member of the Apple Developer Program. Other
+  platforms use a developer token signed with the team's MusicKit key. A listener's
+  Apple Music subscription does not supply this app registration.
+- [User authentication](https://developer.apple.com/documentation/applemusicapi/user-authentication-for-musickit)
+  requires a Music User Token for subscriber-specific requests and directs Android
+  apps to the MusicKit SDK authentication flow. The app must manage that token.
+- [Apple's lossless guide](https://support.apple.com/en-us/118295) and
+  [Atmos guide](https://support.apple.com/en-us/109354) document these features in
+  Apple's own Android app, with device/output requirements. Those pages do not
+  establish equivalent quality or raw PCM access in the third-party Android SDK.
+
+As a recent implementation reference, [OrchardDrive's README](https://github.com/dverba/OrchardDrive)
+reports native MusicKit playback as AAC, up to 256 kbps, with no lossless support.
+Its [October 2026 compatibility log](https://github.com/dverba/OrchardDrive/blob/main/docs/MUSICKIT_AAOS_COMPATIBILITY.md)
+identifies playback SDK 1.1.1/auth SDK 1.1.2 and an SDK-owned AudioTrack. This is
+third-party evidence about that implementation, not a guarantee about a newer SDK
+behind Apple's authenticated download page. Its architectural findings were read;
+no application implementation or SDK binaries were copied.
+
+For this project's quality target, the release gates remain separate:
+
+1. Obtain our own MusicKit registration, official SDK and developer-token setup;
+   authorize a subscriber through Apple's UI. Private keys remain outside the APK
+   and public repository.
+2. Verify the actual delivered codec, rate/depth, channel layout and device output.
+   Catalog lossless/Atmos availability attributes are not proof of the played format.
+3. Verify a supported authorized decoded-multichannel path into DMR. No public
+   MusicKit Android PCM callback or working lossless/Atmos-to-DMR integration was
+   verified in this review. SDK-managed playback is not a Media3/DMR buffer source.
+
+The previously reported registration status is unregistered. No developer token,
+official Android SDK download or live Apple subscriber session was available for
+verification. No Apple sign-in button, quality badge or playback claim was added;
+existing Apple server connectors and runtime-inspection tooling remain unchanged.
