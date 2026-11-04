@@ -183,6 +183,48 @@ video.m3u8
         assertThrows(java.util.concurrent.CancellationException::class.java) { AppleRuntimeFiles.readPackage(ByteArrayInputStream(archive), dir, mapOf("libfixture.so" to sha), "arm64-v8a") { throw java.util.concurrent.CancellationException() } }
         dir.deleteRecursively()
     }
+    @Test fun apkmBundlesReadNestedSplitsAndSelectOnlyTheRequestedArchitecture() {
+        fun zip(vararg entries: Pair<String, ByteArray>) = ByteArrayOutputStream().also { output ->
+            ZipOutputStream(output).use { archive -> entries.forEach { (name, bytes) ->
+                archive.putNextEntry(ZipEntry(name)); archive.write(bytes); archive.closeEntry()
+            } }
+        }.toByteArray()
+        val arm = "owned ARM64 library fixture".toByteArray()
+        val x86 = "owned x86-64 library fixture".toByteArray()
+        val bundle = zip("info.json" to "{}".toByteArray(), "base.apk" to zip("AndroidManifest.xml" to byteArrayOf(1)),
+            "split_config.arm64_v8a.apk" to zip("lib/arm64-v8a/libfixture.so" to arm),
+            "split_config.x86_64.apk" to zip("lib/x86_64/libfixture.so" to x86))
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        for ((arch, expected) in listOf("arm64-v8a" to arm, "x86_64" to x86)) {
+            val directory = java.io.File(context.cacheDir, "apkm-$arch").apply { mkdirs() }
+            try {
+                val digest = MessageDigest.getInstance("SHA-256").digest(expected).joinToString("") { "%02x".format(it) }
+                AppleRuntimeFiles.readPackage(ByteArrayInputStream(bundle), directory, mapOf("libfixture.so" to digest), arch)
+                assertArrayEquals(expected, java.io.File(directory, "libfixture.so").readBytes())
+                assertEquals(listOf("libfixture.so"), directory.listFiles()!!.map { it.name })
+            } finally { directory.deleteRecursively() }
+        }
+    }
+    @Test fun playbackDependencyClosureExcludesIcuTestToolsAndKeepsRequiredDependencies() {
+        val graph = mapOf("libandroidappmusic.so" to listOf("libCoreFoundation.so", "libc.so"),
+            "libCoreFoundation.so" to listOf("libicuuc_sv_apple.so"), "libicuuc_sv_apple.so" to listOf("libc.so"),
+            "libicutest_sv_apple.so" to listOf("libicutu_sv_apple.so"))
+        val loaded = mutableListOf<String>()
+        val order = AppleRuntimeFiles.dependencyOrder(graph.keys, setOf("libandroidappmusic.so")) { name -> loaded += name; graph.getValue(name) }
+        assertEquals(listOf("libicuuc_sv_apple.so", "libCoreFoundation.so", "libandroidappmusic.so"), order)
+        assertFalse(loaded.contains("libicutest_sv_apple.so"))
+        val required = assertThrows(IllegalArgumentException::class.java) {
+            AppleRuntimeFiles.dependencyOrder(graph.keys, setOf("libicutest_sv_apple.so"), graph::getValue)
+        }
+        assertTrue(required.message.orEmpty().contains("libicutu_sv_apple.so"))
+        assertTrue(required.message.orEmpty().contains("required by libicutest_sv_apple.so"))
+        assertThrows(IllegalArgumentException::class.java) {
+            AppleRuntimeFiles.dependencyOrder(graph.keys, setOf("libmissing.so"), graph::getValue)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            AppleRuntimeFiles.dependencyOrder(setOf("liba.so", "libb.so"), setOf("liba.so")) { if (it == "liba.so") listOf("libb.so") else listOf("liba.so") }
+        }
+    }
     @Test fun appleSessionVaultEncryptsTokensAndDiscardsTamperedData() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val vault = AccountSession(context, "apple-vault-test") { SecretKeySpec(ByteArray(32) { 13 }, "AES") }

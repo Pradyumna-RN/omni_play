@@ -182,6 +182,14 @@ the Android installer. Installation still needs the user's confirmation.
 | [dsp](dsp/) | Public PCM/rate/layout adapter, private DMR JNI boundary, listening modes, binaural stage and diagnostics. |
 | [Updates](app/src/main/java/labs/rtensor/music/updates/) | GitHub release discovery and verified in-place APK updates. |
 
+## Music 0.3.25 — Apple runtime import fixes
+
+The native Apple setup picker now accepts APK/APKM files even when a document
+provider assigns an unfamiliar MIME type. Archive and library-hash verification
+still run after selection. The original APKM bundle can be selected directly. Native loading now follows
+playback entry points and their dependencies, leaving unrelated ICU test helpers
+unloaded; required playback dependencies remain validated.
+
 ## Music 0.3.24 — experimental Apple account playback
 
 Settings → Playback sources now offers Apple web sign-in for AAC and native

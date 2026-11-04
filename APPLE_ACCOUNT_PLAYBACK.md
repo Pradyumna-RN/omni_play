@@ -27,7 +27,10 @@ Choose **Set up lossless & multichannel** in the same settings card. Import your
 compatible Apple Music **3.6.0-beta / build 1109** APK or APKM, then enter your Apple
 Account credentials and verification code privately in the app. Music verifies
 every required runtime library against its pinned SHA-256 before loading anything.
-The source installer is never installed or uploaded. Current Apple Music 7.x
+The source installer is never installed or uploaded. In 0.3.25 the picker accepts
+APKM bundles regardless of the MIME type assigned by the file manager. In
+0.3.24, a greyed-out bundle can be imported by renaming a copy to `.zip` without
+extracting it. Current Apple Music 7.x
 installers use a different native ABI and will be rejected rather than guessed.
 Music does not download or distribute Apple's runtime files.
 
@@ -80,3 +83,7 @@ Build the public adapter with `tools/apple/build_native.py` for both Android
 ABIs and pass `-PrtensorAppleJniDir=<output>/jni`. Host JNI tests also accept
 `-PrtensorAppleHostLibraryDir=<output>/host`. `:app:verifyAppleNativeBundle`
 checks source hashes, packaged adapter hashes and the absence of Apple libraries.
+
+In 0.3.25, dependency loading starts from the adapter’s playback entry points.
+Unrelated SDK test utilities are not preloaded. A missing required dependency
+still rejects the runtime and identifies the library that requested it.

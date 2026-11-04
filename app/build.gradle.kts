@@ -16,8 +16,8 @@ android {
         applicationId = "labs.rtensor.music"
         minSdk = 30
         targetSdk = 35
-        versionCode = 27
-        versionName = "0.3.24"
+        versionCode = 28
+        versionName = "0.3.25"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("boolean", "APPLE_NATIVE_INCLUDED", providers.gradleProperty("rtensorAppleJniDir").isPresent.toString())
         // An integrated build must not install as 32-bit using a dependency's

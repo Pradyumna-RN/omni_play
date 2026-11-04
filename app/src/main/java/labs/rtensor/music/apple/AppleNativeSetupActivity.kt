@@ -49,7 +49,9 @@ internal class AppleNativeSetupActivity : ComponentActivity() {
                 Text("Experimental account playback inside Music. Tries multichannel first, then the highest available lossless rate. Requires your own active subscription.")
                 Text("Import a compatible Apple Music 3.6.0-beta installer (build 1109, APK or APKM) once. Only verified runtime libraries are kept privately; the installer is never installed or uploaded. Current Apple Music installers use a different runtime.")
                 OutlinedButton(enabled = !importing && !state.connecting && !state.needsCode,
-                    onClick = { picker.launch(arrayOf("application/vnd.android.package-archive", "application/zip", "application/octet-stream")) }) {
+                    // Document providers assign several incompatible MIME types to APKM.
+                    // Verify the archive contents and pinned library hashes after selection.
+                    onClick = { picker.launch(arrayOf("*/*")) }) {
                     Text(if (importing) "Verifying runtime…" else if (state.runtimeImported) "Replace compatible runtime" else "Import runtime installer")
                 }
                 if (state.runtimeImported) {

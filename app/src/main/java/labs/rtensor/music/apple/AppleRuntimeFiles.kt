@@ -116,19 +116,26 @@ internal class AppleRuntimeFiles(private val context: Context) {
             }
             apk(input, true)
         }
-        private fun loadOrder(root: File, names: Set<String>): List<String> {
-            val dependencies = names.associateWith { needed(File(root, it).readBytes()) }
+        private val playbackRoots = setOf("libandroidappmusic.so", "libstoreservicescore.so", "libmediaplatform.so", "libCoreFP.so", "libCoreLSKD.so")
+        private fun loadOrder(root: File, names: Set<String>): List<String> = dependencyOrder(names, playbackRoots) {
+            needed(File(root, it).readBytes())
+        }
+        /** Load the adapter's entry points and their closure, not unrelated SDK
+         * utilities such as libicutest (whose tooling dependencies aren't playback).
+         * Every imported image still has to match the pinned library inventory. */
+        internal fun dependencyOrder(names: Set<String>, roots: Set<String>, dependencies: (String) -> List<String>): List<String> {
+            require(names.containsAll(roots)) { "The playback runtime is missing a required entry point." }
             val result = mutableListOf<String>(); val visiting = mutableSetOf<String>()
             fun visit(name: String) {
                 if (name in result) return
                 require(visiting.add(name)) { "The runtime has an unsupported native dependency cycle." }
-                dependencies.getValue(name).forEach { dependency ->
+                dependencies(name).forEach { dependency ->
                     if (dependency in names) visit(dependency)
-                    else require(dependency in publicLibraries) { "The runtime needs an unsupported Android library: $dependency" }
+                    else require(dependency in publicLibraries) { "The playback runtime needs an unsupported library: $dependency (required by $name)" }
                 }
                 visiting.remove(name); result += name
             }
-            names.sorted().forEach(::visit)
+            roots.sorted().forEach(::visit)
             return result
         }
         internal fun needed(bytes: ByteArray): List<String> {

@@ -1,4 +1,29 @@
-# Current verification: Music 0.3.24 / Apple account playback adapters
+# Current verification: Music 0.3.25 / runtime import fixes
+
+43 targeted app tests pass with no failures, errors or skips: archive/protocol
+checks on Android API 30/35, account/update checks and settings callbacks.
+The added APKM test uses compressed nested APK splits and confirms that only the
+requested architecture is extracted. Dependency tests reproduce an unrelated ICU
+test helper requesting libicutu_sv_apple.so; playback loading excludes that helper
+while missing required dependencies, missing roots and cycles still fail.
+
+The picker now accepts documents independently of provider MIME classification.
+Content and every pinned library hash are still verified. The loader follows the
+five entry points used by the native adapter and their transitive dependencies,
+rather than preloading every image in the SDK inventory. Required-library errors
+identify the requesting image. No missing library was added to Android's public
+library allowlist, and no provider or playback feature was removed.
+
+Android lint and the four exact-library APK guards pass. Native decoder, DMR and
+Apple adapter binaries and their source are unchanged from the evaluated 0.3.24
+baseline below; their 90 DSP and 8 scene-decoder test results are retained as
+baseline evidence, not newly rerun tests. Live native loading and Apple subscriber
+playback still require phone validation. This change addresses the import blocks;
+it does not establish delivered lossless or multichannel availability.
+
+Version 0.3.25/code28 retains the package and signing identity for OTA updates.
+
+# Previous verification: Music 0.3.24 / Apple account playback adapters
 
 **232 app tests, 90 DSP tests and 8 scene-decoder tests pass** (330 total), with
 no failures, errors or skips. Android lint, APK assembly and all four integrated
