@@ -106,6 +106,7 @@ data class MusicState(
     val playbackSources: List<SourceSummary> = emptyList(),
     val sourceBusy: Boolean = false,
     val sourceMessage: String? = null,
+    val tidalAccount: labs.rtensor.music.data.AccountState = labs.rtensor.music.data.AccountState(),
 )
 
 @UnstableApi
@@ -178,11 +179,13 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     init {
         AudioPipeline.selectProcessing(library.processedAudio)
         AudioPipeline.selectSpatial(library.spatialAudio)
+        AudioPipeline.selectObjectDecoding(library.jocObjects)
         viewModelScope.launch {
             AudioPipeline.state.collect { audio -> mutable.update { it.copy(audioProcessing = audio, routeLabel = currentRoute(audio)) } }
         }
         viewModelScope.launch { sources.state.collect { mutable.update { it.copy(routeLabel = currentRoute(it.audioProcessing)) } } }
         viewModelScope.launch { sources.settings.connections.collect { profiles -> mutable.update { it.copy(playbackSources = profiles.map { p -> p.summary() }) } } }
+        viewModelScope.launch { sources.tidal?.state?.collect { account -> mutable.update { it.copy(tidalAccount = account) } } }
         controllerFuture.addListener({
             runCatching { controllerFuture.get() }.onSuccess { c ->
                 controller = c
@@ -403,6 +406,13 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             catch (e: Exception) { mutable.update { it.copy(sourceBusy = false, sourceMessage = if (e is IllegalArgumentException) e.message else "Could not connect. Check the server address and access token.") } }
         }
     }
+
+    fun beginTidalSignIn(): String? = runCatching { sources.tidal?.begin() }.getOrElse {
+        mutable.update { it.copy(sourceMessage = "TIDAL sign-in could not start. Try again.") }; null
+    }
+    fun finishTidalSignIn(callback: String) { viewModelScope.launch { sources.tidal?.complete(callback) } }
+    fun disconnectTidal() { viewModelScope.launch(Dispatchers.IO) { sources.tidal?.disconnect() } }
+    fun cancelTidalSignIn() { viewModelScope.launch(Dispatchers.IO) { sources.tidal?.cancel() } }
 
     fun removeSource(id: String) {
         viewModelScope.launch {
@@ -640,6 +650,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     fun spatial(enabled: Boolean) {
         library.spatialAudio = enabled
         AudioPipeline.selectSpatial(enabled)
+    }
+    fun objectDecoding(enabled: Boolean) {
+        library.jocObjects = enabled
+        AudioPipeline.selectObjectDecoding(enabled)
     }
     fun autoplay(value: Boolean) { library.autoplay = value; mutable.update { it.copy(autoplay = value) } }
     fun trackHistory(value: Boolean) { library.trackHistory = value; if (!value) listen = null; mutable.update { it.copy(trackHistory = value) } }

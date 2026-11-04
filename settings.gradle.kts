@@ -16,3 +16,4 @@ rootProject.name = "Music"
 include(":app")
 include(":dsp")
 include(":decoder-ffmpeg")
+include(":decoder-openjoc")

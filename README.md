@@ -3,6 +3,32 @@
 Temporary name: **Music**. Native Android player from RTensorLabs with the approved
 Margin visual direction: warm paper, DM Sans, original provider artwork and raspberry controls.
 
+## Music 0.3.18 — experimental scene decoding and native TIDAL sources
+
+Adds opt-in OpenJOC 0.20.1 reconstruction of supported clear 48 kHz JOC music into
+explicit 7.1.4 PCM, then the existing private DMR. Actual height inputs do not get
+synthetic height upmix. It is independent experimental reconstruction, not a
+Dolby-certified/equivalent renderer. Stereo continues to bypass DSP unchanged.
+
+Enable Settings → Playback → Scene decoding (experimental), then load the track
+again. The decoder and DSP are in the same Music APK; no extra DSP app is needed.
+The complete 189.856-second reference recording has passed through the real JNI
+decoder and DMR on the host, including all three listening modes. Phone playback,
+performance and listening quality remain unverified.
+
+A new experimental TIDAL browser sign-in/account adapter requests matching full
+lossless recordings and eligible clear JOC manifests. It requires a subscription;
+live subscriber sign-in, refresh and playback have not been tested. Existing
+user-connected servers and local files remain available. Provider format checks
+reject silent AAC/stereo downgrades, and selection favours lossless multichannel
+over higher-rate stereo when no JOC edition exists.
+
+**Native Apple Music and Qobuz playback remain incomplete.** Apple runtime work
+needs a compatible user-supplied APK/APKM and private account tests. See
+[current provider status](PROVIDER_PLAYBACK_STATUS.md),
+[setup](PLAYBACK_SOURCES.md) and [decoder build instructions](decoder-openjoc/README.md).
+VersionCode 21 uses the normal OTA feed and existing signing identity.
+
 ## Music 0.3.16 — multichannel rates and visible processing status
 
 Known multichannel layouts at 44.1/88.2/176.4 kHz now convert to the original
@@ -49,9 +75,9 @@ Stereo now bypasses DMR unchanged, including 44.1 kHz and high-resolution stereo
 Original/Processed controls appear only for decoded multichannel processing.
 The existing UI, player motion and private native implementation are preserved.
 
-This does **not** include native Apple Music/TIDAL/Qobuz sign-in, a provider backend,
-or a bundled free commercial catalogue. A configured server is required for network
-sources. See [setup, supported protocols and provider limits](PLAYBACK_SOURCES.md).
+Native Apple Music/Qobuz playback and a bundled provider backend/free commercial
+catalogue are not included. Direct TIDAL is experimental; other connected network
+sources require a compatible server. See [setup, supported protocols and provider limits](PLAYBACK_SOURCES.md).
 
 ## Previous release: 0.3.13 — truthful switch status and lighter player updates
 

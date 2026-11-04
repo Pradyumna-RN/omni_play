@@ -72,6 +72,9 @@ class ProviderSourcesTest {
         assertEquals(a.cacheKey, a.copy(url = a.url + "?token=rotated").cacheKey)
         assertNotEquals(a.cacheKey, a.copy(sampleRate = 192000).cacheKey)
         assertNotEquals(a.cacheKey, a.copy(mime = "audio/alac").cacheKey)
+        assertNotEquals(a.cacheKey, a.copy(url = "https://another-cdn.example/a").cacheKey)
+        assertNotEquals(a.cacheKey, a.copy(url = "https://cdn.example/another-container").cacheKey)
+        assertNotEquals(a.cacheKey, a.copy(transportMime = "audio/mp4").cacheKey)
     }
 
     @Test fun nonAtmosLossyMultichannelNeverOutranksLosslessAndMissingRateIsNotInvented() {
@@ -216,4 +219,36 @@ class ProviderSourcesTest {
             assertEquals("queue-nonce:${selected.cacheKey}", physical!!.localConfiguration!!.customCacheKey)
         } finally { source.releaseSource(caller) }
     }
+    @Test fun actualFormatsMustMatchTheSelectedRepresentationBeforeItCanKeepPlaying() {
+        val registry = PlaybackSources(settings())
+        val selected = stream("surround", MusicProvider.TIDAL, 96000, channels = 6)
+        registry.selected("one", selected, "YouTube")
+        val actual = Format.Builder().setSampleMimeType("audio/flac").setSampleRate(96000).setChannelCount(6).build()
+        assertTrue(registry.format("one", actual))
+        assertFalse(registry.format("one", actual.buildUpon().setSampleMimeType("audio/mp4a-latm").build()))
+        assertFalse(registry.format("one", actual.buildUpon().setChannelCount(2).build()))
+        assertFalse(registry.format("one", actual.buildUpon().setSampleRate(48000).build()))
+        registry.selected("unknown", selected.copy(channels = 0, sampleRate = 0), "YouTube")
+        assertTrue(registry.format("unknown", actual))
+        assertFalse(registry.format("unknown", actual.buildUpon().setChannelCount(2).build()))
+    }
+
+    @Test fun matchingDiscreteLosslessSurroundOutranksHigherRateStereoLocallyAndRemotely() {
+        val stereo = stream("stereo", MusicProvider.QOBUZ, 192000)
+        val surround = stream("surround", MusicProvider.TIDAL, 44100, channels = 6)
+        assertEquals(surround, SourceQuality.best(song, listOf(stereo, surround)))
+        assertEquals(surround.asMaster(), labs.rtensor.music.data.PlaybackRoute.choose(song, listOf(stereo.asMaster(),surround.asMaster())).master)
+    }
+
+    @Test fun jocMetadataMayDescribeObjectsButTheActualCarrierMustStillBeJoc() {
+        val registry = PlaybackSources(settings())
+        val objects = stream("scene", MusicProvider.TIDAL, 48000, "audio/eac3-joc", 12, true)
+        val bed = Format.Builder().setSampleMimeType("audio/eac3-joc").setSampleRate(48000).setChannelCount(6).build()
+        registry.selected("scene", objects, "YouTube")
+        assertTrue(registry.format("scene", bed))
+        assertFalse(registry.format("scene", bed.buildUpon().setSampleMimeType("audio/eac3").build()))
+        registry.selected("stereo", objects, "YouTube")
+        assertFalse(registry.format("stereo", bed.buildUpon().setChannelCount(2).build()))
+    }
+
 }

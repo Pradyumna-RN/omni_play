@@ -197,6 +197,7 @@ fun MusicApp(
     onClearMasters: () -> Unit = {},
     onConnectSource: (MusicProvider, SourceProtocol, String, String) -> Unit = { _, _, _, _ -> },
     onRemoveSource: (String) -> Unit = {},
+    onConnectTidal: () -> Unit = {}, onDisconnectTidal: () -> Unit = {}, onCancelTidal: () -> Unit = {},
     onClearHistory: () -> Unit = {}, onRetry: () -> Unit = {}, onDismissError: () -> Unit = {},
     sharedQuery: String? = null, onShareConsumed: () -> Unit = {},
     initialPage: String = "home",
@@ -207,6 +208,7 @@ fun MusicApp(
     onAutoplay: (Boolean) -> Unit = {}, onTrackHistory: (Boolean) -> Unit = {}, onRemovePlay: (PlayEvent) -> Unit = {}, onRefreshForYou: () -> Unit = {},
     onProcessing: (Boolean) -> Unit = {},
     onSpatial: (Boolean) -> Unit = {},
+    onObjectDecoding: (Boolean) -> Unit = {},
     playbackPosition: StateFlow<Long>? = null,
 ) {
     val startPage = if (initialPage == "saved") "library" else initialPage
@@ -296,7 +298,7 @@ fun MusicApp(
                             "collection" -> CollectionScreen(state, ::play, onSave)
                             "settings" -> SettingsScreen(state, onTheme, onReducedMotion, onOpenLocal, onChooseMasters, onClearMasters, onClearHistory,
                                 onConnect, onWebSignIn, onDisconnect, onCancelConnect, onGoogleSignIn, onGoogleSignOut, onCancelGoogle, onCheckUpdates, onDownloadUpdate, onInstallUpdate,
-                                onAutoplay, onTrackHistory, onConnectSource, onRemoveSource)
+                                onAutoplay, onTrackHistory, onConnectSource, onRemoveSource, onConnectTidal, onDisconnectTidal, onCancelTidal, onObjectDecoding)
                             else -> HomeScreen(state, ::focusSearch, ::play, ::openEntry, { onRefreshFeed(); onRefreshForYou() }, onMoreFeed, onConnect)
                         }
                     }
@@ -964,10 +966,10 @@ private fun AudioComparison(state: MusicState, onProcessing: (Boolean) -> Unit, 
             }
             !report.processingEnabled -> if (report.inputPositions.size == 2) "Stereo · original audio" else "Front L/R only · ${report.inputPositions.size}-channel source"
             report.inputPositions.size == 2 -> "Stereo enhancement · generated spatial audio"
-            report.listeningMode == ListeningMode.SPATIAL -> "${report.inputPositions.size} channels" +
+            report.listeningMode == ListeningMode.SPATIAL -> (if (report.objectDecoded) "JOC reconstruction · " else "") + "${report.inputPositions.size} channels" +
                 (if (report.upmix916) " + 9.1.6 upmix" else "") + " → headphones (binaural)"
             report.upmix916 -> "${report.inputPositions.size} channels + 9.1.6 upmix → stereo"
-            else -> "${report.inputPositions.size} channels → stereo"
+            else -> (if (report.objectDecoded) "JOC reconstruction · " else "") + "${report.inputPositions.size} channels → stereo"
         }
         Text(detail, fontSize = 12.sp, lineHeight = 17.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
@@ -1243,7 +1245,8 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onReduc
     onGoogleSignIn: () -> Unit, onGoogleSignOut: () -> Unit, onCancelGoogle: () -> Unit,
     onCheckUpdates: () -> Unit, onDownloadUpdate: () -> Unit, onInstallUpdate: () -> Unit,
     onAutoplay: (Boolean) -> Unit, onTrackHistory: (Boolean) -> Unit,
-    onConnectSource: (MusicProvider, SourceProtocol, String, String) -> Unit, onRemoveSource: (String) -> Unit) {
+    onConnectSource: (MusicProvider, SourceProtocol, String, String) -> Unit, onRemoveSource: (String) -> Unit,
+    onConnectTidal: () -> Unit, onDisconnectTidal: () -> Unit, onCancelTidal: () -> Unit, onObjectDecoding: (Boolean) -> Unit) {
     var confirmClear by remember { mutableStateOf(false) }
     var showLicences by remember { mutableStateOf(false) }
     var showSources by remember { mutableStateOf(false) }
@@ -1286,6 +1289,14 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onReduc
                 SettingItem("Autoplay radio", "When the queue ends, keep playing similar songs", Glyph.Sparkle, onClick = { onAutoplay(!state.autoplay) }) {
                     Switch(checked = state.autoplay, onCheckedChange = onAutoplay, modifier = Modifier.semantics { contentDescription = "Autoplay radio" })
                 }
+                if (state.audioProcessing.objectDecoderAvailable) {
+                    CardDivider()
+                    SettingItem("Scene decoding (experimental)", "Decode supported JOC scenes to 7.1.4 · used when loading a track", Glyph.MusicNote,
+                        onClick = { onObjectDecoding(!state.audioProcessing.selectedObjectDecoding) }) {
+                        Switch(checked = state.audioProcessing.selectedObjectDecoding, onCheckedChange = onObjectDecoding,
+                            modifier = Modifier.semantics { contentDescription = "Scene decoding (experimental)" })
+                    }
+                }
             }
 
             SettingsGroupHeader(settingsSections[2], Modifier.anchor("sources"))
@@ -1293,10 +1304,12 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onReduc
                 val count = state.playbackSources.size
                 // A saved server is only a candidate; each song is checked before anything plays from it.
                 SettingItem("Playback sources",
-                    if (count == 0) "Connect a provider server or install an audio addon"
+                    if (state.tidalAccount.connected) "TIDAL signed in${if (count > 0) " · $count saved servers" else ""}"
+                    else if (count == 0) "Sign in to TIDAL or connect another music source"
                     else "$count saved ${if (count == 1) "server" else "servers"} · checked per song before it plays",
                     Glyph.MusicNote, onClick = { showSources = !showSources }, expanded = showSources)
-                if (showSources) PlaybackSourcesEditor(state, { showSources = false }, onConnectSource, onRemoveSource)
+                if (showSources) PlaybackSourcesEditor(state, { showSources = false }, onConnectSource, onRemoveSource,
+                    onConnectTidal, onDisconnectTidal, onCancelTidal)
                 CardDivider()
                 SettingItem("Atmos & lossless folder",
                     state.mastersSummary.ifBlank { "Songs you own in Atmos or lossless play from your files instead of YouTube" },

@@ -59,6 +59,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         acceptShare(intent)
+        if (savedInstanceState == null) acceptTidalSignIn(intent)
         setContent {
             val state by model.state.collectAsStateWithLifecycle()
             val notifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
@@ -91,6 +92,7 @@ class MainActivity : ComponentActivity() {
                 onOpenLocal = { local.launch(labs.rtensor.music.data.LocalAudioImporter.PICKER_TYPES) },
                 onChooseMasters = { mastersFolder.launch(null) }, onClearMasters = model::clearMasters,
                 onConnectSource = model::connectSource, onRemoveSource = model::removeSource,
+                onConnectTidal = ::connectTidal, onDisconnectTidal = model::disconnectTidal, onCancelTidal = model::cancelTidalSignIn,
                 onClearHistory = model::clearHistory, onRetry = model::retry, onDismissError = model::clearError,
                 sharedQuery = sharedQuery,
                 onShareConsumed = { sharedQuery = null },
@@ -109,6 +111,7 @@ class MainActivity : ComponentActivity() {
                 onInstallUpdate = { state.update.apkPath?.let(::requestInstall) },
                 onAutoplay = model::autoplay, onTrackHistory = model::trackHistory,
                 onProcessing = model::processing, onSpatial = model::spatial,
+                onObjectDecoding = model::objectDecoding,
                 playbackPosition = model.playbackPosition,
                 onRemovePlay = model::removePlay, onRefreshForYou = model::refreshForYou,
             )
@@ -163,7 +166,21 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); acceptShare(intent) }
+    override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); acceptShare(intent); acceptTidalSignIn(intent) }
+
+    private fun connectTidal() {
+        lifecycleScope.launch {
+            val url = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { model.beginTidalSignIn() } ?: return@launch
+            runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addCategory(Intent.CATEGORY_BROWSABLE)) }
+                .onFailure { model.cancelTidalSignIn() }
+        }
+    }
+    private fun acceptTidalSignIn(intent: Intent?) {
+        val uri = intent?.data?.toString() ?: return
+        if (intent.action != Intent.ACTION_VIEW || !labs.rtensor.music.sources.TidalAccount.isCallback(uri)) return
+        intent.data = null
+        model.finishTidalSignIn(uri)
+    }
 
     private fun acceptShare(intent: Intent?) {
         if (intent?.action == Intent.ACTION_SEND && intent.type == "text/plain") {

@@ -81,4 +81,6 @@ data class DownmixReport(
     val atmosVerified: Boolean = false,
     /** Decoded channel count, known even when the speaker positions are not. */
     val sourceChannels: Int = inputPositions.size,
+    /** Experimental JOC reconstruction, not certified Dolby renderer equivalence. */
+    val objectDecoded: Boolean = false,
 )

@@ -55,3 +55,8 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+
+The optional OpenJOC 0.20.1 speaker decoder is Apache-2.0 at commit
+`e3e330a2000f8d0bced3460756473c8774eb16f0`. Its embedded HRTF data is disabled.
+The 54 linked crate licence records and retained notices are in
+`decoder-openjoc/third-party/` and the existing in-app licences page.

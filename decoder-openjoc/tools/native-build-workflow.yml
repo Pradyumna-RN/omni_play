@@ -1,0 +1,104 @@
+name: Build pinned OpenJOC Android speaker decoder
+on:
+  push:
+    branches: [build-openjoc-android-probe]
+permissions:
+  contents: read
+jobs:
+  native:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Fetch pinned Apache-2.0 decoder source
+        run: |
+          git init openjoc-source
+          git -C openjoc-source remote add origin https://github.com/chyinan/OpenJOC.git
+          git -C openjoc-source fetch --depth 1 origin e3e330a2000f8d0bced3460756473c8774eb16f0
+          git -C openjoc-source checkout --detach FETCH_HEAD
+      - name: Prepare Rust targets
+        run: |
+          rustup update stable --no-self-update
+          rustup default stable
+          rustup target add aarch64-linux-android x86_64-linux-android
+      - name: Run upstream C API tests before changing build features
+        working-directory: openjoc-source
+        run: cargo test --locked -p openjoc-capi
+      - name: Disable unused embedded HRTF data for speaker-only decoding
+        working-directory: openjoc-source
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          for name in ['openjoc-capi', 'openjoc-ffmpeg']:
+              p = Path('crates') / name / 'Cargo.toml'
+              s = p.read_text()
+              old = 'openjoc-api = { version = "0.20.1", path = "../openjoc-api" }'
+              assert old in s, name
+              p.write_text(s.replace(old, old[:-2] + ', default-features = false }'))
+          PY
+          git diff > speaker-only-build.patch
+      - name: Collect the linked crates and their licence notices
+        working-directory: openjoc-source
+        run: |
+          mkdir -p ../artifacts/dependency-licenses
+          cargo metadata --format-version 1 --locked > /tmp/openjoc-metadata.json
+          for target in x86_64-unknown-linux-gnu aarch64-linux-android x86_64-linux-android; do
+            cargo tree --locked -p openjoc-capi --target "$target" --edges normal,build --prefix none --format '{p}'
+          done > /tmp/openjoc-linked.txt
+          python3 - <<'PYLICENSE'
+          import json, pathlib, re, shutil
+          packages=json.loads(pathlib.Path('/tmp/openjoc-metadata.json').read_text())['packages']
+          keys=set()
+          for line in pathlib.Path('/tmp/openjoc-linked.txt').read_text().splitlines():
+              m=re.match(r'([^ ]+) v([^ ]+)',line)
+              if m: keys.add(m.groups())
+          report=[]
+          for package in packages:
+              if (package['name'],package['version']) not in keys: continue
+              licence=package.get('license') or ''
+              assert licence and not ('GPL' in licence and not any(x in licence for x in ['MIT','Apache','BSD'])), (package['name'],licence)
+              root=pathlib.Path(package['manifest_path']).parent
+              notices=[]
+              for file in root.iterdir():
+                  if not file.is_file() or not file.name.upper().startswith(('LICENSE','LICENCE','COPYING','NOTICE','AUTHORS')): continue
+                  if file.stat().st_size>1048576: continue
+                  name=package['name']+'-'+package['version']+'-'+file.name
+                  shutil.copy2(file,pathlib.Path('../artifacts/dependency-licenses')/name)
+                  notices.append(name)
+              report.append({k:package.get(k) for k in ['name','version','license','repository','source']} | {'notices':notices})
+          pathlib.Path('../artifacts/DEPENDENCIES.json').write_text(json.dumps(report,indent=2)+'\n')
+          PYLICENSE
+      - name: Build host speaker library
+        working-directory: openjoc-source
+        run: |
+          cargo build --release --locked -p openjoc-capi
+          mkdir -p ../artifacts/host
+          cp target/release/libopenjoc_capi.so ../artifacts/host/
+      - name: Build Android libraries with 16 KiB page alignment
+        working-directory: openjoc-source
+        run: |
+          OPENJOC_NDK_PATH="$ANDROID_HOME/ndk/27.2.12479018"
+          if [ ! -d "$OPENJOC_NDK_PATH" ]; then
+            yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'ndk;27.2.12479018' >/dev/null
+          fi
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$OPENJOC_NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android26-clang"
+          export CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER="$OPENJOC_NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64/bin/x86_64-linux-android26-clang"
+          export RUSTFLAGS='-C link-arg=-Wl,-z,max-page-size=16384'
+          cargo build --release --locked -p openjoc-capi --target aarch64-linux-android
+          cargo build --release --locked -p openjoc-capi --target x86_64-linux-android
+          mkdir -p ../artifacts/jni/arm64-v8a ../artifacts/jni/x86_64
+          cp target/aarch64-linux-android/release/libopenjoc_capi.so ../artifacts/jni/arm64-v8a/
+          cp target/x86_64-linux-android/release/libopenjoc_capi.so ../artifacts/jni/x86_64/
+      - name: Record source, feature patch, licence and artifact checksums
+        working-directory: openjoc-source
+        run: |
+          cp crates/openjoc-capi/include/openjoc.h LICENSE speaker-only-build.patch ../artifacts/
+          git rev-parse HEAD > ../artifacts/SOURCE_COMMIT
+          rustc --version > ../artifacts/RUST_VERSION
+          cd ../artifacts
+          find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
+      - name: Upload native probe artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: openjoc-android-probe
+          path: artifacts/
+          retention-days: 7

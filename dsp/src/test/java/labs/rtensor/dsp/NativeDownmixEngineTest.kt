@@ -124,4 +124,30 @@ class NativeDownmixEngineTest {
         }
         NativeDownmixEngine(DownmixFormat(48000, roles.take(2))).use { assertFalse(it.upmix916) }
     }
+    @Test fun explicitHeightSpeakersDoNotEnableTheSyntheticUpmix() {
+        assumeTrue(NativeBindings.hasField)
+        val positions = roles + listOf(SpeakerPosition.SL, SpeakerPosition.SR,
+            SpeakerPosition.TFL, SpeakerPosition.TFR, SpeakerPosition.TBL, SpeakerPosition.TBR)
+        NativeDownmixEngine(DownmixFormat(48000, positions)).use { engine ->
+            assertFalse(engine.upmix916)
+            var topEnergy = 0.0; var inventedHeightEnergy = 0.0
+            repeat(8) {
+                val pcm = buffer(512 * positions.size * 4).apply {
+                    repeat(512) { repeat(positions.size) { ch -> putFloat(if (ch == 8) .05f else 0f) } }; flip()
+                }
+                val field = buffer(512 * 16 * 4)
+                engine.processField(pcm, field, 512); field.flip()
+                repeat(512) {
+                    repeat(16) { ch ->
+                        val v = field.float.toDouble()
+                        if (ch == SpeakerPosition.TFL.id) topEnergy += v * v
+                        else if (ch >= SpeakerPosition.TFL.id) inventedHeightEnergy += v * v
+                    }
+                }
+            }
+            assertTrue(topEnergy > 1e-6)
+            assertEquals(0.0, inventedHeightEnergy, 0.0)
+        }
+    }
+
 }

@@ -43,7 +43,10 @@ class NativeDownmixEngine(override val format: DownmixFormat) : DownmixEngine {
             "The private DSP could not configure ${format.inputChannels} channels at ${format.sampleRate} Hz (${format.positions.joinToString(" ")}, ${format.layout})")
         // Multichannel renders through the 9.1.6 monitor so the speakers the source
         // lacks are generated, as the desktop renderer's "9.1.6 monitor" option does.
-        upmix916 = NativeBindings.hasField && format.inputChannels > 2 && NativeBindings.setUpmix916(handle, true) == 0
+        // Explicit height inputs are already a spatial speaker scene. Generating
+        // heights again would overwrite/add ambience to the decoded scene.
+        upmix916 = NativeBindings.hasField && format.inputChannels > 2 && format.positions.none { it.id >= SpeakerPosition.TFL.id } &&
+            NativeBindings.setUpmix916(handle, true) == 0
         latencyFrames = NativeBindings.latency(handle)
     }
     override val providesField: Boolean get() = NativeBindings.hasField

@@ -19,6 +19,9 @@ import androidx.media3.decoder.CryptoConfig
 import androidx.media3.decoder.ffmpeg.FfmpegAudioDecoder
 import androidx.media3.decoder.ffmpeg.FfmpegAudioRenderer
 import androidx.media3.decoder.ffmpeg.FfmpegLibrary
+import labs.rtensor.decoder.openjoc.OpenJocAudioDecoder
+import labs.rtensor.decoder.openjoc.OpenJocAudioRenderer
+import labs.rtensor.decoder.openjoc.OpenJocLibrary
 
 /** Uses the software E-AC-3 bed decoder when packaged, otherwise the device decoder,
  * then the app-owned PCM render. Multichannel PCM whose speaker positions are
@@ -31,10 +34,12 @@ open class DownmixRenderersFactory(
     private val processingEnabled: () -> Boolean = { true },
     /** Before [onReport], so the trailing report lambda keeps its meaning. */
     private val listeningMode: () -> ListeningMode = { if (processingEnabled()) ListeningMode.PROCESSED else ListeningMode.ORIGINAL },
+    private val objectDecodingEnabled: () -> Boolean = { false },
     private val onReport: (DownmixReport?) -> Unit = {},
 ) : DefaultRenderersFactory(context) {
     private var positions: List<SpeakerPosition>? = null
     private var layoutError: Throwable? = null
+    private var objectDecoded = false
     init { setEnableAudioFloatOutput(true) }
 
     override fun buildAudioSink(context: Context, enableFloatOutput: Boolean, enableAudioTrackPlaybackParams: Boolean): AudioSink {
@@ -48,12 +53,21 @@ open class DownmixRenderersFactory(
             if (decoded.size != channels) throw DownmixException(DownmixStage.LAYOUT,
                 "Decoder speaker layout changed from ${decoded.size} to $channels channels without a format notification")
             decoded
-        }, onReport = onReport, processingEnabled = processingEnabled, listeningMode = listeningMode)
+        }, onReport = { report -> onReport(report?.copy(objectDecoded = objectDecoded)) }, processingEnabled = processingEnabled, listeningMode = listeningMode)
     }
 
     override fun buildAudioRenderers(context: Context, extensionRendererMode: Int, mediaCodecSelector: MediaCodecSelector,
         enableDecoderFallback: Boolean, audioSink: AudioSink, eventHandler: Handler,
         eventListener: AudioRendererEventListener, out: ArrayList<Renderer>) {
+        if (OpenJocLibrary.isAvailable()) {
+            out.add(object : OpenJocAudioRenderer(eventHandler, eventListener, audioSink, java.util.function.BooleanSupplier { objectDecodingEnabled() }) {
+                override fun getOutputFormat(decoder: OpenJocAudioDecoder): Format {
+                    val layout = runCatching { FfmpegSpeakerLayout.positions(decoder.channelLayoutMask, decoder.channelCount) }
+                    positions = layout.getOrNull(); layoutError = layout.exceptionOrNull(); objectDecoded = layout.isSuccess
+                    return super.getOutputFormat(decoder)
+                }
+            })
+        }
         if (FfmpegLibrary.isAvailable()) {
             var multichannelRequired = false
             val guarded = object : ForwardingAudioSink(audioSink) {
@@ -75,6 +89,7 @@ open class DownmixRenderersFactory(
                     return super.createDecoder(format, cryptoConfig)
                 }
                 override fun getOutputFormat(decoder: FfmpegAudioDecoder): Format {
+                    objectDecoded = false
                     val layout = runCatching { FfmpegSpeakerLayout.positions(decoder.channelLayoutMask, decoder.channelCount) }
                     positions = layout.getOrNull()
                     layoutError = layout.exceptionOrNull()
@@ -85,6 +100,7 @@ open class DownmixRenderersFactory(
         out.add(object : MediaCodecAudioRenderer(context, codecAdapterFactory, mediaCodecSelector,
             enableDecoderFallback, eventHandler, eventListener, audioSink) {
             override fun onOutputFormatChanged(format: Format, mediaFormat: MediaFormat?) {
+                objectDecoded = false
                 try {
                     val count = if (mediaFormat?.containsKey(MediaFormat.KEY_CHANNEL_COUNT) == true)
                         mediaFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT) else format.channelCount
@@ -115,6 +131,7 @@ open class DownmixRenderersFactory(
     }
 
     companion object {
+        val objectDecoderAvailable: Boolean get() = OpenJocLibrary.isAvailable()
         /** FLAC's specified interleaved channel assignment, when no decoder mask
          * is supplied. Seven channels include BC, which this renderer cannot map.
          * Other codecs must supply positions rather than inheriting this rule. */

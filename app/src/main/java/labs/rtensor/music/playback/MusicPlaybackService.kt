@@ -138,10 +138,30 @@ class MusicPlaybackService : MediaSessionService() {
                 }
             }
             .build()
+        fun tryNextConnectedSource(key: String): Boolean {
+            val item = player.currentMediaItem ?: return false
+            if (item.localConfiguration?.customCacheKey != key) return false
+            if (!sources.reject(key)) return false
+            // Recreate the whole child source. A failed FLAC/Atmos response
+            // must never be replaced with another format inside a range read.
+            val index = player.currentMediaItemIndex
+            val position = player.currentPosition.coerceAtLeast(0)
+            val playing = player.playWhenReady
+            val extras = android.os.Bundle(item.mediaMetadata.extras ?: android.os.Bundle()).apply {
+                putInt("source_attempt", getInt("source_attempt") + 1)
+            }
+            player.replaceMediaItem(index, item.buildUpon().setMediaMetadata(item.mediaMetadata.buildUpon().setExtras(extras).build()).build())
+            player.seekTo(index, position); player.prepare(); player.playWhenReady = playing
+            return true
+        }
         player.addAnalyticsListener(object : AnalyticsListener {
             override fun onAudioInputFormatChanged(eventTime: AnalyticsListener.EventTime, format: Format, decoderReuseEvaluation: DecoderReuseEvaluation?) {
                 if (eventTime.windowIndex != player.currentMediaItemIndex) return
-                player.currentMediaItem?.localConfiguration?.customCacheKey?.let { sources.format(it, format) }
+                val key = player.currentMediaItem?.localConfiguration?.customCacheKey ?: return
+                val selected = sources.state.value[key]?.stream?.cacheKey
+                if (!sources.format(key, format)) android.os.Handler(mainLooper).post {
+                    if (selected != null && sources.state.value[key]?.stream?.cacheKey == selected) tryNextConnectedSource(key)
+                }
             }
         })
         var confirmedKey: String? = null
@@ -162,19 +182,7 @@ class MusicPlaybackService : MediaSessionService() {
             override fun onPlayerError(error: PlaybackException) {
                 // Classify here: the controller only receives the top-level cause.
                 AudioPipeline.reportFailure(error)
-                val item = player.currentMediaItem ?: return
-                val key = item.localConfiguration?.customCacheKey ?: return
-                if (!sources.reject(key)) return
-                // Recreate the whole child source. A failed FLAC/Atmos response
-                // must never be replaced with another format inside a range read.
-                val index = player.currentMediaItemIndex
-                val position = player.currentPosition.coerceAtLeast(0)
-                val playing = player.playWhenReady
-                val extras = android.os.Bundle(item.mediaMetadata.extras ?: android.os.Bundle()).apply {
-                    putInt("source_attempt", getInt("source_attempt") + 1)
-                }
-                player.replaceMediaItem(index, item.buildUpon().setMediaMetadata(item.mediaMetadata.buildUpon().setExtras(extras).build()).build())
-                player.seekTo(index, position); player.prepare(); player.playWhenReady = playing
+                player.currentMediaItem?.localConfiguration?.customCacheKey?.let(::tryNextConnectedSource)
             }
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) { AudioPipeline.clearReport(); confirmPlaying() }
             override fun onIsPlayingChanged(isPlaying: Boolean) {

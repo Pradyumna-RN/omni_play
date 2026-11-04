@@ -192,3 +192,36 @@ Music integration. Source-account authorization, backend deployment and actual
 codec/channel validation remain necessary. The app repository does not ship a
 free TIDAL/Qobuz account or a public music backend. No Tryptify/Cavern DSP code
 or shared provider credentials were copied into Music.
+
+## November 3 implementation follow-up
+
+The preceding checkpoints are historical. `TidalAccount.kt` now independently
+implements native browser PKCE/account requests without a client secret. It uses
+a public native client ID observed in account-client configuration; that is not
+a developer registration or provider approval for RTensorLabs. Public-client
+refresh and subscriber playback remain live-test requirements. Invalid synthetic
+refresh probing is not proof that a valid token will refresh successfully.
+
+The adapter requests lossless full playback and eligible clear EAC3_JOC manifests
+from the official account APIs. API bearer tokens do not go to the CDN. Protected
+manifests are rejected, and the implementation neither extracts content keys nor
+embeds a public download backend. Fixture tests cannot establish real account
+entitlement or catalogue quality availability.
+
+[OpenJOC](https://github.com/chyinan/OpenJOC), Apache-2.0, supplies independent
+experimental reconstruction; the earlier blanket claim that open decoding is
+unavailable was wrong. Pinned 0.20.1 speaker rendering has been connected to DMR
+through 7.1.4 PCM. Upstream explicitly documents unresolved codec-domain fidelity
+and distinguishes carrier-local signals from authored stems. It is not evidence
+for Dolby-equivalent playback. See the decoder module for reproducible build and
+licence records.
+
+[JObersi10/apple-music-tv](https://github.com/JObersi10/apple-music-tv) documents an
+AAC-only standalone path and is not the requested lossless multichannel bridge.
+[glomatico/wrapper-v2](https://github.com/glomatico/wrapper-v2) (Unlicense, inspected
+commit `100e0a864e883e03a3ac450a780dd9563fff5271`) requires compatible Apple Android
+3.6.0-beta/build 1109 libraries. Its Linux supervisor/Android native worker is not
+a proven phone SDK. The app contains only a read-only compatibility checker and
+public library hashes; no Apple libraries, device credentials or GPL CDM code
+were copied. A user-supplied APK/APKM and private account testing are still needed
+before claiming Apple native playback.

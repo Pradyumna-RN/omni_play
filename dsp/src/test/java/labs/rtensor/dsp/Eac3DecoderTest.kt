@@ -181,7 +181,7 @@ class Eac3DecoderTest {
                 return out
             }
         }
-        val software = factory.audio().first()
+        val software = factory.audio().first { it.name == "MusicFfmpegBedAudioRenderer" }
         assertEquals("MusicFfmpegBedAudioRenderer", software.name)
         assertEquals(C.FORMAT_HANDLED, software.capabilities.supportsFormat(format()) and 7)
         assertEquals(C.FORMAT_UNSUPPORTED_TYPE, software.capabilities.supportsFormat(format(2, MimeTypes.AUDIO_OPUS)) and 7)
@@ -192,5 +192,31 @@ class Eac3DecoderTest {
         assertThrows(DownmixException::class.java) { FfmpegSpeakerLayout.positions(0, 6) }
         assertThrows(DownmixException::class.java) { FfmpegSpeakerLayout.positions(0x13f, 7) } // back-centre is not a supported DMR position
         assertThrows(DownmixException::class.java) { FfmpegSpeakerLayout.positions(0x3f, 8) }
+    }
+
+    @Test fun experimentalSceneDecoderRequiresOptInAndRejectsStereoOtherRatesAndProtection() {
+        if (System.getProperty("rtensor.openjoc.expectNative") == "true") assertTrue(labs.rtensor.decoder.openjoc.OpenJocLibrary.isAvailable())
+        else assumeTrue(labs.rtensor.decoder.openjoc.OpenJocLibrary.isAvailable())
+        val context: Context = RuntimeEnvironment.getApplication()
+        var enabled = false
+        val factory = object : DownmixRenderersFactory(context, objectDecodingEnabled = { enabled }) {
+            fun audio(): List<Renderer> {
+                val out = ArrayList<Renderer>()
+                buildAudioRenderers(context, 0, MediaCodecSelector.DEFAULT, true, buildAudioSink(context, true, false),
+                    Handler(Looper.getMainLooper()), object : AudioRendererEventListener {}, out)
+                return out
+            }
+        }
+        val renderers = factory.audio()
+        val scene = renderers.first()
+        assertEquals("MusicOpenJocSceneRenderer", scene.name)
+        val joc = format(6, MimeTypes.AUDIO_E_AC3_JOC)
+        assertEquals(C.FORMAT_UNSUPPORTED_TYPE, scene.capabilities.supportsFormat(joc) and 7)
+        enabled = true
+        assertEquals(C.FORMAT_HANDLED, scene.capabilities.supportsFormat(joc) and 7)
+        assertEquals(C.FORMAT_UNSUPPORTED_TYPE, scene.capabilities.supportsFormat(format(2, MimeTypes.AUDIO_AAC)) and 7)
+        assertEquals(C.FORMAT_UNSUPPORTED_SUBTYPE, scene.capabilities.supportsFormat(joc.buildUpon().setSampleRate(96000).build()) and 7)
+        assertEquals(C.FORMAT_UNSUPPORTED_DRM, scene.capabilities.supportsFormat(joc.buildUpon().setCryptoType(C.CRYPTO_TYPE_FRAMEWORK).build()) and 7)
+        assertTrue(renderers.any { it.name == "MusicFfmpegBedAudioRenderer" })
     }
 }

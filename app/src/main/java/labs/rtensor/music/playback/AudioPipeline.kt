@@ -20,6 +20,8 @@ data class AudioProcessingState(
     val selectedProcessed: Boolean = true,
     /** Headphone (binaural) render instead of the speaker downmix, when processed. */
     val selectedSpatial: Boolean = false,
+    val selectedObjectDecoding: Boolean = false,
+    val objectDecoderAvailable: Boolean = false,
     val available: Boolean = false,
     val report: DownmixReport? = null,
     /** Why the last audio pipeline stopped, classified where the cause chain is intact. */
@@ -48,11 +50,13 @@ data class AudioProcessingState(
 @UnstableApi
 object AudioPipeline {
     val hasPrivateRenderer: Boolean get() = NativeDownmixEngine.isAvailable
-    private val mutable = MutableStateFlow(AudioProcessingState(available = hasPrivateRenderer, unavailableReason = NativeDownmixEngine.unavailableReason))
+    private val mutable = MutableStateFlow(AudioProcessingState(available = hasPrivateRenderer, unavailableReason = NativeDownmixEngine.unavailableReason,
+        objectDecoderAvailable = hasPrivateRenderer && DownmixRenderersFactory.objectDecoderAvailable))
     val state = mutable.asStateFlow()
 
     fun selectProcessing(processed: Boolean) { mutable.update { it.copy(selectedProcessed = processed) } }
     fun selectSpatial(spatial: Boolean) { mutable.update { it.copy(selectedSpatial = spatial) } }
+    fun selectObjectDecoding(enabled: Boolean) { mutable.update { it.copy(selectedObjectDecoding = enabled) } }
     fun clearReport() { mutable.update { it.copy(report = null, failure = null) } }
 
     /** Records an audio-stage failure; returns null for errors outside the audio chain. */
@@ -71,11 +75,12 @@ object AudioPipeline {
     }
 
     fun privateRenderers(context: Context): DefaultRenderersFactory? {
-        LibraryStore(context).let { selectProcessing(it.processedAudio); selectSpatial(it.spatialAudio) }
+        LibraryStore(context).let { selectProcessing(it.processedAudio); selectSpatial(it.spatialAudio); selectObjectDecoding(it.jocObjects) }
         logEnvironment()
         NativeDownmixEngine.unavailableReason?.let { Log.w(TAG, "Processed audio unavailable: $it") }
         return if (!hasPrivateRenderer && !NativeDownmixEngine.wasPackaged) null else DownmixRenderersFactory(context,
-            processingEnabled = { mutable.value.selectedProcessed }, listeningMode = { mutable.value.selectedMode }) { report ->
+            processingEnabled = { mutable.value.selectedProcessed }, listeningMode = { mutable.value.selectedMode },
+            objectDecodingEnabled = { mutable.value.selectedObjectDecoding }) { report ->
             mutable.update { it.copy(report = report, failure = if (report != null) null else it.failure) }
             if (report != null) Log.i(TAG, "${report.listeningMode} ${report.processing} ${report.inputPositions} -> ${report.outputChannels} channels; source=${report.sampleRate} Hz, render=${report.renderSampleRate} Hz; source channels=${report.sourceChannels}; 9.1.6 upmix=${report.upmix916}; spatial available=${report.spatialAvailable}; Atmos verification=${report.atmosVerified}${report.unavailableReason?.let { "; not processed: $it" } ?: ""}")
         }

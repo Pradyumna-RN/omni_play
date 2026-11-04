@@ -26,19 +26,36 @@ import labs.rtensor.music.sources.SourceProtocol
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun PlaybackSourcesEditor(state: MusicState, onDismiss: () -> Unit,
-    onConnect: (MusicProvider, SourceProtocol, String, String) -> Unit, onRemove: (String) -> Unit) {
-    var adding by remember { mutableStateOf(state.playbackSources.isEmpty()) }
+    onConnect: (MusicProvider, SourceProtocol, String, String) -> Unit, onRemove: (String) -> Unit,
+    onConnectTidal: () -> Unit = {}, onDisconnectTidal: () -> Unit = {}, onCancelTidal: () -> Unit = {}) {
+    var adding by remember { mutableStateOf(state.playbackSources.isEmpty() && !state.tidalAccount.connected) }
     var provider by remember { mutableStateOf(MusicProvider.APPLE_MUSIC) }
     var protocol by remember { mutableStateOf(SourceProtocol.GATEWAY) }
     var url by remember { mutableStateOf("") }
     var token by remember { mutableStateOf("") }
     val count = state.playbackSources.size
     LaunchedEffect(count) { if (count > 0) { adding = false; url = ""; token = "" } }
+    LaunchedEffect(state.tidalAccount.connected) { if (state.tidalAccount.connected) adding = false }
     val scheme = MaterialTheme.colorScheme
     val busy = state.sourceBusy
     Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Recommendations stay with YouTube. Playback checks matching Atmos recordings first, then lossless quality. Stereo plays unchanged.",
             fontSize = 13.sp, lineHeight = 19.sp, color = scheme.onSurfaceVariant)
+        Surface(shape = RoundedCornerShape(14.dp), color = scheme.surfaceVariant.copy(alpha = .5f), modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("TIDAL · experimental", fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                Text(if (state.tidalAccount.connected) "Signed in · checks matching recordings when you play"
+                    else "Sign in with your subscription. No music server needed.", fontSize = 12.sp, lineHeight = 17.sp, color = scheme.onSurfaceVariant)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (state.tidalAccount.connecting) TextButton(onClick = onCancelTidal) { Text("Cancel TIDAL sign-in") }
+                    else OutlinedButton(onClick = onConnectTidal, shape = RoundedCornerShape(12.dp)) {
+                        Text(if (state.tidalAccount.connected) "Reconnect TIDAL" else "Sign in to TIDAL")
+                    }
+                    if (state.tidalAccount.connected) TextButton(onClick = onDisconnectTidal) { Text("Disconnect TIDAL") }
+                }
+                state.tidalAccount.error?.let { Text(it, fontSize = 12.sp, lineHeight = 17.sp, color = scheme.onSurface) }
+            }
+        }
         state.playbackSources.forEach { source ->
             Surface(shape = RoundedCornerShape(14.dp), color = scheme.surfaceVariant.copy(alpha = .5f), modifier = Modifier.fillMaxWidth()) {
                 Row(Modifier.padding(start = 14.dp, end = 4.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {

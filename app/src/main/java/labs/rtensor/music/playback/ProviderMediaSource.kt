@@ -72,6 +72,7 @@ private class ProviderMediaSource(private val item: MediaItem, private val track
                         displayItem = item.buildUpon().setMediaMetadata(item.mediaMetadata.buildUpon().setExtras(extras).build()).build()
                         val physical = if (selected == null) item else item.buildUpon().setUri(selected.url)
                             .setMimeType(selected.transportMime)
+                            .setStreamKeys(selected.streamKeys)
                             .setCustomCacheKey(if (selected.transportMime in setOf("application/dash+xml", "application/x-mpegURL")) null else "$key:${selected.cacheKey}")
                             .build()
                         child = (if (selected == null) fallback else remote).createMediaSource(physical)

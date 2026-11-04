@@ -3,6 +3,7 @@ package labs.rtensor.music.sources
 import labs.rtensor.music.data.Master
 import labs.rtensor.music.data.PlaybackRoute
 import labs.rtensor.music.data.Track
+import androidx.media3.common.StreamKey
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import org.json.JSONObject
 import java.security.MessageDigest
@@ -39,16 +40,19 @@ data class SourceConnection(val id: String, val name: String, val provider: Musi
     }
 }
 
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 data class ProviderStream(val id: String, val provider: MusicProvider, val url: String, val title: String, val artist: String,
     val durationMs: Long, val mime: String, val sampleRate: Int, val bitDepth: Int, val channels: Int,
-    val atmos: Boolean = false, val manifest: Boolean = false, val transportMime: String = mime) {
+    val atmos: Boolean = false, val manifest: Boolean = false, val transportMime: String = mime,
+    val streamKeys: List<StreamKey> = emptyList()) {
     val lossless: Boolean get() = mime in setOf("audio/flac", "audio/alac", "audio/wav", "audio/x-wav", "audio/raw")
     val verifiedAtmosCodec: Boolean get() = atmos && mime == "audio/eac3-joc"
     val cacheKey: String get() {
         // Signed URLs rotate. Stable recording/format identity keeps seeks safe,
         // while preventing AAC, FLAC and different masters from sharing bytes.
-        val identity = "${provider.wire}:$id:$mime:$sampleRate:$bitDepth:$channels"
-        return "source-v1:" + MessageDigest.getInstance("SHA-256").digest(identity.toByteArray()).joinToString("") { "%02x".format(it) }
+        val location = url.toHttpUrlOrNull()?.newBuilder()?.query(null)?.fragment(null)?.build()?.toString() ?: url
+        val identity = "${provider.wire}:$id:$mime:$transportMime:$sampleRate:$bitDepth:$channels:${streamKeys.joinToString()}:$location"
+        return "source-v2:" + MessageDigest.getInstance("SHA-256").digest(identity.toByteArray()).joinToString("") { "%02x".format(it) }
     }
     fun matches(track: Track): Boolean = PlaybackRoute.matches(track, asMaster())
     fun asMaster() = Master(url, title, artist, durationMs, channels, sampleRate, bitDepth, mime, verifiedAtmosCodec)
@@ -56,10 +60,11 @@ data class ProviderStream(val id: String, val provider: MusicProvider, val url: 
         val remote = url.toHttpUrlOrNull()
         val safeUrl = (remote?.isHttps == true && remote.username.isEmpty() && remote.password.isEmpty()) ||
             (manifest && url.startsWith("data:application/dash+xml;base64,"))
-        val supportedMultichannel = channels in 3..16 && sampleRate in setOf(48000, 96000, 192000)
+        val supportedMultichannel = channels in 3..16 && sampleRate in setOf(44100, 48000, 88200, 96000, 176400, 192000)
         return safeUrl && id.isNotBlank() && id.length <= 256 && title.length <= 512 && artist.length <= 512 && url.length <= 16384 && bitDepth in 0..32 &&
-            channels in 1..16 && (sampleRate in 8000..768000 || (sampleRate == 0 && lossless && channels <= 2)) && (lossless || verifiedAtmosCodec || supportedMultichannel) &&
-            (channels <= 2 || supportedMultichannel) && durationMs > 0
+            channels in 0..16 && (channels > 0 || lossless || verifiedAtmosCodec) &&
+            (sampleRate in 8000..768000 || (sampleRate == 0 && (lossless || verifiedAtmosCodec))) && (lossless || verifiedAtmosCodec || supportedMultichannel) &&
+            (channels <= 2 || supportedMultichannel || (sampleRate == 0 && (lossless || verifiedAtmosCodec))) && durationMs > 0
     }
     val requestedLabel: String get() = "${provider.label} · checking audio…"
 }
@@ -68,5 +73,5 @@ object SourceQuality {
     /** Actual available editions only; a lossy stream in a FLAC-labelled response is not lossless. */
     fun best(track: Track, streams: List<ProviderStream>): ProviderStream? = streams
         .filter { it.eligible && it.matches(track) }
-        .maxWithOrNull(compareBy<ProviderStream>({ it.verifiedAtmosCodec }, { it.lossless }, { it.sampleRate }, { it.bitDepth }, { it.channels > 2 }, { it.channels }, { it.provider == MusicProvider.APPLE_MUSIC }))
+        .maxWithOrNull(compareBy<ProviderStream>({ it.verifiedAtmosCodec }, { it.lossless && it.channels > 2 }, { it.lossless }, { it.sampleRate }, { it.bitDepth }, { it.channels > 2 }, { it.channels }, { it.provider == MusicProvider.APPLE_MUSIC }))
 }

@@ -181,9 +181,9 @@ On a phone, `adb logcat -s AudioPipeline` now prints the source channels and any
 
 ### Honest limits
 - The 9.1.6 heights are a **synthetic upmix** (ambience derived from the bed), not
-  decoded Atmos objects. E-AC-3 JOC is still decoded to its 5.1/7.1 bed only. Real
-  object placement needs a JOC object decoder, and that means a Dolby licence. No
-  licensed open decoder exists for Android.
+  decoded Atmos objects. E-AC-3 JOC is still decoded to its 5.1/7.1 bed only. The earlier claim that no open JOC decoder exists was incorrect: the later
+  OpenJOC experiment below provides independent reconstruction. It has fidelity
+  limits and is not a licensed Dolby renderer.
 - Spatial is a generic (non-personalised) HRTF. Externalisation varies by listener.
   It is for headphones only.
 - 192 kHz Spatial uses a 2048-point FFT per block and costs noticeably more CPU.
@@ -238,3 +238,34 @@ fixtures; they now acknowledge both `processingEnabled` and `listeningMode`, as
 the real sink does. The older ABI-2 JNI suite also passes with its ABI-3-only
 field test skipped. APK guards verify the exact supplied native libraries for
 both architectures. Version is 0.3.17/code 20 with the existing signing identity.
+
+## Experimental JOC reconstruction (0.3.18)
+
+OpenJOC 0.20.1, pinned to `e3e330a2000f8d0bced3460756473c8774eb16f0`,
+adds an opt-in clear 48 kHz JOC → 7.1.4 float PCM route before DMR. Its Apache-2.0
+C API and our JNI bridge are separate from the private renderer. The speaker-only
+Rust build excludes unused embedded HRTF data. Required linked-crate notices are
+retained in source and the existing licences page.
+
+OpenJOC's standard 9.1.6 layout uses front-wide speakers; the private renderer's
+custom 9.1.6 field uses rear centres. They are not interchangeable. The chosen
+7.1.4 mapping preserves FL/FR/FC/LFE/BL/BR/SL/SR/TFL/TFR/TBL/TBR exactly.
+When input already has height speakers, synthetic height upmix is disabled.
+
+The full 189.856-second Dolby reference passes through real JNI decoding and the
+actual DMR sink on the host, switching Original/Processed/Spatial. All four heights
+have energy; source LFE is silent and remains silent. Output is finite and bounded.
+The native decoder emits 32 drain samples for this fixture and reports 609 samples
+of internal render latency; those are different measurements. Tests also cover
+packet grouping, EOS, flush and seek preroll. No reference audio is committed.
+
+This reconstructs carrier-local JOC signals, not original authored stems. It is
+not Dolby-equivalent, not a promise of original scene fidelity, and not verified
+on phone hardware. The opt-in applies on loading a track; stereo remains bypassed.
+
+Final Android/JVM run: 156 app + 88 DSP + 7 scene-decoder tests pass, without skips.
+The real MP4/M4A container is also parsed completely by Media3 and identified as
+JOC. Lint and exact-library packaging checks pass for ARM64 and x86-64, including
+the JNI bridge source hash. An outdated bed-renderer ordering fixture and a
+44.1 kHz rejection fixture were updated to the new behaviour. Cooperative test
+polling resolved a host-load timeout without increasing the decoder deadline.

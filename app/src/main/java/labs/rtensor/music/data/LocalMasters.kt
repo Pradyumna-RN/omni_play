@@ -158,7 +158,7 @@ data class PlaybackRoute(val master: Master?) {
          */
         fun choose(track: Track, masters: List<Master>): PlaybackRoute {
             if (masters.isEmpty() || track.source == Source.LOCAL) return PlaybackRoute(null)
-            // The DMR core renders multichannel only at 48/96/192 kHz and up to 16 channels; anything else would fail to play.
+            // The sink converts the 44.1 kHz family to the core's 48 kHz family.
             val best = masters.filter { (it.lossless || it.multichannel) && (!it.multichannel || (it.channels <= 16 && it.sampleRate in DmrRates)) && matches(track, it) }
                 .maxWithOrNull(qualityOrder)
             return PlaybackRoute(best)
@@ -175,8 +175,8 @@ data class PlaybackRoute(val master: Master?) {
             return true
         }
 
-        private val DmrRates = setOf(48_000, 96_000, 192_000)
-        val qualityOrder = compareBy<Master>({ it.atmos }, { it.lossless }, { it.sampleRate }, { it.bitDepth }, { it.multichannel }, { it.channels })
+        private val DmrRates = setOf(44_100, 48_000, 88_200, 96_000, 176_400, 192_000)
+        val qualityOrder = compareBy<Master>({ it.atmos }, { it.lossless && it.multichannel }, { it.lossless }, { it.sampleRate }, { it.bitDepth }, { it.multichannel }, { it.channels })
         private val Noise = Regex("""[(\[][^)\]]*(official|video|audio|lyric|visuali[sz]er|hd|hq|4k|atmos|mv)[^)\]]*[)\]]""", RegexOption.IGNORE_CASE)
         private val Featuring = Regex("""\s(feat\.?|ft\.?|featuring)\s.*$""", RegexOption.IGNORE_CASE)
         private val Edition = Regex("""live|remaster|clean|explicit|acoustic|instrumental|remix|edit""", RegexOption.IGNORE_CASE)

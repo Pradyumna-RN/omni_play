@@ -38,4 +38,8 @@ class LibraryStore(context: Context) {
     var spatialAudio: Boolean
         get() = prefs.getBoolean("spatial_audio", false)
         set(value) { prefs.edit().putBoolean("spatial_audio", value).apply() }
+    /** Experimental scene reconstruction, used when a compatible track loads. */
+    var jocObjects: Boolean
+        get() = prefs.getBoolean("joc_objects", false)
+        set(value) { prefs.edit().putBoolean("joc_objects", value).apply() }
 }

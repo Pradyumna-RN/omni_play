@@ -16,8 +16,8 @@ android {
         applicationId = "labs.rtensor.music"
         minSdk = 26
         targetSdk = 35
-        versionCode = 20
-        versionName = "0.3.17"
+        versionCode = 21
+        versionName = "0.3.18"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // An integrated build must not install as 32-bit using a dependency's
         // unrelated JNI library when the renderer is supplied only for 64-bit.
@@ -157,5 +157,34 @@ tasks.register("verifyEac3DecoderBundle") {
             }
         }
         logger.lifecycle("Verified: shared LGPL AC-3/E-AC-3 decoder and JNI packaged for ARM64 and x86-64")
+    }
+}
+
+// Optional experimental scene decoding must be the exact evaluated public native
+// build. This is separate from the private DMR and shared LGPL bed-decoder guards.
+tasks.register("verifyOpenJocBundle") {
+    dependsOn("assembleDebug")
+    val directory = providers.gradleProperty("rtensorOpenJocJniDir")
+    doLast {
+        val root = file(directory.get())
+        val metadata = JsonSlurper().parse(root.parentFile.resolve("native-build.json")) as Map<*, *>
+        check(metadata["sourceCommit"] == "e3e330a2000f8d0bced3460756473c8774eb16f0" && metadata["abi"] == "1.7-experimental")
+        check(metadata["embeddedHrtf"] == false && metadata["speakerLayout"] == "7.1.4")
+        val bridge = rootProject.file("decoder-openjoc/src/main/jni/openjoc_jni.cpp")
+        val bridgeSha = MessageDigest.getInstance("SHA-256").digest(bridge.readBytes()).joinToString("") { "%02x".format(it) }
+        check(metadata["bridgeSha256"] == bridgeSha) { "Scene decoder JNI is stale; rebuild the native adapter" }
+        val artifacts = metadata["artifacts"] as Map<*, *>
+        ZipFile(layout.buildDirectory.file("outputs/apk/debug/app-debug.apk").get().asFile).use { zip ->
+            for (abi in listOf("arm64-v8a", "x86_64")) {
+                val expected = artifacts[abi] as Map<*, *>
+                for (name in listOf("libopenjoc_capi.so", "libopenjocJNI.so")) {
+                    val packaged = zip.getInputStream(checkNotNull(zip.getEntry("lib/$abi/$name"))).use { it.readBytes() }
+                    check(packaged.contentEquals(root.resolve("$abi/$name").readBytes()))
+                    val sha = MessageDigest.getInstance("SHA-256").digest(packaged).joinToString("") { "%02x".format(it) }
+                    check(sha == expected[name]) { "Unverified scene decoder: $abi/$name" }
+                }
+            }
+        }
+        logger.lifecycle("Verified: pinned, speaker-only OpenJOC and JNI for ARM64 and x86-64")
     }
 }

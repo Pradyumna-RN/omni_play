@@ -34,8 +34,10 @@ class SourceLadderTest {
     }
 
     @Test fun multichannelAtRatesTheRendererCannotTakeIsSkipped() {
-        val route = PlaybackRoute.choose(song, listOf(master("51-441", 6, 44_100), master("stereo", 2, 96_000)))
+        val route = PlaybackRoute.choose(song, listOf(master("51-320", 6, 32_000), master("stereo", 2, 96_000)))
         assertEquals("stereo", route.master?.uri)
+        val converted = PlaybackRoute.choose(song, listOf(master("51-441", 6, 44_100), master("stereo", 2, 96_000)))
+        assertEquals("51-441", converted.master?.uri)
     }
 
     @Test fun wrongArtistAndEditionNeverReplaceTheSelectedRecording() {

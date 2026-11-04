@@ -32,7 +32,7 @@ android {
         listOf("https.proxyHost", "https.proxyPort", "http.proxyHost", "http.proxyPort", "javax.net.ssl.trustStore").forEach { key ->
             System.getProperty(key)?.let { value -> it.systemProperty(key, value) }
         }
-        val nativeDirectories = listOf("rtensorDspHostLibraryDir", "rtensorFfmpegHostLibraryDir")
+        val nativeDirectories = listOf("rtensorDspHostLibraryDir", "rtensorFfmpegHostLibraryDir", "rtensorOpenJocHostLibraryDir")
             .mapNotNull { key -> providers.gradleProperty(key).orNull }
         if (nativeDirectories.isNotEmpty()) {
             it.jvmArgs("-Djava.library.path=" + nativeDirectories.joinToString(File.pathSeparator))
@@ -42,10 +42,13 @@ android {
             it.systemProperty("rtensor.dsp.expectNative", "true")
         }
         if (providers.gradleProperty("rtensorFfmpegHostLibraryDir").isPresent) it.systemProperty("rtensor.ffmpeg.expectNative", "true")
+        if (providers.gradleProperty("rtensorOpenJocHostLibraryDir").isPresent) it.systemProperty("rtensor.openjoc.expectNative", "true")
+        System.getProperty("rtensor.openjoc.recording")?.let { path -> it.systemProperty("rtensor.openjoc.recording", path) }
     }
 }
 dependencies {
     implementation(project(":decoder-ffmpeg"))
+    implementation(project(":decoder-openjoc"))
     api("androidx.media3:media3-exoplayer:1.6.1")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.robolectric:robolectric:4.14.1")

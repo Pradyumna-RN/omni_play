@@ -1,0 +1,2 @@
+-keep class labs.rtensor.decoder.openjoc.OpenJocLibrary { *; }
+-keep class labs.rtensor.decoder.openjoc.OpenJocAudioDecoder { *; }
