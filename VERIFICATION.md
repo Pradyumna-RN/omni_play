@@ -2,7 +2,10 @@
 
 35 targeted app checks pass with no failures, errors or skips: three developer
 options checks, seven channel-monitor checks, ten player-comparison checks, four
-source-settings checks and eleven account/updater checks.
+source-settings checks and eleven account/updater checks. Android debug and
+release lint, all four native/runtime guards and the release-optimization guard
+pass. The universal release APK is 89,171,888 bytes (89.2 MB), compared with
+117,713,012 bytes for the prior debug APK. Optimized DEX is 4,919,016 bytes.
 
 - Developer options defaults off and is stored on this device. The normal player
   has no channel-monitor entry. Enabling the setting makes it available; turning

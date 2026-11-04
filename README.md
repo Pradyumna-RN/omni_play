@@ -202,7 +202,9 @@ Distributed builds now use the signed `release` variant with R8 code optimizatio
 and resource shrinking, preserving the existing OTA signing identity. The release
 artifact is named `music-release.apk`, which existing updaters already recognize.
 The package checks validate the release output, retained JNI entry points and the
-100 MB download target. Source/debug builds remain available for development.
+100 MB download target. The verified universal release is **89.2 MB**, compared
+with 117.7 MB for 0.3.28, retaining both architectures and all packaged runtimes.
+Source/debug builds remain available for development.
 
 ## Music 0.3.28 — fixed speaker lights
 
