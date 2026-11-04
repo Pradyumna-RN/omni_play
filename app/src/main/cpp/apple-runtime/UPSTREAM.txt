@@ -1,0 +1,6 @@
+Adapted from glomatico/wrapper-v2, commit 100e0a864e883e03a3ac450a780dd9563fff5271.
+https://github.com/glomatico/wrapper-v2
+The upstream adapter is public-domain software (Unlicense).
+Only its adapter sources are included. No Apple SDK implementation or native
+library is included. JSON operations use Android's platform org.json classes.
+The Linux/chroot launchers, HTTP server and TCP server are not used.

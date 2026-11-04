@@ -1,4 +1,17 @@
-# Provider playback checkpoint — 0.3.18
+# Provider playback checkpoint — 0.3.24
+
+## Apple account integration added in 0.3.24
+
+Music now includes first-party web sign-in for Widevine AAC, and an isolated
+native subscriber worker for compatible user-imported Apple runtimes. Native
+renditions are inspected for actual ALAC/JOC format and routed to the in-app
+decoder/DMR path, with a separate AAC fallback. FFmpeg includes 24-bit ALAC.
+This is an unofficial, experimental integration; live account sign-in, runtime
+loading and commercial playback on a phone remain unverified. No Apple binary,
+account, developer secret or music download is bundled.
+
+See [current setup and validation boundaries](APPLE_ACCOUNT_PLAYBACK.md). The
+0.3.18 checkpoint below is historical; its Apple implementation status is superseded.
 
 ## Implemented in this branch
 
@@ -26,7 +39,7 @@
 - Account authorization is not forwarded to media/CDN hosts. Logout invalidates
   resolved native candidates. HTTP calls cancel with their coroutine.
 
-## Apple Music and Qobuz remain incomplete
+## Historical 0.3.18 Apple and Qobuz checkpoint
 
 The user has access to a friend's Apple Music subscription, not a configured
 provider backend. The friend must authenticate privately. Native Apple playback

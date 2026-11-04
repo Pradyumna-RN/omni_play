@@ -16,9 +16,10 @@ android {
         applicationId = "labs.rtensor.music"
         minSdk = 30
         targetSdk = 35
-        versionCode = 26
-        versionName = "0.3.23"
+        versionCode = 27
+        versionName = "0.3.24"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField("boolean", "APPLE_NATIVE_INCLUDED", providers.gradleProperty("rtensorAppleJniDir").isPresent.toString())
         // An integrated build must not install as 32-bit using a dependency's
         // unrelated JNI library when the renderer is supplied only for 64-bit.
         if (providers.gradleProperty("rtensorDspJniDir").isPresent) {
@@ -26,6 +27,9 @@ android {
         }
     }
     buildFeatures { compose = true; buildConfig = true }
+    providers.gradleProperty("rtensorAppleJniDir").orNull?.let { directory ->
+        sourceSets.getByName("main").jniLibs.srcDir(file(directory))
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -49,6 +53,11 @@ android {
             // Android accepts Origin; JDK HttpURLConnection silently removes it by default.
             // Let the loopback Media3 regression test observe the actual Android headers.
             test.systemProperty("sun.net.http.allowRestrictedHeaders", "true")
+            providers.gradleProperty("rtensorAppleHostLibraryDir").orNull?.let { directory ->
+                test.jvmArgs("-Djava.library.path=$directory")
+                test.inputs.dir(file(directory))
+                test.systemProperty("music.apple.expectNative", "true")
+            }
             listOf("https.proxyHost", "https.proxyPort", "http.proxyHost", "http.proxyPort", "javax.net.ssl.trustStore", "music.otaReleaseFixture").forEach { key ->
                 System.getProperty(key)?.let { test.systemProperty(key, it) }
             }
@@ -150,6 +159,7 @@ tasks.register("verifyEac3DecoderBundle") {
                 val build = JsonSlurper().parse(root.resolve("build-info.json")) as Map<*, *>
                 check(build["license"] == "LGPL-2.1-or-later" && build["ffmpeg"] == "n6.1.6")
                 check(build["sourceSha256"] == "7481306bddb81f4d4b42bfde4b39ea4fa097d7fa5b8cdba377142c88172b4af9")
+                check((build["decoders"] as List<*>).containsAll(listOf("ac3", "eac3", "alac"))) { "Apple lossless playback requires the ALAC-enabled decoder build" }
                 listOf("libavcodec.so", "libavutil.so", "libswresample.so", "libffmpegJNI.so").forEach { name ->
                     val entry = zip.getEntry("lib/$abi/$name") ?: error("Missing $abi/$name")
                     check(zip.getInputStream(entry).use { it.readBytes() }.contentEquals(root.resolve(name).readBytes())) { "Decoder artifact changed: $abi/$name" }
@@ -157,6 +167,32 @@ tasks.register("verifyEac3DecoderBundle") {
             }
         }
         logger.lifecycle("Verified: shared LGPL AC-3/E-AC-3 decoder and JNI packaged for ARM64 and x86-64")
+    }
+}
+
+tasks.register("verifyAppleNativeBundle") {
+    dependsOn("assembleDebug")
+    doLast {
+        val root = file(providers.gradleProperty("rtensorAppleJniDir").get())
+        val source = file("src/main/cpp/apple-runtime")
+        val digest = MessageDigest.getInstance("SHA-256")
+        source.walkTopDown().filter { it.isFile }.toList().sortedBy { it.relativeTo(source).invariantSeparatorsPath }.forEach {
+            digest.update(it.relativeTo(source).invariantSeparatorsPath.toByteArray(Charsets.UTF_8))
+            digest.update(0.toByte())
+            digest.update(it.readBytes())
+        }
+        val sourceSha = digest.digest().joinToString("") { "%02x".format(it) }
+        ZipFile(layout.buildDirectory.file("outputs/apk/debug/app-debug.apk").get().asFile).use { zip ->
+            for (abi in listOf("arm64-v8a", "x86_64")) {
+                val metadata = JsonSlurper().parse(root.resolve("$abi/build-info.json")) as Map<*, *>
+                check(metadata["sourceSha256"] == sourceSha && metadata["minimumAndroidApi"] == 30 && metadata["containsAppleLibraries"] == false)
+                val bytes = zip.getInputStream(checkNotNull(zip.getEntry("lib/$abi/libmusicappleJNI.so"))).use { it.readBytes() }
+                val sha = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
+                check(bytes.contentEquals(root.resolve("$abi/libmusicappleJNI.so").readBytes()) && sha == metadata["adapterSha256"])
+            }
+            check(zip.entries().asSequence().none { it.name.substringAfterLast('/') in setOf("libCoreFP.so", "libCoreADI.so", "libCoreLSKD.so", "libandroidappmusic.so", "libstoreservicescore.so") })
+        }
+        logger.lifecycle("Verified: source-matched Apple adapter for ARM64/x86-64; no Apple native libraries bundled")
     }
 }
 

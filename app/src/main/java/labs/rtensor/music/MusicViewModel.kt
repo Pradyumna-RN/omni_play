@@ -111,6 +111,7 @@ data class MusicState(
     val sourceBusy: Boolean = false,
     val sourceMessage: String? = null,
     val tidalAccount: labs.rtensor.music.data.AccountState = labs.rtensor.music.data.AccountState(),
+    val appleAccount: labs.rtensor.music.apple.AppleAccountState = labs.rtensor.music.apple.AppleAccountState(),
 )
 
 @UnstableApi
@@ -194,6 +195,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch { sources.state.collect { mutable.update { it.copy(routeLabel = currentRoute(it.audioProcessing)) } } }
         viewModelScope.launch { sources.settings.connections.collect { profiles -> mutable.update { it.copy(playbackSources = profiles.map { p -> p.summary() }) } } }
         viewModelScope.launch { sources.tidal?.state?.collect { account -> mutable.update { it.copy(tidalAccount = account) } } }
+        viewModelScope.launch { sources.apple?.state?.collect { account -> mutable.update { it.copy(appleAccount = account) } } }
         controllerFuture.addListener({
             runCatching { controllerFuture.get() }.onSuccess { c ->
                 controller = c
@@ -429,6 +431,17 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     fun finishTidalSignIn(callback: String) { viewModelScope.launch { sources.tidal?.complete(callback) } }
     fun disconnectTidal() { viewModelScope.launch(Dispatchers.IO) { sources.tidal?.disconnect() } }
     fun cancelTidalSignIn() { viewModelScope.launch(Dispatchers.IO) { sources.tidal?.cancel() } }
+    fun beginAppleSignIn(): Long = sources.apple?.beginWeb() ?: -1
+    fun finishAppleSignIn(ticket: Long, value: String?) { if (value == null) sources.apple?.cancelWeb(ticket) else sources.apple?.completeWeb(ticket, value) }
+    fun disconnectApple() {
+        val item = controller?.currentMediaItem
+        val key = item?.localConfiguration?.customCacheKey ?: item?.mediaId
+        val playingApple = sources.state.value[key]?.stream?.provider == MusicProvider.APPLE_MUSIC
+        if (playingApple) controller?.stop()
+        sources.apple?.disconnect()
+        if (playingApple) controller?.prepare()
+    }
+    fun cancelAppleSignIn() { sources.apple?.cancel() }
 
     fun removeSource(id: String) {
         viewModelScope.launch {

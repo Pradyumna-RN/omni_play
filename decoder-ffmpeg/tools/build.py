@@ -27,7 +27,7 @@ def main():
         "--disable-programs", "--disable-doc", "--disable-debug", "--disable-network",
         "--disable-avdevice", "--disable-avformat", "--disable-avfilter", "--disable-postproc",
         "--disable-swscale", "--enable-swresample", "--enable-avcodec", "--enable-avutil",
-        "--enable-decoder=ac3,eac3", "--disable-x86asm", "--enable-small", "--extra-cflags=-fPIC",
+        "--enable-decoder=ac3,eac3,alac", "--disable-x86asm", "--enable-small", "--extra-cflags=-fPIC",
         "--extra-ldflags=-Wl,-z,max-page-size=16384"]
     includes = []
     if a.target == "host":
@@ -66,7 +66,7 @@ def main():
     (dest / "build-info.json").write_text(json.dumps({"ffmpeg": "n6.1.6", "sourceSha256": SHA256,
         "sourceUrl": "https://codeload.github.com/FFmpeg/FFmpeg/tar.gz/refs/tags/n6.1.6",
         "target": a.target, "configure": [str(x) for x in options], "license": "LGPL-2.1-or-later",
-        "decoders": ["ac3", "eac3"]}, indent=2) + "\n")
+        "decoders": ["ac3", "eac3", "alac"]}, indent=2) + "\n")
     print("Built shared LGPL AC-3/E-AC-3 decoder:", dest)
 
 if __name__ == "__main__":

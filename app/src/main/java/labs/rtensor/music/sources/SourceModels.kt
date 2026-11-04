@@ -51,7 +51,8 @@ data class ProviderStream(val id: String, val provider: MusicProvider, val url: 
     /** Provider rendition ID; independent of signed URLs and manifest ordering. */
     val representationId: String = "",
     /** Optional immutable encoded-file ID, not a catalogue or manifest hash. */
-    val fileId: String = "") {
+    val fileId: String = "",
+    val appleAsset: labs.rtensor.music.apple.AppleMediaAsset? = null) {
     val lossless: Boolean get() = mime in setOf("audio/flac", "audio/alac", "audio/wav", "audio/x-wav", "audio/raw")
     val verifiedAtmosCodec: Boolean get() = atmos && mime == "audio/eac3-joc"
     val representationKey: String get() = hash("rendition-v1", listOf(provider.wire, sourceId, id, mime,
@@ -73,7 +74,8 @@ data class ProviderStream(val id: String, val provider: MusicProvider, val url: 
         val supportedMultichannel = channels in 3..16 && sampleRate in setOf(44100, 48000, 88200, 96000, 176400, 192000)
         return safeUrl && id.isNotBlank() && id.length <= 256 && title.length <= 512 && artist.length <= 512 && url.length <= 16384 && bitDepth in 0..32 &&
             channels in 0..16 && (channels > 0 || lossless || verifiedAtmosCodec) &&
-            (sampleRate in 8000..768000 || (sampleRate == 0 && (lossless || verifiedAtmosCodec))) && (lossless || verifiedAtmosCodec || supportedMultichannel) &&
+            (sampleRate in 8000..768000 || (sampleRate == 0 && (lossless || verifiedAtmosCodec))) && (lossless || verifiedAtmosCodec || supportedMultichannel ||
+                (provider == MusicProvider.APPLE_MUSIC && appleAsset != null && mime == "audio/mp4a-latm" && channels in 1..2)) &&
             (channels <= 2 || supportedMultichannel || (sampleRate == 0 && (lossless || verifiedAtmosCodec))) && durationMs > 0
     }
     val requestedLabel: String get() = "${provider.label} · checking audio…"

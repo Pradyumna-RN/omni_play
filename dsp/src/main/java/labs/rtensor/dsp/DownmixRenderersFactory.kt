@@ -79,8 +79,10 @@ open class DownmixRenderersFactory(
             }
             out.add(object : FfmpegAudioRenderer(eventHandler, eventListener, guarded) {
                 override fun getName() = "MusicFfmpegBedAudioRenderer"
+                override fun shouldOutputFloat(format: Format): Boolean =
+                    format.sampleMimeType == MimeTypes.AUDIO_ALAC || super.shouldOutputFloat(format)
                 override fun supportsFormatInternal(format: Format): Int = when {
-                    format.sampleMimeType !in setOf(MimeTypes.AUDIO_AC3, MimeTypes.AUDIO_E_AC3, MimeTypes.AUDIO_E_AC3_JOC) -> androidx.media3.common.C.FORMAT_UNSUPPORTED_TYPE
+                    format.sampleMimeType !in setOf(MimeTypes.AUDIO_AC3, MimeTypes.AUDIO_E_AC3, MimeTypes.AUDIO_E_AC3_JOC, MimeTypes.AUDIO_ALAC) -> androidx.media3.common.C.FORMAT_UNSUPPORTED_TYPE
                     format.drmInitData != null || format.cryptoType != androidx.media3.common.C.CRYPTO_TYPE_NONE -> androidx.media3.common.C.FORMAT_UNSUPPORTED_DRM
                     else -> super.supportsFormatInternal(format)
                 }

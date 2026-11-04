@@ -27,8 +27,9 @@ import labs.rtensor.music.sources.SourceProtocol
 @Composable
 internal fun PlaybackSourcesEditor(state: MusicState, onDismiss: () -> Unit,
     onConnect: (MusicProvider, SourceProtocol, String, String) -> Unit, onRemove: (String) -> Unit,
-    onConnectTidal: () -> Unit = {}, onDisconnectTidal: () -> Unit = {}, onCancelTidal: () -> Unit = {}) {
-    var adding by remember { mutableStateOf(state.playbackSources.isEmpty() && !state.tidalAccount.connected) }
+    onConnectTidal: () -> Unit = {}, onDisconnectTidal: () -> Unit = {}, onCancelTidal: () -> Unit = {},
+    onConnectApple: () -> Unit = {}, onNativeApple: () -> Unit = {}, onDisconnectApple: () -> Unit = {}, onCancelApple: () -> Unit = {}) {
+    var adding by remember { mutableStateOf(false) }
     var provider by remember { mutableStateOf(MusicProvider.APPLE_MUSIC) }
     var protocol by remember { mutableStateOf(SourceProtocol.GATEWAY) }
     var url by remember { mutableStateOf("") }
@@ -41,6 +42,23 @@ internal fun PlaybackSourcesEditor(state: MusicState, onDismiss: () -> Unit,
     Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Recommendations stay with YouTube. Playback checks matching Atmos recordings first, then lossless quality. Stereo plays unchanged.",
             fontSize = 13.sp, lineHeight = 19.sp, color = scheme.onSurfaceVariant)
+        Surface(shape = RoundedCornerShape(14.dp), color = scheme.surfaceVariant.copy(alpha = .5f), modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("Apple Music · experimental", fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                Text(when {
+                    state.appleAccount.connected && state.appleAccount.native -> "Native account connected · checks multichannel, then lossless, then AAC"
+                    state.appleAccount.connected -> "Account connected · AAC stereo"
+                    else -> "Use your subscription inside Music. AAC uses Apple’s web sign-in; lossless and multichannel use an imported native runtime."
+                }, fontSize = 12.sp, lineHeight = 17.sp, color = scheme.onSurfaceVariant)
+                if (state.appleAccount.connecting || state.appleAccount.needsCode) TextButton(onClick = onCancelApple) { Text("Cancel Apple sign-in") }
+                else {
+                    OutlinedButton(onClick = onConnectApple, shape = RoundedCornerShape(12.dp)) { Text("Sign in · AAC stereo") }
+                    if (labs.rtensor.music.BuildConfig.APPLE_NATIVE_INCLUDED) OutlinedButton(onClick = onNativeApple, shape = RoundedCornerShape(12.dp)) { Text("Set up lossless & multichannel") }
+                }
+                if (state.appleAccount.connected) TextButton(onClick = onDisconnectApple) { Text("Disconnect Apple Music") }
+                state.appleAccount.error?.let { Text(it, fontSize = 12.sp, lineHeight = 17.sp, color = scheme.onSurface) }
+            }
+        }
         Surface(shape = RoundedCornerShape(14.dp), color = scheme.surfaceVariant.copy(alpha = .5f), modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text("TIDAL · experimental", fontSize = 15.sp, fontWeight = FontWeight.Medium)
@@ -89,7 +107,7 @@ internal fun PlaybackSourcesEditor(state: MusicState, onDismiss: () -> Unit,
                 }
             }
             Text(when (protocol) {
-                SourceProtocol.GATEWAY -> "Requires a compatible server with access to your provider account. Native Apple Music sign-in is not included."
+                SourceProtocol.GATEWAY -> "Requires a compatible server with access to your provider account. Apple Music account playback can also be set up above."
                 SourceProtocol.ADDON -> "Install an addon by entering its HTTPS server address. Availability and account requirements depend on your addon."
                 SourceProtocol.TIDAL_HIFI -> "Connect your own HiFi API server with a TIDAL account."
             }, fontSize = 12.sp, lineHeight = 17.sp, color = scheme.onSurfaceVariant)

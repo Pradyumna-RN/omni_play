@@ -198,6 +198,7 @@ fun MusicApp(
     onConnectSource: (MusicProvider, SourceProtocol, String, String) -> Unit = { _, _, _, _ -> },
     onRemoveSource: (String) -> Unit = {},
     onConnectTidal: () -> Unit = {}, onDisconnectTidal: () -> Unit = {}, onCancelTidal: () -> Unit = {},
+    onConnectApple: () -> Unit = {}, onNativeApple: () -> Unit = {}, onDisconnectApple: () -> Unit = {}, onCancelApple: () -> Unit = {},
     onClearHistory: () -> Unit = {}, onRetry: () -> Unit = {}, onDismissError: () -> Unit = {},
     sharedQuery: String? = null, onShareConsumed: () -> Unit = {},
     initialPage: String = "home",
@@ -299,7 +300,8 @@ fun MusicApp(
                             "collection" -> CollectionScreen(state, ::play, onSave)
                             "settings" -> SettingsScreen(state, onTheme, onOpenLocal, onChooseMasters, onClearMasters, onClearHistory,
                                 onConnect, onWebSignIn, onDisconnect, onCancelConnect, onGoogleSignIn, onGoogleSignOut, onCancelGoogle, onCheckUpdates, onDownloadUpdate, onInstallUpdate,
-                                onAutoplay, onTrackHistory, onConnectSource, onRemoveSource, onConnectTidal, onDisconnectTidal, onCancelTidal, onObjectDecoding)
+                                onAutoplay, onTrackHistory, onConnectSource, onRemoveSource, onConnectTidal, onDisconnectTidal, onCancelTidal, onObjectDecoding,
+                                onConnectApple, onNativeApple, onDisconnectApple, onCancelApple)
                             else -> HomeScreen(state, ::focusSearch, ::play, onToggle, ::openEntry, { onRefreshFeed(); onRefreshForYou() }, onMoreFeed, onConnect)
                         }
                     }
@@ -1281,7 +1283,8 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onLocal
     onCheckUpdates: () -> Unit, onDownloadUpdate: () -> Unit, onInstallUpdate: () -> Unit,
     onAutoplay: (Boolean) -> Unit, onTrackHistory: (Boolean) -> Unit,
     onConnectSource: (MusicProvider, SourceProtocol, String, String) -> Unit, onRemoveSource: (String) -> Unit,
-    onConnectTidal: () -> Unit, onDisconnectTidal: () -> Unit, onCancelTidal: () -> Unit, onObjectDecoding: (Boolean) -> Unit) {
+    onConnectTidal: () -> Unit, onDisconnectTidal: () -> Unit, onCancelTidal: () -> Unit, onObjectDecoding: (Boolean) -> Unit,
+    onConnectApple: () -> Unit, onNativeApple: () -> Unit, onDisconnectApple: () -> Unit, onCancelApple: () -> Unit) {
     var confirmClear by remember { mutableStateOf(false) }
     var showLicences by remember { mutableStateOf(false) }
     var showSources by remember { mutableStateOf(false) }
@@ -1316,12 +1319,13 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onLocal
             val count = state.playbackSources.size
             // A saved server is only a candidate; each song is checked before anything plays from it.
             SettingItem("Playback sources",
-                if (state.tidalAccount.connected) "TIDAL signed in${if (count > 0) " · $count saved servers" else ""}"
-                else if (count == 0) "Sign in to TIDAL or connect another music source"
+                if (state.appleAccount.connected) "Apple Music signed in${if (state.tidalAccount.connected) " · TIDAL" else ""}"
+                else if (state.tidalAccount.connected) "TIDAL signed in${if (count > 0) " · $count saved servers" else ""}"
+                else if (count == 0) "Sign in to Apple Music, TIDAL or connect a music source"
                 else "$count saved ${if (count == 1) "server" else "servers"} · checked per song before it plays",
                 Glyph.MusicNote, onClick = { showSources = !showSources }, expanded = showSources)
             if (showSources) PlaybackSourcesEditor(state, { showSources = false }, onConnectSource, onRemoveSource,
-                onConnectTidal, onDisconnectTidal, onCancelTidal)
+                onConnectTidal, onDisconnectTidal, onCancelTidal, onConnectApple, onNativeApple, onDisconnectApple, onCancelApple)
             CardDivider()
             SettingItem("Import audio", if (state.mastersBusy) state.mastersSummary else "Stereo, lossless and Atmos files", Icons.Outlined.Add, onClick = { showImport = true })
             state.importMessage?.let { Text(it, fontSize = 13.sp, lineHeight = 19.sp, color = scheme.onSurfaceVariant, modifier = Modifier.padding(start = 66.dp, end = 16.dp, bottom = 12.dp)) }

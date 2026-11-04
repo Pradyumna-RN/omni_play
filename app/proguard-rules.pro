@@ -3,3 +3,5 @@
     @android.webkit.JavascriptInterface <methods>;
 }
 # No DSP implementation or coefficients are included in this project.
+-keep class labs.rtensor.music.apple.NativeJson { *; }
+-keep class labs.rtensor.music.apple.NativeAppleBridge { *; }

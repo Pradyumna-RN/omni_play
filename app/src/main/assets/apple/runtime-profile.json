@@ -1,0 +1,50 @@
+{
+  "apple_music": {
+    "package": "com.apple.android.music",
+    "version": "3.6.0-beta",
+    "build": "1109",
+    "ndk_version": "r23b"
+  },
+  "libs": {
+    "x86_64": {
+      "libBlocksRuntime.so": "9814b756ae173a546eb12bf1019746f14b17a6546806445ff67f75b0aba8856a",
+      "libCoreADI.so": "b5b971cea0bbe828bdcfaf219fd91fc1e37cf8daee84001ef917d0b1c2b985ed",
+      "libCoreFoundation.so": "c5727cecfa18833a6828caf2072aa6a4edf39b73752597e4de35854ea9a71ce0",
+      "libCoreFP.so": "81ba0dbd857a9e76402434ee13756051a77de91ec18d637ea4350687e0da39b3",
+      "libCoreLSKD.so": "bf813206d382bd8b27384bd546a5b9aa730df32c8543d709756b081b619a8b3a",
+      "libandroidappmusic.so": "2fcdf31a0b3f0f8841ef63cf46efffcf9672a2cea0eef5b066c537d43e293083",
+      "libc++_shared.so": "82ffc20ba230bbdd031b27853d6cfaaa27079aabe6dd478cafd9b6fa866a35c2",
+      "libcurl.so": "922d6c70ab8a86a761046c70902d3d6c56b136fb2a3b21dbc5a4e3fe5f6130ae",
+      "libdaapkit.so": "e70575f2f3279141d03c91dff7400151e321fb30051f170e25bdbeae862a7bbd",
+      "libdispatch.so": "7d360c1e81c6982b70b32bdc4e343fd586d727722fd6562df211aaf1955b0e2c",
+      "libicudata_sv_apple.so": "afe9021fd9fee67f1f2909f3bb603f0362e93be5ef761d4dee9812249b2aa0f0",
+      "libicui18n_sv_apple.so": "7ae2e3c0e78e54e94a2ce2d7f3efbb4375e2505769f4ebeb43f05ac7d344ff76",
+      "libicutest_sv_apple.so": "3bc7b14ca5a9eefcbfdbaa943a0ff81a9406832ecd6ac5d18fb818569a733750",
+      "libicuuc_sv_apple.so": "cac055936358d0ea35021240a7a36a2110994f3c8883a47bb28fd2c634e6f069",
+      "libmedialibrarycore.so": "3c42bf5f52d90931d65e463f44720a28c60f575416a6420ad71682e1be91e6b7",
+      "libmediaplatform.so": "cb4ab591e0ea6c74cbcbe23b616566425172efc77f83933b6aa7a3ffcc88de6d",
+      "libstoreservicescore.so": "0ba169fec7b5a0f70113ab01ba6c60b893c36f9aa080797b13d3830dd3784010",
+      "libxml2.so": "41422a7384114f4a98fa7a09e019c9f2aec07c429d6d2ae4b63022b111325109"
+    },
+    "arm64-v8a": {
+      "libBlocksRuntime.so": "f7ebfdcf5115c6bf2073c79c498bcf6652f2501a697774a053cab4f6cf3e638a",
+      "libCoreADI.so": "db8779a9e1b026a087cd9a35c7d69f8af51418a29249ef325e6391ec560f6f47",
+      "libCoreFoundation.so": "9ccf6cd1507a3682084ebd3f749932f588430c092ba8fa9fbfbd44fea4abc7d2",
+      "libCoreFP.so": "27200468fbe5e4404edf466e3dd9d5f2fa01fe5835dc60aa76619d55721a447e",
+      "libCoreLSKD.so": "36e49510c1c3b0c133b263cfc6996f79cda112320b51d5f9dbaa1175cab6d8d9",
+      "libandroidappmusic.so": "3e0af0b8aa95bfc79a27d7dba54fc3ee77f6878347e63f4ea549713b0fdeb26e",
+      "libc++_shared.so": "a94a44bc0abd5729ef55a43b3afcacbc064b7c40041c9df4c33950a60f36652b",
+      "libcurl.so": "42226f2c2e9151d59e9db9020fb115dcbfe4396762946437c62b12a3c3000fa7",
+      "libdaapkit.so": "e38a16d14979f3c6ab884fbb6510c526667d5b2e90e86fc96e9d7dbcc862fcae",
+      "libdispatch.so": "d82bcc112e828fe23111e9de5359a5f242aa3791c891fefb3c13a08600c2dc86",
+      "libicudata_sv_apple.so": "62f30712e07a85fcb2977a613cbb2fd95f6224029ca2438a749cc7390fb89e4e",
+      "libicui18n_sv_apple.so": "d249ef1f5e5994a6800966daa2ec9a00316cadb4ad8e9954afeb66ae8aece0a4",
+      "libicutest_sv_apple.so": "84c72c42616a4e7b403c83ec339a3035cbd8d4054ed7a117fa93af264a34a8d0",
+      "libicuuc_sv_apple.so": "391fac15907aa57008ad4f61b5053b6f55f5d17946adb3bc949f7d58dc2fb885",
+      "libmedialibrarycore.so": "8b04fc00c9936e8be774659896bff2d9e4434eb1b252df458c66e26dc8b88be3",
+      "libmediaplatform.so": "6f5e1121441b21ec42b854576858fb27617e74441d420c46d824666ec152dc34",
+      "libstoreservicescore.so": "a6b3440c5e2bc747cbc50cf0d337c7ff42dcd5ed5ddb8080889fa63c1263df16",
+      "libxml2.so": "a7349a425f3cd59080d661b0507cee1c0057c7ce5db791c73078dac26bbc6dd5"
+    }
+  }
+}

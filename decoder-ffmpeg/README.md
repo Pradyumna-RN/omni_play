@@ -1,10 +1,10 @@
-# Local AC-3/E-AC-3 bed decoder prototype
+# ALAC and AC-3/E-AC-3 decoder
 
 Uses the **Apache-2.0 Media3 1.6.1** FFmpeg adapter, with separately linked
 **LGPL-2.1-or-later FFmpeg n6.1.6** shared libraries. NextLib, Tryptify, Cavern and
 their GPL/non-commercial implementations are not dependencies.
 
-Only `ac3` and `eac3` decoders are enabled. GPL, GPLv3, nonfree and version-3
+Only `ac3`, `eac3` and `alac` decoders are enabled. GPL, GPLv3, nonfree and version-3
 components, networking, demuxers, encoders and programs are disabled. The build
 checks the generated configuration, not just the requested configure arguments.
 `libavcodec.so`, `libavutil.so` and `libswresample.so` remain separate replaceable
@@ -12,9 +12,12 @@ libraries. The public JNI adapter links them dynamically. DMR is unchanged.
 
 ## Scope
 
-- The software renderer is preferred only for clear AC-3/E-AC-3/JOC inputs.
+- The software renderer is preferred for clear ALAC and AC-3/E-AC-3/JOC inputs.
   DRM-protected formats are rejected by the adapter. Other codecs retain their
   existing platform path.
+- ALAC uses float output to preserve 24-bit detail. Generated 192 kHz stereo
+  and 96 kHz 5.1 files decode sample-exactly through the real Java/JNI decoder,
+  including a flush/seek. This describes decoder output, not Android hardware.
 - Output is the **decoded channel bed**, not reconstructed Atmos objects.
   An E-AC-3 JOC input is not evidence of a full Atmos object render.
 - FFmpeg's actual native channel mask is reconciled with DMR speaker roles.
@@ -25,7 +28,9 @@ libraries. The public JNI adapter links them dynamically. DMR is unchanged.
   Codec DRC is disabled. DMR processes supported multichannel PCM at 48/96/192 kHz;
   stereo bypasses DMR without app upmixing/resampling. Android's output device or
   mixer can still convert audio; this is not a bit-perfect hardware guarantee.
-- This adds no provider login, scraped credentials or decryption wrapper.
+- This decoder module handles clear encoded audio. Apple account and protected
+  media handling live in the app module, before this decoder; see
+  [the account integration](../APPLE_ACCOUNT_PLAYBACK.md).
 
 ## Build and replace the decoder
 

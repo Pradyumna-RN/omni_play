@@ -2,20 +2,24 @@
 
 Music keeps YouTube discovery, artwork and queue identity. A playback source can
 supply the matching recording without replacing recommendations or opening a
-second player. No public download service, provider cookie, app secret or content
-key is shipped in the APK.
+second player. No public download service, shared subscriber account, private app
+secret or subscriber full-track key is shipped in the APK.
 
-## Options in Settings → Playback → Playback sources
+## Options in Settings → Playback sources
 
 | Option | What it connects to | What you need |
 | --- | --- | --- |
+| Apple Music account · AAC | First-party Apple web sign-in and Android Widevine | Listener subscription; live account playback remains unverified |
+| Apple Music account · native | In-app native worker for available ALAC and surround renditions | Subscription plus compatible user-imported 3.6.0-beta/build1109 runtime; phone validation pending |
 | TIDAL account (experimental) | Native browser sign-in and account playback requests | Your TIDAL subscription; live account playback remains unverified |
 | Provider account server | An implementation of the account-gateway contract below, for Apple Music, TIDAL, Qobuz or a personal library | A compatible server and whatever account access that server requires |
 | Audio addon | The HTTP search/stream addon protocol | Your addon URL and optional server bearer token |
 | TIDAL HiFi server | A user-hosted [HiFi API](https://github.com/binimum/hifi-api) | Your server, configured with your TIDAL account |
 | Atmos & lossless folder | Files you import through Android's folder picker | Read access to your own files; no subscription needed |
 
-**Native Apple Music and Qobuz account playback are not implemented.**
+Apple Music now has experimental AAC and native lossless/multichannel account
+paths inside Music. See [setup and verification limits](APPLE_ACCOUNT_PLAYBACK.md).
+Direct Qobuz account playback is not implemented.
 The new direct TIDAL account path is experimental and has not been tested against
 a subscriber account. It uses browser PKCE and a public native client identifier,
 not an RTensorLabs developer registration. No client secret is shipped.

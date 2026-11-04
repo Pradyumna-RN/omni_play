@@ -39,20 +39,27 @@ data class SourcePlaybackInfo(val stream: ProviderStream?, val fallbackLabel: St
 class PlaybackSources(val settings: SourceSettings, val tidal: TidalAccount? = null,
     private val now: () -> Long = System::currentTimeMillis,
     private val clientFactory: (SourceConnection) -> SourceServerClient = { SourceServerClient(it) }) {
+    internal var apple: labs.rtensor.music.apple.AppleAccount? = null
     private val mutable = MutableStateFlow<Map<String, SourcePlaybackInfo>>(emptyMap())
     val state = mutable.asStateFlow()
     private val rejected = ConcurrentHashMap<String, MutableSet<String>>()
-    private data class Resolved(val streams: List<ProviderStream>, val time: Long, val settings: List<SourceConnection>, val tidalRevision: Long)
+    private data class SelectionScope(val profiles: List<SourceConnection>, val tidal: Long, val apple: Long)
+    private val rejectionScopes = ConcurrentHashMap<String, SelectionScope>()
+    private data class Resolved(val streams: List<ProviderStream>, val time: Long, val settings: List<SourceConnection>, val tidalRevision: Long, val appleRevision: Long)
     private val resolved = object : LinkedHashMap<String, Resolved>(32, .75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Resolved>) = size > 32
     }
-    val enabled: Boolean get() = tidal?.state?.value?.connected == true || settings.connections.value.any { it.enabled }
+    val enabled: Boolean get() = apple?.state?.value?.connected == true || tidal?.state?.value?.connected == true || settings.connections.value.any { it.enabled }
 
     suspend fun choose(track: Track, key: String, local: Master?): ProviderStream? = coroutineScope {
-        if (rejected[key].orEmpty().size >= 6) return@coroutineScope null
         val profiles = settings.connections.value.filter { it.enabled }
         val tidalRevision = tidal?.revision ?: 0L
-        val cached = synchronized(resolved) { resolved[key]?.takeIf { now() - it.time < 120_000 && it.settings == profiles && it.tidalRevision == tidalRevision } }
+        val appleRevision = apple?.revision ?: 0L
+        val selection = SelectionScope(profiles, tidalRevision, appleRevision)
+        if (rejectionScopes.put(key, selection) != selection) rejected.remove(key)
+        if (rejectionScopes.size > 128) rejectionScopes.keys.firstOrNull { it != key }?.let { rejectionScopes.remove(it); rejected.remove(it) }
+        if (rejected[key].orEmpty().size >= 6) return@coroutineScope null
+        val cached = synchronized(resolved) { resolved[key]?.takeIf { now() - it.time < 120_000 && it.settings == profiles && it.tidalRevision == tidalRevision && it.appleRevision == appleRevision } }
         val streams = cached?.streams ?: (profiles.map { connection -> async {
             withTimeoutOrNull(4500) { runCatching { clientFactory(connection).resolve(track) }.getOrElse { e ->
                 if (e is kotlinx.coroutines.CancellationException) throw e
@@ -60,7 +67,10 @@ class PlaybackSources(val settings: SourceSettings, val tidal: TidalAccount? = n
             } }.orEmpty()
         } } + listOfNotNull(tidal?.takeIf { it.state.value.connected }?.let { account -> async {
             withTimeoutOrNull(6500) { account.resolve(track) }.orEmpty()
-        } })).flatMap { it.await() }.also { candidates -> synchronized(resolved) { resolved[key] = Resolved(candidates, now(), profiles, tidalRevision) } }
+        } }, apple?.takeIf { it.state.value.connected && !it.state.value.connecting && !it.state.value.needsCode }?.let { account -> async {
+            withTimeoutOrNull(18000) { try { account.resolve(track) } catch (error: kotlinx.coroutines.CancellationException) { throw error } catch (_: Exception) { emptyList() } }.orEmpty()
+        } })).flatMap { it.await() }.also { candidates -> synchronized(resolved) { resolved[key] = Resolved(candidates, now(), profiles, tidalRevision, appleRevision) } }
+        if (profiles != settings.connections.value.filter { it.enabled } || tidalRevision != (tidal?.revision ?: 0L) || appleRevision != (apple?.revision ?: 0L)) return@coroutineScope null
         var remote = SourceQuality.best(track, streams.filter { it.representationKey !in rejected[key].orEmpty() })
         if (local != null && remote != null) {
             val comparator = PlaybackRoute.qualityOrder
@@ -102,7 +112,7 @@ class PlaybackSources(val settings: SourceSettings, val tidal: TidalAccount? = n
     companion object {
         @Volatile private var instance: PlaybackSources? = null
         fun get(context: Context): PlaybackSources = instance ?: synchronized(this) {
-            instance ?: PlaybackSources(SourceSettings(context.applicationContext), tidal = TidalAccount.get(context)).also { instance = it }
+            instance ?: PlaybackSources(SourceSettings(context.applicationContext), tidal = TidalAccount.get(context)).also { it.apple = labs.rtensor.music.apple.AppleAccount.get(context); instance = it }
         }
     }
 }

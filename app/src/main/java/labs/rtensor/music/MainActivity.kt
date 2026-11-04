@@ -54,10 +54,17 @@ class MainActivity : ComponentActivity() {
     private val youtubeSignIn = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         model.cancelAccountConnection()
     }
+    private var appleTicket = -1L
+    private val appleSignIn = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val ticket = result.data?.getLongExtra(labs.rtensor.music.apple.AppleWebLoginActivity.TICKET, appleTicket) ?: appleTicket
+        val session = if (result.resultCode == RESULT_OK) result.data?.getStringExtra(labs.rtensor.music.apple.AppleWebLoginActivity.SESSION) else null
+        model.finishAppleSignIn(ticket, session)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        appleTicket = savedInstanceState?.getLong("appleTicket", -1) ?: -1
         acceptShare(intent)
         if (savedInstanceState == null) acceptTidalSignIn(intent)
         setContent {
@@ -93,6 +100,13 @@ class MainActivity : ComponentActivity() {
                 onChooseMasters = { mastersFolder.launch(null) }, onClearMasters = model::clearMasters,
                 onConnectSource = model::connectSource, onRemoveSource = model::removeSource,
                 onConnectTidal = ::connectTidal, onDisconnectTidal = model::disconnectTidal, onCancelTidal = model::cancelTidalSignIn,
+                onConnectApple = {
+                    appleTicket = model.beginAppleSignIn()
+                    appleSignIn.launch(Intent(this, labs.rtensor.music.apple.AppleWebLoginActivity::class.java)
+                        .putExtra(labs.rtensor.music.apple.AppleWebLoginActivity.TICKET, appleTicket))
+                },
+                onNativeApple = { startActivity(Intent(this, labs.rtensor.music.apple.AppleNativeSetupActivity::class.java)) },
+                onDisconnectApple = model::disconnectApple, onCancelApple = model::cancelAppleSignIn,
                 onClearHistory = model::clearHistory, onRetry = model::retry, onDismissError = model::clearError,
                 sharedQuery = sharedQuery,
                 onShareConsumed = { sharedQuery = null },
@@ -168,6 +182,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); acceptShare(intent); acceptTidalSignIn(intent) }
+    override fun onSaveInstanceState(outState: Bundle) { outState.putLong("appleTicket", appleTicket); super.onSaveInstanceState(outState) }
 
     private fun connectTidal() {
         lifecycleScope.launch {

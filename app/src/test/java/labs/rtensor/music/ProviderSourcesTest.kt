@@ -115,6 +115,9 @@ class ProviderSourcesTest {
             assertTrue(registry.reject("limited"))
         }
         assertNull(registry.choose(song, "limited", null))
+        store.remove(connection.id)
+        store.save(connection.copy(id = "reconnected"))
+        assertNotNull("A new source configuration can recover from an exhausted old session", registry.choose(song, "limited", null))
     }
 
     @Test fun privateConnectionsAreEncryptedAndUnsafeConfigurationIsRejected() {

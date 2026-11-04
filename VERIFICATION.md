@@ -1,4 +1,47 @@
-# Current verification: unreleased Android 11 baseline and Apple runtime investigation
+# Current verification: Music 0.3.24 / Apple account playback adapters
+
+**232 app tests, 90 DSP tests and 8 scene-decoder tests pass** (330 total), with
+no failures, errors or skips. Android lint, APK assembly and all four integrated
+native packaging guards pass. Fifteen additional runtime-inspection tests pass;
+the native FFmpeg regression suite passes under ASan/UBSan, including the complete
+189.856-second E-AC-3 reference grouped into 1/2/3/6-frame packets. All four README
+architecture diagrams parse and render.
+
+- Apple settings expose AAC web sign-in, native lossless/multichannel setup,
+  cancellation and disconnect without replacing existing providers or discovery.
+- Real host JNI checks platform JSON conversion, Unicode, 64-bit integers,
+  attached native threads and rejection of unauthenticated native operations.
+- Account tests cover native verification codes, encrypted session persistence,
+  stale web callbacks, cancellation and Binder error/session boundaries.
+- Apple protocol checks run on Android API 30 and 35 in Robolectric: allowed
+  origins, token parsing, no account headers on media requests, redirect/response
+  limits, HLS rendition metadata, MP4 ranges, key rotation and stale media access.
+- The actual Media3 fragmented-MP4 extractor parses an owned CBCS-protected ALAC
+  fixture through the native TrackOutput adapter. Both complete encoded samples,
+  including partial-block tails, match the original bytes exactly. The runtime
+  decryptor in this test uses an owned synthetic key; it is not Apple's binary.
+- Controlled account/CDN responses exercise the real catalogue/rendition resolver,
+  actual MP4 codec probing, ALAC-versus-AAC selection and different-recording
+  rejection. Server-provided AAC cannot acquire the private account capability.
+- The actual FFmpeg Java/JNI decoder preserves every generated 24-bit sample at
+  192 kHz stereo and 96 kHz 5.1, including layout and flush/seek. ALAC uses float
+  output instead of truncating the source to 16-bit. Hardware output is not tested.
+- APK checks match the exact evaluated FFmpeg, OpenJOC, private ABI-3 DMR and public
+  Apple adapter for ARM64/x86-64. Apple libraries and private renderer source are
+  absent. The app targets all brands on Android 11+, with target API 35.
+
+**No compatible Apple runtime binary, live Apple subscriber or physical phone was
+available for execution here.** Native SDK loading, real Apple sign-in, commercial
+track playback, delivered ALAC/JOC availability and phone performance remain
+unverified. Importing the pinned 3.6.0-beta/build1109 runtime is required for the
+native route; a current store installer is not ABI-compatible. AAC is lossy.
+DMR receives multichannel input but renders stereo; JOC reconstruction remains
+experimental. See [account setup and limits](APPLE_ACCOUNT_PLAYBACK.md).
+
+Version **0.3.24/code27** retains the OTA package, signing identity and asset names.
+Release assets include a validation report and matching decoder/application source.
+
+# Previous verification: Android 11 baseline and Apple runtime investigation
 
 **195 app tests, 88 DSP tests and 8 scene-decoder tests pass** (291 total), with
 no failures, errors or skipped tests. Android lint, APK assembly and all three

@@ -1,0 +1,33 @@
+{
+  "generators": [
+    "tools/apple/generate_test_audio.py",
+    "tools/apple/generate_encrypted_fixture.py"
+  ],
+  "fixtures": {
+    "app/src/test/resources/audio/owned-apple-aac-init.mp4": {
+      "sha256": "bbd333e806e6d772dcb437d8057b452ef6fda482eae21ab970a559abb4ddd3f4",
+      "bytes": 728,
+      "origin": "owned synthetic tone or initialization data; not commercial music"
+    },
+    "app/src/test/resources/audio/owned-apple-alac.m4a": {
+      "sha256": "2b5b1a385bc230af4d6526b58874ece857e0c2bb7007b805e4ac9918d81f761e",
+      "bytes": 22922,
+      "origin": "owned synthetic tone or initialization data; not commercial music"
+    },
+    "app/src/test/resources/audio/owned-apple-cbcs-alac.mp4": {
+      "sha256": "670b99bae7dacb3ae211908305e6cb092574d7847ee1408902fc48d4d6e3b874",
+      "bytes": 23224,
+      "origin": "owned synthetic tone or initialization data; not commercial music"
+    },
+    "dsp/src/test/resources/audio/owned-24bit-192000-2ch.m4a": {
+      "sha256": "2b5b1a385bc230af4d6526b58874ece857e0c2bb7007b805e4ac9918d81f761e",
+      "bytes": 22922,
+      "origin": "owned synthetic tone or initialization data; not commercial music"
+    },
+    "dsp/src/test/resources/audio/owned-24bit-96000-6ch.m4a": {
+      "sha256": "565f6c2d6a54fe5f5015c513cdff07d16d6633a6b46262e1a1a4662ac2c93c2a",
+      "bytes": 69992,
+      "origin": "owned synthetic tone or initialization data; not commercial music"
+    }
+  }
+}

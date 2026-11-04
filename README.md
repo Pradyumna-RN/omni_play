@@ -63,7 +63,7 @@ position StateFlow updates the timelines without rebuilding the whole screen.
 flowchart TB
     INPUT["Selected file or stream"] --> DEMUX["Media3 demux / manifest parsing<br/>Actual encoded audio format"]
     DEMUX -->|"48 kHz clear JOC<br/>Scene decoder enabled"| JOC["OpenJOC - experimental<br/>7.1.4 float PCM<br/>Explicit speaker positions"]
-    DEMUX -->|"AC-3 / E-AC-3<br/>FFmpeg packaged"| FFMPEG["FFmpeg decoder<br/>Multichannel bed PCM"]
+    DEMUX -->|"ALAC / AC-3 / E-AC-3<br/>FFmpeg packaged"| FFMPEG["FFmpeg decoder<br/>24-bit ALAC or surround bed PCM"]
     DEMUX -->|"Other supported codecs<br/>Platform fallback"| PLATFORM["Android / Media3 decoder"]
     JOC --> PCM["Decoded PCM<br/>Channel-layout information"]
     FFMPEG --> PCM
@@ -116,11 +116,43 @@ profiles with Android KeyStore; saved songs, preferences and listening history
 stay in local app storage. Account/server authorization is used for API requests,
 not forwarded to returned media/CDN URLs.
 
-Apple Music and Qobuz can be represented through compatible user-connected
-gateways. **Their native account playback is unfinished.** `tools/apple/` is a
-read-only runtime compatibility investigation, not a working playback adapter.
+Apple Music has experimental in-app account playback: first-party web sign-in
+for Widevine AAC, and a subscriber-native adapter for ALAC and multichannel
+recordings. The native path requires a compatible, user-imported Apple runtime;
+Apple libraries are not distributed in Music. Qobuz still uses a connected gateway.
 Native TIDAL account playback and OpenJOC remain experimental; live subscription
 playback and physical-phone performance need separate validation.
+
+### Apple account and audio paths
+
+```mermaid
+flowchart TB
+    SETTINGS["Settings / Playback sources"] --> WEB["Apple first-party web sign-in<br/>Isolated WebView profile"]
+    SETTINGS --> IMPORT["Import compatible APK / APKM<br/>Exact runtime hashes / device ABI"]
+    IMPORT --> NATIVE["Private in-app native process<br/>Subscriber sign-in and verification code"]
+    WEB --> SESSION["Encrypted account session<br/>Apple catalogue matching"]
+    NATIVE --> SESSION
+    SESSION --> CHOICE{"Available matching rendition?"}
+    CHOICE -->|"Native multichannel / ALAC"| HLS["Pinned HLS rendition<br/>Actual MP4 codec / rate / channels"]
+    HLS --> DEMUX["Media3 sample extraction<br/>Per-segment key / MP4 sample metadata"]
+    DEMUX <--> SDK["Imported native runtime<br/>Account-authorized sample processing"]
+    DEMUX --> CLEAR["Encoded audio in memory<br/>ALAC / E-AC-3 / JOC"]
+    CLEAR --> DECODE["FFmpeg ALAC / surround decoder<br/>Optional OpenJOC scene decoder"]
+    DECODE --> PCM["Stereo bypass or multichannel DMR<br/>Original / Processed / Spatial"]
+    CHOICE -->|"AAC account fallback"| DRM["Apple license callback<br/>Android Widevine + AAC decoder"]
+    DRM --> STEREO["Stereo unchanged"]
+    PCM --> OUT["Android AudioTrack"]
+    STEREO --> OUT
+```
+
+Both routes stay inside Music. Native setup needs Apple Music **3.6.0-beta,
+build 1109** runtime files for the device's ARM64 or x86-64 ABI; a current store
+installer is not compatible with that ABI. The adapter and parser are compiled
+for Android 11+, without phone-brand restrictions. Runtime loading and subscriber
+playback remain unverified on a phone. A successful import or sign-in does not
+establish lossless/Atmos availability. The player reports actual delivered audio;
+JOC reconstruction is experimental, and DMR's rendered output remains stereo.
+See [Apple setup and test boundaries](APPLE_ACCOUNT_PLAYBACK.md).
 
 ```mermaid
 flowchart LR
@@ -149,6 +181,21 @@ the Android installer. Installation still needs the user's confirmation.
 | [decoder-ffmpeg](decoder-ffmpeg/), [decoder-openjoc](decoder-openjoc/) | Optional software bed decoding and experimental JOC reconstruction, before the PCM sink. |
 | [dsp](dsp/) | Public PCM/rate/layout adapter, private DMR JNI boundary, listening modes, binaural stage and diagnostics. |
 | [Updates](app/src/main/java/labs/rtensor/music/updates/) | GitHub release discovery and verified in-place APK updates. |
+
+## Music 0.3.24 — experimental Apple account playback
+
+Settings → Playback sources now offers Apple web sign-in for AAC and native
+lossless/multichannel setup inside Music. The native route requires the listener's
+subscription and a compatible user-imported runtime. Matching ALAC/JOC renditions
+feed the existing decoder/DMR path, with a separate AAC fallback. FFmpeg now
+preserves 24-bit ALAC at high sample rates. Existing providers and YouTube discovery
+remain available. Android 11+ is the app baseline across phone brands.
+
+330 app/audio tests, 15 runtime-inspection tests, native decoder sanitizers, lint
+and four native packaging guards pass. Live Apple runtime loading, subscriber
+sign-in and commercial playback on a phone are still unverified; this is an
+experimental implementation, not a guarantee of lossless/Atmos availability.
+See [setup](APPLE_ACCOUNT_PLAYBACK.md) and [verification](VERIFICATION.md).
 
 ## Music 0.3.23 — playback controls and YouTube recommendation queues
 

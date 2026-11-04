@@ -58,6 +58,7 @@ class SourceSettingsUiTest {
             }) }
         compose.onNodeWithText("Playback sources").performScrollTo()
         compose.onNodeWithText("Playback sources").performClick()
+        compose.onNodeWithText("Add a source").performScrollTo().performClick()
         compose.onNodeWithText("HTTPS server URL").performTextInput("https://personal.example/music")
         compose.onNodeWithText("Check and save").performScrollTo().performClick()
         compose.onNodeWithText("Audio addon").performScrollTo().performClick()
@@ -67,5 +68,18 @@ class SourceSettingsUiTest {
         }
         compose.onNodeWithText("Done").performClick()
         compose.onNodeWithText("Autoplay radio").performScrollTo().assertIsDisplayed()
+    }
+
+    @Test fun appleAacAndNativeSetupAreDistinctAndDisconnectReachesTheApp() {
+        var aac = 0; var native = 0; var disconnected = 0
+        compose.setContent { MusicApp(MusicState(reducedMotion = true,
+            appleAccount = labs.rtensor.music.apple.AppleAccountState(connected = true, native = true)), initialPage = "settings",
+            onConnectApple = { aac++ }, onNativeApple = { native++ }, onDisconnectApple = { disconnected++ }) }
+        compose.onNodeWithText("Playback sources").performScrollTo().performClick()
+        compose.onNodeWithText("Apple Music · experimental").assertExists()
+        compose.onNodeWithText("Sign in · AAC stereo").performScrollTo().performClick()
+        if (BuildConfig.APPLE_NATIVE_INCLUDED) compose.onNodeWithText("Set up lossless & multichannel").performScrollTo().performClick()
+        compose.onNodeWithText("Disconnect Apple Music").performScrollTo().performClick()
+        compose.runOnIdle { assertEquals(1, aac); assertEquals(if (BuildConfig.APPLE_NATIVE_INCLUDED) 1 else 0, native); assertEquals(1, disconnected) }
     }
 }

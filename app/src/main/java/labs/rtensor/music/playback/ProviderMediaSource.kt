@@ -75,7 +75,8 @@ private class ProviderMediaSource(private val item: MediaItem, private val track
                             .setStreamKeys(selected.streamKeys)
                             .setCustomCacheKey(if (selected.transportMime in setOf("application/dash+xml", "application/x-mpegURL")) null else "$key:${selected.cacheKey}")
                             .build()
-                        child = (if (selected == null) fallback else remote).createMediaSource(physical)
+                        child = selected?.appleAsset?.let { labs.rtensor.music.apple.AppleMediaSource.create(physical, it) }
+                            ?: (if (selected == null) fallback else remote).createMediaSource(physical)
                         prepareChildSource(Unit, checkNotNull(child))
                     } catch (e: Exception) { failure = IOException("The connected source could not be prepared.", e) }
                 }

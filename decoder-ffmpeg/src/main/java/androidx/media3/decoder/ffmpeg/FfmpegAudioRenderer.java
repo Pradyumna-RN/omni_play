@@ -155,7 +155,7 @@ public class FfmpegAudioRenderer extends DecoderAudioRenderer<FfmpegAudioDecoder
         Util.getPcmFormat(pcmEncoding, inputFormat.channelCount, inputFormat.sampleRate));
   }
 
-  private boolean shouldOutputFloat(Format inputFormat) {
+  protected boolean shouldOutputFloat(Format inputFormat) {
     if (!sinkSupportsFormat(inputFormat, C.ENCODING_PCM_16BIT)) {
       // We have no choice because the sink doesn't support 16-bit integer PCM.
       return true;
