@@ -1,6 +1,6 @@
 # Provider access without registering our own application
 
-Research checkpoint: 3 November 2026. Repository code/docs were inspected; no live
+Research checkpoints: 3–4 November 2026. Repository code/docs were inspected; no live
 subscription account, commercial stream or phone output was tested.
 
 The earlier claim that every integration requires our own developer registration
@@ -273,3 +273,47 @@ The previously reported registration status is unregistered. No developer token,
 official Android SDK download or live Apple subscriber session was available for
 verification. No Apple sign-in button, quality badge or playback claim was added;
 existing Apple server connectors and runtime-inspection tooling remain unchanged.
+
+## Apple alternatives beyond native MusicKit — 2026-11-04
+
+Unofficial alternatives do exist. Their source requirements differ from native
+MusicKit registration, and their advertised formats still need an account-backed
+playback test. This review inspected repositories only: no Apple session, private
+runtime, commercial track or phone output was exercised.
+
+| Approach | New evidence | What it establishes for Music |
+| --- | --- | --- |
+| Desktop ALAC engine | [Adam/apple-music-linux README](https://github.com/silentone12725/apple-music-linux/blob/ffe107161d4847d8a6b6f1752a06d3ef453d0207/README.md) advertises ALAC up to 192 kHz and uses Apple's Android FairPlay libraries inside its engine. It explicitly requires an active subscription. | A concrete unofficial lossless implementation reference, not an Android SDK. The same README says Cavern/JOC rendering is not yet wired into playback; do not report Atmos as tested. |
+| Wrapper-backed browser player | [am-hook README](https://github.com/itouakirai/am-hook/blob/ea97df99a2f1f05d50dde0bc013b2d24a9973c4b/README.md) advertises ALAC/EC-3/JOC and browser playback, but requires wrapper-lite. | Moving decoding to WebAssembly does not eliminate the private runtime/account backend. Its browser output is not an existing Media3/DMR source. |
+| Ordinary Apple web-player wrapper | [Sidra comparison](https://github.com/wimpysworld/sidra/blob/c3308a4233735382dcaa88a2f7cde346cc9c88e8/docs/Sidra-vs-Cider-Comparison.md) wraps Apple's own player and claims some desktop lossless support with production VMP signing, but no Atmos. | This is third-party documentation, not a measured Android format. Other clients describe the MusicKit JS path as AAC. Neither claim proves an Android raw-multichannel callback. |
+| AirPlay receiver | [Kaset CMake configuration](https://github.com/alidogangullu/Kaset-Player/blob/870d997f73785cc24b366ed95bfc01c144d6d2c9/android/app/src/main/cpp/CMakeLists.txt) links ALAC into the UxPlay receiver. Its [receiver metadata](https://github.com/alidogangullu/Kaset-Player/blob/870d997f73785cc24b366ed95bfc01c144d6d2c9/android/app/src/main/cpp/uxplay/dnssdint.h) explicitly advertises two channels. | Its ALAC decoder is not evidence for direct Apple catalogue lossless or Atmos-to-DMR. This receiver cannot supply the requested discrete multichannel input as advertised. |
+
+The current [wrapper-lite snapshot](https://github.com/WorldObservationLog/wrapper/blob/386ec82e1fc9c9761aa68060a2be6f19d39106fc/README.md)
+adds an important distinction from the older wrapper-v2 review: its recommended
+QEMU launcher advertises Android host packaging. The [QEMU documentation](https://github.com/WorldObservationLog/wrapper/blob/386ec82e1fc9c9761aa68060a2be6f19d39106fc/qemu/README.md)
+runs an x86-64 guest and defaults to 512 MB guest memory and two virtual CPUs.
+On an ARM Android phone this is cross-architecture emulation, not evidence for a
+small native ARM64 library. Boot time, background restrictions, battery use and
+performance alongside OpenJOC/DMR remain unmeasured. No VM or private Apple
+libraries were added to Music.
+
+These findings narrow the integration choice:
+
+- Official MusicKit remains the documented account/player integration. Its own
+  registration and decoded-audio limits are described above.
+- A personal backend is the most practical candidate for evaluating the
+  unofficial runtime separately from the phone. It would require the listener's
+  authorized subscription/session and a separate runtime/dependency review.
+  Music's existing Apple source connector does not start such a backend, accept
+  a wrapper's key API or supply the missing protected-playback implementation.
+- An Android-hosted runtime is a separate experiment. The QEMU packaging claim
+  alone does not justify shipping a VM in the music player.
+
+Before calling either experimental route integrated, verify complete tracks,
+seeks, token/session renewal, actual codec/rate/depth and decoded speaker labels.
+For a multichannel test, confirm nonzero independent surround/height signals at
+DMR's input and audible output after switching modes. A catalogue Atmos badge,
+an ALAC decoder in a repository or a stereo binaural render is insufficient.
+
+No provider was removed or disabled. No application source, credentials, private
+libraries or third-party implementation code changed in this research update.
