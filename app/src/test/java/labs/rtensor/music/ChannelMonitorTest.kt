@@ -4,6 +4,8 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -121,5 +123,30 @@ class ChannelMonitorTest {
         val left = compose.onNodeWithTag("input-channel-FL").fetchSemanticsNode().boundsInRoot
         val right = compose.onNodeWithTag("input-channel-FR").fetchSemanticsNode().boundsInRoot
         assertTrue(left.right < right.left)
+    }
+    @Test fun originalAndProcessedDrawDifferentMapsOnTheFull916Layout() {
+        val report = mutableStateOf(DownmixReport(48000, surround, listeningMode = ListeningMode.PROCESSED))
+        val levels = MutableStateFlow<AudioLevelFrame?>(null)
+        compose.setContent { MusicTheme("dark") { Surface { Column(Modifier.padding(16.dp).verticalScroll(rememberScrollState())) {
+            ChannelMonitor(report.value, true, "modes", levels, {})
+        } } } }
+        compose.onNodeWithContentDescription("Expand channel monitor").performClick()
+        compose.runOnIdle { levels.value = frame(surround) }
+        // Every 9.1.6 slot is drawn; the ones the source lacks are outlines, never fake inputs.
+        for (p in listOf(SpeakerPosition.SL, SpeakerPosition.TFL, SpeakerPosition.TSR, SpeakerPosition.TBR, SpeakerPosition.BLC))
+            compose.onNodeWithTag("absent-channel-${p.name}").assertExists()
+        compose.onNodeWithText("Processed · 6 decoded channels into the renderer").assertExists()
+        compose.onNodeWithText("Renderer stereo downmix").assertExists()
+        assertFalse(compose.onNodeWithTag("input-channel-FC").fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsProperties.ContentDescription]
+            .single().contains("not played"))
+        capture("channel-monitor-processed-916")
+        compose.runOnIdle { report.value = report.value.copy(listeningMode = ListeningMode.ORIGINAL);levels.value = frame(surround) }
+        compose.onNodeWithText("Original · front L/R of 6 decoded channels").assertExists()
+        compose.onNodeWithText("Source front L/R, unprocessed").assertExists()
+        val desc = { tag: String -> compose.onNodeWithTag(tag).fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsProperties.ContentDescription].single() }
+        assertTrue(desc("input-channel-FC").contains("not played in Original"))
+        assertTrue(desc("input-channel-BL").contains("not played in Original"))
+        assertFalse(desc("input-channel-FL").contains("not played"))
+        capture("channel-monitor-original-916")
     }
 }
