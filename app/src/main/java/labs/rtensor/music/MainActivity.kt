@@ -110,6 +110,7 @@ class MainActivity : ComponentActivity() {
                 onCheckUpdates = model::checkUpdates, onDownloadUpdate = model::downloadUpdate,
                 onInstallUpdate = { state.update.apkPath?.let(::requestInstall) },
                 onAutoplay = model::autoplay, onTrackHistory = model::trackHistory,
+                onRetryRadio = model::retryRadio,
                 onProcessing = model::processing, onSpatial = model::spatial,
                 onObjectDecoding = model::objectDecoding,
                 playbackPosition = model.playbackPosition,

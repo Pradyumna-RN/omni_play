@@ -206,6 +206,7 @@ fun MusicApp(
     onGoogleSignIn: () -> Unit = {}, onGoogleSignOut: () -> Unit = {}, onCancelGoogle: () -> Unit = {},
     onCheckUpdates: () -> Unit = {}, onDownloadUpdate: () -> Unit = {}, onInstallUpdate: () -> Unit = {},
     onAutoplay: (Boolean) -> Unit = {}, onTrackHistory: (Boolean) -> Unit = {}, onRemovePlay: (PlayEvent) -> Unit = {}, onRefreshForYou: () -> Unit = {},
+    onRetryRadio: () -> Unit = {},
     onProcessing: (Boolean) -> Unit = {},
     onSpatial: (Boolean) -> Unit = {},
     onObjectDecoding: (Boolean) -> Unit = {},
@@ -294,12 +295,12 @@ fun MusicApp(
                             "search" -> SearchResults(state, ::play, onSave)
                             "explore" -> ProviderHome(state.copy(feed = state.explore, feedBusy = state.exploreBusy, feedError = state.exploreError, feedHasMore = false), ::openEntry, onRefreshExplore, {}, "Explore")
                             "library" -> LibraryScreen(state, ::play, onSave, ::focusSearch, onRemovePlay)
-                            "now" -> NowScreen(state, onToggle, onPrevious, onNext, onSeek, onSave, onSkipTo, onProcessing, onSpatial, playbackPosition)
+                            "now" -> NowScreen(state, onToggle, onPrevious, onNext, onSeek, onSave, onSkipTo, onProcessing, onSpatial, playbackPosition, onRetryRadio)
                             "collection" -> CollectionScreen(state, ::play, onSave)
                             "settings" -> SettingsScreen(state, onTheme, onOpenLocal, onChooseMasters, onClearMasters, onClearHistory,
                                 onConnect, onWebSignIn, onDisconnect, onCancelConnect, onGoogleSignIn, onGoogleSignOut, onCancelGoogle, onCheckUpdates, onDownloadUpdate, onInstallUpdate,
                                 onAutoplay, onTrackHistory, onConnectSource, onRemoveSource, onConnectTidal, onDisconnectTidal, onCancelTidal, onObjectDecoding)
-                            else -> HomeScreen(state, ::focusSearch, ::play, ::openEntry, { onRefreshFeed(); onRefreshForYou() }, onMoreFeed, onConnect)
+                            else -> HomeScreen(state, ::focusSearch, ::play, onToggle, ::openEntry, { onRefreshFeed(); onRefreshForYou() }, onMoreFeed, onConnect)
                         }
                     }
                 }
@@ -418,9 +419,12 @@ private fun AppNavigation(page: String, reduced: Boolean, onSelect: (String) -> 
 }
 
 @Composable
-private fun HomeScreen(state: MusicState, onSearch: () -> Unit, onPlay: (Track, List<Track>) -> Unit,
+private fun HomeScreen(state: MusicState, onSearch: () -> Unit, onPlay: (Track, List<Track>) -> Unit, onToggle: () -> Unit,
     onEntry: (FeedEntry) -> Unit, onRefresh: () -> Unit, onMore: () -> Unit, onConnect: () -> Unit) {
     val recent = state.history.firstOrNull()
+    val recentIsCurrent = recent != null && recent.libraryKey() == state.current?.libraryKey()
+    val recentLoading = recentIsCurrent && (state.resolving || state.buffering)
+    val recentPlaying = recentIsCurrent && state.playing && !recentLoading
     val hasFeed = state.feed.isNotEmpty()
     // The "Back to your music" hero stays at the top of Home, also after the provider feed has loaded.
     val showHero = recent != null || !hasFeed
@@ -463,13 +467,18 @@ private fun HomeScreen(state: MusicState, onSearch: () -> Unit, onPlay: (Track, 
                     else ScrollingMetadata(recent.artist,
                         TextStyle(fontSize = 12.sp, lineHeight = 19.sp, color = MaterialTheme.colorScheme.onSurfaceVariant))
                     Spacer(Modifier.height(18.dp))
-                    Row(Modifier.clip(RoundedCornerShape(24.dp)).pressable { if (recent != null) onPlay(recent, state.history) else onSearch() }.padding(end = 12.dp),
+                    Row(Modifier.clip(RoundedCornerShape(24.dp)).pressable {
+                        if (recent == null) onSearch() else if (recentIsCurrent) onToggle() else onPlay(recent, listOf(recent))
+                    }.padding(end = 12.dp),
                         verticalAlignment = Alignment.CenterVertically) {
                         Box(Modifier.size(46.dp).background(MaterialTheme.colorScheme.primary, CircleShape), contentAlignment = Alignment.Center) {
-                            Icon(if (recent == null) Icons.Outlined.Search else Icons.Outlined.PlayArrow, null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(24.dp))
+                            if (recentLoading) CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                            else Icon(if (recent == null) Icons.Outlined.Search else if (recentPlaying) Glyph.Pause else Icons.Outlined.PlayArrow,
+                                null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(24.dp))
                         }
                         Spacer(Modifier.width(10.dp))
-                        Text(if (recent == null) "Find music" else "Play", fontSize = 14.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Medium)
+                        Text(if (recent == null) "Find music" else if (recentLoading) "Loading" else if (recentPlaying) "Pause" else "Play",
+                            fontSize = 14.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
                 Artwork(recent, Modifier.weight(.54f).aspectRatio(.9f).clip(RoundedCornerShape(14.dp)), size = 220.dp)
@@ -481,7 +490,7 @@ private fun HomeScreen(state: MusicState, onSearch: () -> Unit, onPlay: (Track, 
                 Spacer(Modifier.height(16.dp))
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     items(state.history.take(12), key = { it.id }) { track ->
-                        MediaCard(track.title, track.artist, track, 142.dp, motionModifier()) { onPlay(track, state.history) }
+                        MediaCard(track.title, track.artist, track, 142.dp, motionModifier()) { onPlay(track, listOf(track)) }
                     }
                 }
             }
@@ -501,7 +510,7 @@ private fun HomeScreen(state: MusicState, onSearch: () -> Unit, onPlay: (Track, 
                 if (state.forYou.isEmpty()) LoadingLine(true, state.reducedMotion)
                 else LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     itemsIndexed(state.forYou, key = { i, t -> "$i:${t.id}" }) { _, track ->
-                        MediaCard(track.title, track.artist, track, 142.dp) { onPlay(track, state.forYou) }
+                        MediaCard(track.title, track.artist, track, 142.dp) { onPlay(track, listOf(track)) }
                     }
                 }
             }
@@ -700,7 +709,7 @@ private fun SearchResults(state: MusicState, onPlay: (Track, List<Track>) -> Uni
                 Spacer(Modifier.height(10.dp))
                 LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 24.dp)) {
                     itemsIndexed(state.results, key = { index, track -> "$index:${track.id}" }) { _, track ->
-                        TrackRow(track, state.saved.any { it.libraryKey() == track.libraryKey() }, state.current?.libraryKey() == track.libraryKey(), { onPlay(track, state.results) }, { onSave(track) }, motionModifier())
+                        TrackRow(track, state.saved.any { it.libraryKey() == track.libraryKey() }, state.current?.libraryKey() == track.libraryKey(), { onPlay(track, listOf(track)) }, { onSave(track) }, motionModifier())
                     }
                 }
             }
@@ -769,7 +778,7 @@ private fun SavedList(state: MusicState, onPlay: (Track, List<Track>) -> Unit, o
             }
             Spacer(Modifier.height(10.dp))
             LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
-                items(state.saved, key = { it.id }) { track -> TrackRow(track, true, state.current?.id == track.id, { onPlay(track, state.saved) }, { onSave(track) }, motionModifier()) }
+                items(state.saved, key = { it.id }) { track -> TrackRow(track, true, state.current?.id == track.id, { onPlay(track, listOf(track)) }, { onSave(track) }, motionModifier()) }
             }
         }
     }
@@ -801,9 +810,8 @@ private fun HistoryList(state: MusicState, onPlay: (Track, List<Track>) -> Unit,
                     modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background).padding(top = 12.dp, bottom = 6.dp))
             }
             items(day.events, key = { "play:${it.startedAt}" }) { event ->
-                val queue = day.events.map { it.track }.distinctBy { it.id }
                 HistoryRow(event, timeFormat.format(java.util.Date(event.startedAt)), state.current?.id == event.track.id,
-                    { onPlay(event.track, queue) }, { onRemove(event) }, motionModifier())
+                    { onPlay(event.track, listOf(event.track)) }, { onRemove(event) }, motionModifier())
             }
         }
     }
@@ -840,7 +848,7 @@ private const val SwapMs = 180
 
 @Composable
 private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () -> Unit, onNext: () -> Unit, onSeek: (Long) -> Unit,
-    onSave: (Track) -> Unit, onSkipTo: (Int) -> Unit, onProcessing: (Boolean) -> Unit, onSpatial: (Boolean) -> Unit, playbackPosition: StateFlow<Long>?) {
+    onSave: (Track) -> Unit, onSkipTo: (Int) -> Unit, onProcessing: (Boolean) -> Unit, onSpatial: (Boolean) -> Unit, playbackPosition: StateFlow<Long>?, onRetryRadio: () -> Unit) {
     val track = state.loadingTrack ?: state.current
     if (track == null) {
         Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) { Text("Choose a recording to start listening.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -927,8 +935,15 @@ private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () ->
             item(key = "queue-end") {
                 Column {
                     HorizontalDivider(color = scheme.outline, thickness = .5.dp)
-                    Text(if (state.autoplay) "Radio keeps going with similar songs after this." else "The queue ends here. Turn on Autoplay radio in Settings to keep going.",
+                    Text(when {
+                        !state.autoplay -> "The queue ends here. Turn on Autoplay radio in Settings to keep going."
+                        state.radioLoading -> "Getting YouTube Music recommendations…"
+                        state.radioError != null -> state.radioError
+                        track.source == labs.rtensor.music.data.Source.LOCAL -> "Local recording · choose another song or add recordings to the queue."
+                        else -> "YouTube Music recommendations continue after this queue."
+                    },
                         fontSize = 12.sp, lineHeight = 18.sp, color = scheme.onSurfaceVariant, modifier = Modifier.padding(top = 14.dp))
+                    if (state.autoplay && state.radioError != null) TextButton(onClick = onRetryRadio) { Text("Retry recommendations") }
                 }
             }
         }

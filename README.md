@@ -18,6 +18,9 @@ flowchart TB
     UI <-->|"Actions / state"| VM
     VM <--> STORE["Local library and settings<br/>Saved songs / history / files"]
     VM <--> YT["YouTube data layer<br/>Catalogue and stream URLs"]
+    VM --> RADIO["RadioQueue<br/>Provider recommendations / cancellation"]
+    RADIO -->|"Song radio"| YT
+    RADIO -->|"Append recommendations"| CONTROL
     YT <--> ENGINE["Bundled JavaScript engine<br/>Native HTTP and proof bridges"]
     ENGINE <--> CLOUD["YouTube / YouTube Music"]
     VM <-->|"Commands / player events"| CONTROL["MediaController"]
@@ -31,8 +34,11 @@ flowchart TB
     AUDIO --> OUTPUT["Android audio output<br/>Phone / wired / Bluetooth / USB"]
 ```
 
-The ViewModel also uses local listening history with `Recommender` for Mixed for
-you and radio filtering. The catalogue item keeps its YouTube identity, artwork
+The ViewModel uses local listening history with `Recommender` for Mixed for you.
+Up next comes from YouTube Music through `RadioQueue`, preserving provider order
+and excluding already-queued songs. Individual selections seed radio; explicit
+albums/playlists and Play all keep their lists. History is not an autoplay pool.
+The catalogue item keeps its YouTube identity, artwork
 and history when another source supplies the audio. Matching checks title, artist, duration and edition.
 Available candidates rank **JOC first → discrete lossless multichannel → lossless
 stereo by sample rate/bit depth**, with local files competing against connected
@@ -138,10 +144,28 @@ the Android installer. Installation still needs the user's confirmation.
 | [Auth](app/src/main/java/labs/rtensor/music/auth/), [YouTubeLoginActivity](app/src/main/java/labs/rtensor/music/YouTubeLoginActivity.kt) | Google account selection, device-assisted YouTube web login and session capture; TIDAL PKCE lives in the source adapter. |
 | [Playback](app/src/main/java/labs/rtensor/music/playback/) | MediaSession/ExoPlayer, source factories, cache/range handling, fallback, background playback and notification. |
 | [Playback sources](app/src/main/java/labs/rtensor/music/sources/) | TIDAL account adapter, server/addon connectors, manifest validation, matching, ranking and rendition/file identities. |
+| [RadioQueue](app/src/main/java/labs/rtensor/music/playback/RadioQueue.kt) | Provider-supplied Up next, cancellation of stale requests, duplicate exclusion, and retry status. |
 | [Local data](app/src/main/java/labs/rtensor/music/data/) | Library/history, imported master matching, account storage, metadata and on-device recommendation helpers. |
 | [decoder-ffmpeg](decoder-ffmpeg/), [decoder-openjoc](decoder-openjoc/) | Optional software bed decoding and experimental JOC reconstruction, before the PCM sink. |
 | [dsp](dsp/) | Public PCM/rate/layout adapter, private DMR JNI boundary, listening modes, binaural stage and diagnostics. |
 | [Updates](app/src/main/java/labs/rtensor/music/updates/) | GitHub release discovery and verified in-place APK updates. |
+
+## Music 0.3.23 — playback controls and YouTube recommendation queues
+
+The Last played control follows the current song: Pause during playback, Play
+while paused, and Loading during buffering. Tapping it pauses/resumes the same
+song without rebuilding its queue or resetting its position.
+
+Selecting an individual song from Recently played, Mixed for you, Search, Saved
+or History starts that song's YouTube Music radio. History and search-result lists
+are not copied into Up next. Albums, playlists, Play all and Play mix keep their
+explicit order; provider recommendations extend their end when Autoplay is on.
+
+Up next preserves YouTube's recommendation order, excluding duplicates and songs
+already queued. Pending requests cannot append to a newer selection or continue
+after Autoplay is switched off. Loading and retry feedback replaces silent radio
+failures, and no history-based fallback queue is substituted. Spotify discovery
+is still a future integration; existing audio-source selection/DSP is unchanged.
 
 ## Music 0.3.22 — stable Home rows and scrolling song information
 

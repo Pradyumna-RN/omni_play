@@ -1,4 +1,32 @@
-# Current verification: Music 0.3.22 / stable Home layout and scrolling metadata
+# Current verification: Music 0.3.23 / live Home controls and provider radio
+
+**194 app tests, 88 DSP tests and 8 scene-decoder tests pass** (290 total), with
+no failures, errors or skipped tests. Android lint and all three integrated
+APK packaging guards also pass. The updated README architecture diagrams render.
+
+- Compose checks Home Pause → Play → Pause and buffering status, including a
+  legacy/current ID alias. Toggles preserve position and queue and do not call
+  the start-song callback. A different last-played song starts only that song.
+- Recently played, Mixed for you, Saved, History and Search selection checks pass
+  one seed rather than their displayed lists. Play mix / Play all retain their
+  explicit lists; album/playlist playback still retains its collection.
+- The production RadioQueue runs against a real Media3 ExoPlayer and controlled
+  provider responses. Provider order is preserved; current/duplicate/local entries
+  and tracks manually queued while a request is pending are excluded.
+- Tests prove stale responses cannot enter a newer selection, disabling Autoplay
+  cancels a pending response, local files do not make radio requests, and explicit
+  lists remain ordered before recommendations are appended near their end.
+- A failed request keeps the current song, position and play intent. Retry adds
+  provider results without a history fallback or restarting audio. The UI exposes
+  loading/error/retry status separately from audio playback errors.
+
+The bundled YouTube engine's existing radio operation calls YouTube Music getUpNext;
+it does not read the app's local history. Spotify recommendations are not integrated.
+These are host UI/Media3/provider-fixture checks; no phone or live signed-in YouTube
+session was used here. Native decoders, DMR and source selection are unchanged.
+Version 0.3.23/code26 retains the package, signature and normal OTA asset names.
+
+# Previous verification: Music 0.3.22 / stable Home layout and scrolling metadata
 
 **182 app tests, 88 DSP tests and 8 scene-decoder tests pass** (278 total), with
 no failures, errors or skipped tests. Android lint and all three integrated
