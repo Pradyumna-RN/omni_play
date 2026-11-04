@@ -52,6 +52,7 @@ import labs.rtensor.music.playback.MusicPlaybackService
 import labs.rtensor.music.playback.AudioPipeline
 import labs.rtensor.music.playback.AudioProcessingState
 import labs.rtensor.music.playback.CatalogueTrackCache
+import labs.rtensor.music.playback.LibraryQueueEdits
 import labs.rtensor.music.sources.*
 
 data class MusicState(
@@ -113,16 +114,17 @@ data class MusicState(
 class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val library = LibraryStore(application)
     private val listening = ListeningHistory(application)
+    private val initialEvents = listening.events.also { library.reconcileImports(it.map { event -> event.track }) }
     private val googleProfiles = GoogleProfileStore(application)
     private val youtube = YouTubeSource(application)
     private val updater = GitHubUpdater(application)
     private val masters = LocalMasters(application)
     private val sources = PlaybackSources.get(application)
     private val routes = mutableMapOf<String, PlaybackRoute>()
-    private fun route(track: Track) = routes.getOrPut(track.id) { PlaybackRoute.choose(track, masters.entries) }
+    private fun route(track: Track) = routes.getOrPut(track.id) { PlaybackRoute.choose(track, masters.entries.filterNot { it.uri in library.removedLocalUris }) }
     private val mutable = MutableStateFlow(MusicState(
         saved = library.tracks("saved"), history = library.tracks("history"), googleProfile = googleProfiles.load(),
-        theme = library.theme, reducedMotion = library.reducedMotion, playEvents = listening.events,
+        theme = library.theme, reducedMotion = library.reducedMotion, playEvents = initialEvents.filterNot { library.isRemoved(it.track) },
         autoplay = library.autoplay, trackHistory = library.trackHistory,
         mastersSummary = summary(masters.entries, masters.folder != null),
         playbackSources = sources.settings.connections.value.map { it.summary() },
@@ -140,6 +142,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private var exploreJob: Job? = null
     private var radioJob: Job? = null
     private var forYouJob: Job? = null
+    private var mastersJob: Job? = null
+    private var historyRevision = 0L
+    private var suppressedHistoryKey: String? = null
+    private var observedHistoryKey: String? = null
     private var forYouRotation = 0
     private val radioSeeds = mutableSetOf<String>()
     /** The listen in progress: which song, when it started, and how long it has actually played. */
@@ -190,6 +196,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             runCatching { controllerFuture.get() }.onSuccess { c ->
                 controller = c
                 c.addListener(listener)
+                library.reconcileImports((0 until c.mediaItemCount).mapNotNull { index ->
+                    catalogueCache.read(c.getMediaItemAt(index).mediaMetadata.extras?.getString("catalogue_track"))
+                })
+                LibraryQueueEdits.reconcile(c, library::isRemoved, library.removedLocalUris, ::mediaItem)
                 syncPlayer(includeQueue = true)
                 mutable.update { it.copy(playerReady = true) }
             }.onFailure {
@@ -240,6 +250,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         }
         refreshFeed()
         refreshForYou()
+        if (listening.events != mutable.value.playEvents) persistHistory()
         checkUpdates()
     }
 
@@ -365,14 +376,14 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             runCatching { c.getMediaItemAt(index).mediaMetadata.extras?.getString("catalogue_track")?.let { Track.fromJson(org.json.JSONObject(it)) } }.getOrNull()
         }
         mutable.update { it.copy(
-            current = restored?.let(::enrich) ?: it.current,
+            current = restored?.takeUnless(library::isRemoved)?.let(::enrich),
             queue = if (includeQueue) queue.map(::enrich) else queue,
             queueIndex = c.currentMediaItemIndex,
             routeLabel = currentRoute(it.audioProcessing),
             playing = c.isPlaying,
             buffering = c.playbackState == Player.STATE_BUFFERING,
             positionMs = mutablePosition.value,
-            durationMs = c.duration.takeIf { d -> d != C.TIME_UNSET && d > 0 } ?: 0,
+            durationMs = if (restored == null || library.isRemoved(restored)) 0 else c.duration.takeIf { d -> d != C.TIME_UNSET && d > 0 } ?: 0,
         ) }
     }
 
@@ -445,10 +456,12 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun play(track: Track, queue: List<Track> = listOf(track)) {
+        if (library.isRemoved(track)) return
         val c = controller ?: run { mutable.update { it.copy(error = "The audio player is still starting. Try again in a moment.") }; return }
-        val ordered = queue.take(100).let { if (it.any { t -> t.id == track.id }) it else listOf(track) + it }
+        val ordered = queue.filterNot(library::isRemoved).take(100).let { if (it.any { t -> t.libraryKey() == track.libraryKey() }) it else listOf(track) + it }
+        suppressedHistoryKey = null
         val selectedIndex = ordered.indexOfFirst { it === track }.takeIf { it >= 0 }
-            ?: ordered.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
+            ?: ordered.indexOfFirst { it.libraryKey() == track.libraryKey() }.coerceAtLeast(0)
         val items = ordered.map(::mediaItem)
         mutablePosition.value = 0
         mutable.update { it.copy(current = track, loadingTrack = null, error = null, errorDiagnostic = "", queue = ordered, queueIndex = selectedIndex, positionMs = 0, durationMs = 0) }
@@ -502,9 +515,11 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         val now = android.os.SystemClock.elapsedRealtime()
         val tick = if (lastTick == 0L) 0L else (now - lastTick).coerceIn(0, 2_000); lastTick = now
         val playing = catalogueCache.read(c.currentMediaItem?.mediaMetadata?.extras?.getString("catalogue_track"))
+        val key = playing?.libraryKey()
+        if (key != observedHistoryKey) { suppressedHistoryKey = null; observedHistoryKey = key }
         val open = listen
-        if (open != null && open.first.id != playing?.id) finishListen()
-        if (playing == null) return
+        if (open != null && open.first.libraryKey() != key) finishListen()
+        if (playing == null || !mutable.value.trackHistory || library.isRemoved(playing) || suppressedHistoryKey == key) return
         val active = listen ?: Triple(playing, System.currentTimeMillis(), 0L).also { listen = it }
         if (c.isPlaying) listen = active.copy(third = active.third + tick)
     }
@@ -512,11 +527,25 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private fun finishListen(final: Boolean = false) {
         val (track, startedAt, listened) = listen ?: return
         listen = null
-        if (!mutable.value.trackHistory || listened < 5_000) return
+        if (!mutable.value.trackHistory || library.isRemoved(track) || listened < 5_000) return
         val duration = track.durationMs.takeIf { it > 0 } ?: mutable.value.durationMs
         val event = PlayEvent(enrich(track), startedAt, listened, skipped = !ListeningHistory.counts(listened, duration))
         mutable.update { it.copy(playEvents = (listOf(event) + it.playEvents).take(ListeningHistory.MAX_EVENTS)) }
-        if (final) listening.add(event) else viewModelScope.launch(Dispatchers.IO) { listening.add(event) }
+        persistHistory(final)
+    }
+
+    private fun persistHistory(final: Boolean = false) {
+        val snapshot = mutable.value.playEvents.toList()
+        val revision = ++historyRevision
+        if (final) listening.replace(snapshot, revision)
+        else viewModelScope.launch(Dispatchers.IO) { listening.replace(snapshot, revision) }
+    }
+
+    private fun suppressCurrentHistory() {
+        suppressedHistoryKey = controller?.currentMediaItem?.mediaMetadata?.extras?.getString("catalogue_track")
+            ?.let(catalogueCache::read)?.libraryKey() ?: mutable.value.current?.libraryKey()
+        observedHistoryKey = suppressedHistoryKey
+        listen = null
     }
 
     /** Build "Mixed for you": radio from your most-played songs, re-ranked on this device. */
@@ -569,26 +598,47 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     fun save(track: Track) {
         val old = mutable.value.saved
-        val next = if (old.any { it.id == track.id }) old.filterNot { it.id == track.id } else listOf(track) + old
+        val wasSaved = old.any { it.libraryKey() == track.libraryKey() }
+        if (wasSaved && track.source == Source.LOCAL) {
+            library.removeLocal(track)
+            mastersJob?.cancel(); masters.removeUri(track.url); routes.clear()
+            forYouJob?.cancel()
+            if (mutable.value.current?.libraryKey() == track.libraryKey()) suppressCurrentHistory()
+            mutable.update { it.withoutLocalRecording(track).copy(mastersBusy = false, mastersSummary = summary(masters.entries, masters.folder != null)) }
+            library.writeTracks("saved", mutable.value.saved)
+            library.writeTracks("history", mutable.value.history)
+            persistHistory()
+            controller?.let { LibraryQueueEdits.reconcile(it, library::isRemoved, setOf(track.url), ::mediaItem) }
+            syncPlayer(includeQueue = true)
+            return
+        }
+        if (library.isRemoved(track)) return
+        val next = if (wasSaved) old.filterNot { it.libraryKey() == track.libraryKey() } else listOf(track) + old
         library.writeTracks("saved", next)
         mutable.update { it.copy(saved = next) }
     }
 
     private fun recordHistory(track: Track) {
-        val history = (listOf(track) + mutable.value.history.filterNot { it.id == track.id }).take(40)
+        if (!mutable.value.trackHistory || library.isRemoved(track) || suppressedHistoryKey == track.libraryKey()) return
+        val history = (listOf(track) + mutable.value.history.filterNot { it.libraryKey() == track.libraryKey() }).take(40)
         if (history == mutable.value.history) return
         library.writeTracks("history", history)
         mutable.update { it.copy(history = history) }
     }
 
     fun importLocal(uri: Uri) {
+        val importRevision = library.localRemovalRevision
         viewModelScope.launch {
             mutable.update { it.copy(importMessage = "Importing audio…") }
             try {
                 val track = withContext(Dispatchers.IO) {
                     LocalAudioImporter.read(getApplication<Application>(), uri)
                 }
-                val saved = listOf(track) + mutable.value.saved.filterNot { it.id == track.id }
+                if (!library.restoreLocal(track, importRevision)) {
+                    mutable.update { it.copy(importMessage = "Import cancelled: this recording was removed.") }
+                    return@launch
+                }
+                val saved = listOf(track) + mutable.value.saved.filterNot { it.libraryKey() == track.libraryKey() }
                 library.writeTracks("saved", saved)
                 mutable.update { it.copy(saved = saved, importMessage = "Added ${track.title} to Saved.") }
             } catch (e: CancellationException) { throw e }
@@ -598,11 +648,14 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Index a folder of the user's own lossless and Atmos files, so matching songs play from them. */
     fun indexMasters(tree: Uri) {
-        viewModelScope.launch {
+        mastersJob?.cancel()
+        mastersJob = viewModelScope.launch {
             mutable.update { it.copy(mastersBusy = true, mastersSummary = "Reading the folder…") }
             try {
                 val found = withContext(Dispatchers.IO) {
-                    masters.index(tree) { count -> mutable.update { it.copy(mastersSummary = "Reading the folder… $count files") } }
+                    masters.index(tree) { count ->
+                        mutable.update { if (isActive && it.mastersBusy) it.copy(mastersSummary = "Reading the folder… $count files") else it }
+                    }
                 }
                 routes.clear()
                 mutable.update { it.copy(mastersBusy = false, mastersSummary = summary(found, true)) }
@@ -612,9 +665,13 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun clearMasters() {
+        mastersJob?.cancel()
+        val oldUris = masters.entries.map { it.uri }.toSet()
         masters.folder?.let { folder -> runCatching { getApplication<Application>().contentResolver.releasePersistableUriPermission(Uri.parse(folder), android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) } }
         masters.clear(); routes.clear()
-        mutable.update { it.copy(mastersSummary = summary(emptyList(), false)) }
+        mutable.update { it.copy(mastersBusy = false, mastersSummary = summary(emptyList(), false)) }
+        controller?.let { LibraryQueueEdits.reconcile(it, library::isRemoved, oldUris, ::mediaItem) }
+        syncPlayer(includeQueue = true)
     }
 
     private fun summary(found: List<labs.rtensor.music.data.Master>, chosen: Boolean): String {
@@ -634,14 +691,16 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     fun reducedMotion(value: Boolean) { library.reducedMotion = value; mutable.update { it.copy(reducedMotion = value) } }
     fun clearError() { mutable.update { it.copy(error = null, errorDiagnostic = "") } }
     fun clearHistory() {
-        listen = null
-        library.writeTracks("history", emptyList()); mutable.update { it.copy(history = emptyList(), playEvents = emptyList(), forYou = emptyList()) }
-        viewModelScope.launch(Dispatchers.IO) { listening.clear() }
+        suppressCurrentHistory(); forYouJob?.cancel()
+        library.writeTracks("history", emptyList()); mutable.update { it.withoutHistory() }
+        persistHistory()
     }
     fun removePlay(event: PlayEvent) {
-        val key = ListeningHistory.songKey(event.track.id)
-        mutable.update { it.copy(playEvents = it.playEvents.filterNot { e -> ListeningHistory.songKey(e.track.id) == key }) }
-        viewModelScope.launch(Dispatchers.IO) { listening.removeSong(event.track.id) }
+        if (mutable.value.current?.libraryKey() == event.track.libraryKey()) suppressCurrentHistory()
+        forYouJob?.cancel()
+        mutable.update { it.withoutHistory(event.track) }
+        library.writeTracks("history", mutable.value.history)
+        persistHistory()
     }
     fun processing(processed: Boolean) {
         library.processedAudio = processed
@@ -659,6 +718,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     fun trackHistory(value: Boolean) { library.trackHistory = value; if (!value) listen = null; mutable.update { it.copy(trackHistory = value) } }
     /** Queue a song to play after the current one. */
     fun playNext(track: Track) {
+        if (library.isRemoved(track)) return
         val c = controller ?: return
         if (c.mediaItemCount == 0) { play(track); return }
         c.addMediaItem(c.currentMediaItemIndex + 1, mediaItem(track)); syncPlayer(includeQueue = true)
@@ -669,6 +729,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         finishListen(final = true)
+        // Also commit a pending clear/remove if there was no active listen.
+        persistHistory(final = true)
         controller?.removeListener(listener)
         MediaController.releaseFuture(controllerFuture)
         super.onCleared()

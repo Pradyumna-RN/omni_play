@@ -143,6 +143,25 @@ the Android installer. Installation still needs the user's confirmation.
 | [dsp](dsp/) | Public PCM/rate/layout adapter, private DMR JNI boundary, listening modes, binaural stage and diagnostics. |
 | [Updates](app/src/main/java/labs/rtensor/music/updates/) | GitHub release discovery and verified in-place APK updates. |
 
+## Music 0.3.20 — consistent history and local recording removal
+
+Settings counts unique recordings using the same identities as History. Repeated
+listens still count toward listening statistics and recommendations.
+
+Removing an imported recording with its Saved heart unregisters it from Music,
+stops it if it is playing, and removes its queued copies, history and Home shortcuts.
+The original document remains on the device and can be imported again. Previously
+unhearted imports left in older app state are cleaned up during upgrade. Unsaving
+an online song only removes its bookmark. Saved collections beyond 100 recordings
+now survive restarts completely. An import already running when a file is removed
+cannot silently add it back.
+
+Forgetting a song from History also removes its Home shortcut, while leaving Saved
+and playback intact. Clearing history or switching history off no longer records
+the active listen again through a delayed write. Removing the indexed audio folder
+replaces queued local-master routes with fresh source selections. Cancelled scans
+cannot restore the removed folder.
+
 ## Music 0.3.19 — provider identity and decoder reset fixes
 
 Fixes failed recordings re-entering selection when a signed URL rotates. Rendition

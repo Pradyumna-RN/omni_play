@@ -35,4 +35,10 @@ class LibraryStoreTest {
         context.getSharedPreferences("music_library", Context.MODE_PRIVATE).edit().putString("saved", "[{\"invalid\":true},${good.json()}]").commit()
         assertEquals(listOf(good), LibraryStore(context).tracks("saved"))
     }
+
+    @Test fun savedRecordingsDoNotSilentlyDisappearWhenTheLibraryPassesOneHundredItems() {
+        val items = (1..125).map { Track("local:$it", "Recording $it", "Me", "content://audio/document/$it", source = Source.LOCAL) }
+        LibraryStore(context).writeTracks("saved", items)
+        assertEquals(items, LibraryStore(context).tracks("saved"))
+    }
 }

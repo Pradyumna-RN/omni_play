@@ -27,6 +27,16 @@ class ListeningHistory(private val file: File) {
     constructor(context: Context) : this(File(context.filesDir, "listening-history.json"))
 
     @Volatile var events: List<PlayEvent> = load(); private set
+    private var revision = -1L
+
+    /** UI mutations have an ordered revision, whereas IO jobs may run out of
+     * order. A late write must never undo a clear/remove or a newer listen. */
+    @Synchronized fun replace(snapshot: List<PlayEvent>, version: Long) {
+        if (version <= revision) return
+        revision = version
+        events = snapshot.take(MAX_EVENTS).toList()
+        persist()
+    }
 
     private fun load(): List<PlayEvent> = runCatching {
         if (!file.exists()) return emptyList()
@@ -73,7 +83,7 @@ class ListeningHistory(private val file: File) {
         fun songKey(id: String) = id.removePrefix("yt:")
 
         /** History shows each song once, at its latest play; all plays still count for stats and recommendations. */
-        fun latestPerSong(events: List<PlayEvent>) = events.sortedByDescending { it.startedAt }.distinctBy { songKey(it.track.id) }
+        fun latestPerSong(events: List<PlayEvent>) = events.sortedByDescending { it.startedAt }.distinctBy { it.track.libraryKey() }
 
         fun days(events: List<PlayEvent>, now: Long = System.currentTimeMillis()): List<HistoryDay> {
             val today = startOfDay(now)

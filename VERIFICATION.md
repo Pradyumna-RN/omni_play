@@ -1,4 +1,41 @@
-# Current verification: Music 0.3.16 / multichannel rates and comparison
+# Current verification: Music 0.3.20 / library removal and consistent history
+
+**177 app tests, 88 DSP tests and 8 scene-decoder tests pass** (273 total), with
+no failures, errors or skipped tests. Fatal Android lint and all three integrated
+APK packaging guards also pass.
+
+Regression coverage includes:
+
+- Compose Settings counts the same unique local/YouTube identities as History,
+  including legacy IDs, and removing the playing import clears the mini player.
+- A real Media3 ExoPlayer queue loses every removed local copy. Removing the
+  current import stops it; removing another queued import preserves the current
+  song and position. A blocked, already-open source read is cancelled and closed.
+- Removing an indexed folder replaces both the current and queued pinned local
+  sources, preserving the catalogue song, seek position and pause state.
+- Controlled concurrent document-provider scans cannot restore a cleared folder
+  or overwrite its replacement after the newer selection has committed.
+- Local removals survive a reconstructed store, reject stale saved-list writes,
+  retain the original document, reject imports started before removal, and permit
+  explicit reimport. Upgrade cleanup
+  retains registered imports and online history. Saved lists beyond 100 entries
+  persist completely.
+- Forgetting history clears Home's shortcut and every older play of that song,
+  retaining Saved and playback. Controlled out-of-order writes cannot undo clear
+  or removal after storage reload.
+
+The app also suppresses the current listen after History deletion so periodic
+player callbacks and shutdown cannot immediately recreate it. History-off applies
+both to detailed events and Home recents. Recommendations being regenerated are
+cancelled before history is forgotten.
+
+Validation uses Robolectric/Compose, the real Media3 queue/loader and deterministic
+provider/IO fixtures on this host. No phone is connected; device listening, Android
+frame pacing and live subscriber playback are not established by these checks.
+The native DMR, FFmpeg and OpenJOC artifacts and provider integrations are unchanged
+from 0.3.19. Version 0.3.20/code23 retains the package/signature and OTA asset names.
+
+# Previous verification: Music 0.3.16 / multichannel rates and comparison
 
 - **128 app tests and 72 DSP tests pass**, no failures, errors or skips, plus
   fatal lint and both decoder/private-DMR APK packaging guards.

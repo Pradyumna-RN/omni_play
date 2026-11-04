@@ -11,6 +11,8 @@ import org.json.JSONObject
 import java.io.File
 import java.text.Normalizer
 import kotlin.math.abs
+import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.CancellationException
 
 /**
  * One audio file from the folder the user chose, with what the decoder will actually see:
@@ -50,6 +52,7 @@ data class Master(
 class LocalMasters(private val context: Context) {
     private val file = File(context.filesDir, "masters.json")
     private val prefs = context.getSharedPreferences("music_library", Context.MODE_PRIVATE)
+    private val generation = AtomicLong()
 
     @Volatile var entries: List<Master> = load(); private set
     var folder: String?
@@ -63,29 +66,46 @@ class LocalMasters(private val context: Context) {
 
     /** Walks the chosen folder (and its subfolders) and reads each audio file's real format. Call off the main thread. */
     fun index(tree: Uri, progress: (Int) -> Unit = {}): List<Master> {
+        val ticket = generation.incrementAndGet()
         val found = mutableListOf<Master>()
         val pending = ArrayDeque(listOf(DocumentsContract.getTreeDocumentId(tree)))
         val columns = arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_MIME_TYPE, DocumentsContract.Document.COLUMN_DISPLAY_NAME)
         while (pending.isNotEmpty()) {
+            checkScan(ticket)
             val parent = pending.removeFirst()
             context.contentResolver.query(DocumentsContract.buildChildDocumentsUriUsingTree(tree, parent), columns, null, null, null)?.use { c ->
                 while (c.moveToNext()) {
+                    checkScan(ticket)
                     val id = c.getString(0); val mime = c.getString(1).orEmpty(); val name = c.getString(2).orEmpty()
                     when {
                         mime == DocumentsContract.Document.MIME_TYPE_DIR -> pending.add(id)
                         mime.startsWith("audio/") || mime.startsWith("video/") || name.substringAfterLast('.').lowercase() in AudioExtensions ->
-                            read(DocumentsContract.buildDocumentUriUsingTree(tree, id), name)?.let { found += it; progress(found.size) }
+                            read(DocumentsContract.buildDocumentUriUsingTree(tree, id), name)?.takeUnless { it.uri in LibraryStore(context).removedLocalUris }?.let { found += it; checkScan(ticket); progress(found.size) }
                     }
                 }
             }
         }
-        file.writeText(JSONArray().apply { found.forEach { put(it.json()) } }.toString())
-        folder = tree.toString()
-        entries = found
+        synchronized(this) {
+            checkScan(ticket)
+            write(found)
+            folder = tree.toString()
+            entries = found
+        }
         return found
     }
 
-    fun clear() { file.delete(); folder = null; entries = emptyList() }
+    @Synchronized fun clear() { generation.incrementAndGet(); file.delete(); folder = null; entries = emptyList() }
+    @Synchronized fun removeUri(uri: String) {
+        generation.incrementAndGet()
+        entries = entries.filterNot { it.uri == uri }
+        write(entries)
+    }
+    private fun write(found: List<Master>) {
+        file.writeText(JSONArray().apply { found.forEach { put(it.json()) } }.toString())
+    }
+    private fun checkScan(ticket: Long) {
+        if (generation.get() != ticket) throw CancellationException("Folder selection changed")
+    }
 
     private fun read(uri: Uri, name: String): Master? {
         val extractor = MediaExtractor()

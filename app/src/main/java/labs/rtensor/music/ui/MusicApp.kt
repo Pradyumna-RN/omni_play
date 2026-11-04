@@ -640,7 +640,7 @@ private fun CollectionScreen(state: MusicState, onPlay: (Track, List<Track>) -> 
             Spacer(Modifier.height(14.dp))
             LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
                 itemsIndexed(state.collection, key = { i, track -> "$i:${track.id}" }) { _, track ->
-                    TrackRow(track, state.saved.any { it.id == track.id }, state.current?.id == track.id, { onPlay(track, state.collection) }, { onSave(track) })
+                    TrackRow(track, state.saved.any { it.libraryKey() == track.libraryKey() }, state.current?.libraryKey() == track.libraryKey(), { onPlay(track, state.collection) }, { onSave(track) })
                 }
             }
         }
@@ -680,7 +680,7 @@ private fun SearchResults(state: MusicState, onPlay: (Track, List<Track>) -> Uni
                 Spacer(Modifier.height(10.dp))
                 LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 24.dp)) {
                     itemsIndexed(state.results, key = { index, track -> "$index:${track.id}" }) { _, track ->
-                        TrackRow(track, state.saved.any { it.id == track.id }, state.current?.id == track.id, { onPlay(track, state.results) }, { onSave(track) }, motionModifier())
+                        TrackRow(track, state.saved.any { it.libraryKey() == track.libraryKey() }, state.current?.libraryKey() == track.libraryKey(), { onPlay(track, state.results) }, { onSave(track) }, motionModifier())
                     }
                 }
             }
@@ -889,7 +889,7 @@ private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () ->
                             }
                         }
                         LabelledControl("Next", Glyph.Next, onNext, enabled = canSkip && hasNext)
-                        val saved = state.saved.any { it.id == track.id }
+                        val saved = state.saved.any { it.libraryKey() == track.libraryKey() }
                         LabelledControl(if (saved) "Saved" else "Save", if (saved) Icons.Outlined.Favorite else Icons.Outlined.FavoriteBorder, { onSave(track) }, highlighted = saved)
                     }
                     RouteLabel(state.routeLabel)
@@ -1345,7 +1345,11 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onReduc
                 }
                 CardDivider()
                 val hasHistory = state.history.isNotEmpty() || state.playEvents.isNotEmpty()
-                SettingItem("Clear listening history", if (!hasHistory) "Nothing to clear" else "${state.playEvents.size} plays · ${state.history.size} recent recordings", Icons.Outlined.Delete,
+                val recordings = remember(state.playEvents) { ListeningHistory.latestPerSong(state.playEvents).size }
+                val recent = remember(state.history) { state.history.distinctBy { it.libraryKey() }.size }
+                val count = if (recordings > 0) "$recordings ${if (recordings == 1) "recording" else "recordings"} in History"
+                    else "$recent recent ${if (recent == 1) "recording" else "recordings"}"
+                SettingItem("Clear listening history", if (!hasHistory) "Nothing to clear" else count, Icons.Outlined.Delete,
                     onClick = if (hasHistory) ({ confirmClear = true }) else null)
                 CardDivider(start = 16.dp)
                 Text("Saved recordings, history and encrypted account sessions stay on this device. Connected music servers receive song searches and playback requests. YouTube receives your discovery requests; GitHub receives update checks.",
@@ -1705,7 +1709,7 @@ private fun TrackRow(track: Track, saved: Boolean, current: Boolean, onPlay: () 
             }
             if (onSave != null) IconButton(onClick = onSave) {
                 val tint by animateColorAsState(if (saved) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, tween(if (LocalReducedMotion.current) 0 else QuickMs), label = "save tint")
-                Icon(if (saved) Icons.Outlined.Favorite else Icons.Outlined.FavoriteBorder, if (saved) "Unsave ${track.title}" else "Save ${track.title}", Modifier.size(20.dp), tint = tint)
+                Icon(if (saved) Icons.Outlined.Favorite else Icons.Outlined.FavoriteBorder, if (saved && track.source == labs.rtensor.music.data.Source.LOCAL) "Remove ${track.title} from app" else if (saved) "Unsave ${track.title}" else "Save ${track.title}", Modifier.size(20.dp), tint = tint)
             }
         }
     }

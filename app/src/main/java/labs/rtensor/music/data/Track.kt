@@ -13,6 +13,9 @@ data class Track(
     val durationMs: Long = 0,
     val source: Source = Source.YOUTUBE,
 ) {
+    /** Imports of the same document share an identity even if an older build used another id. */
+    fun libraryKey(): String = if (source == Source.LOCAL) "local:$url" else id.removePrefix("yt:")
+
     fun json(): JSONObject = JSONObject().apply {
         put("id", id); put("title", title); put("artist", artist)
         put("url", url); put("artwork", artwork); put("durationMs", durationMs)

@@ -9,12 +9,36 @@ class LibraryStore(context: Context) {
     fun tracks(key: String): List<Track> = runCatching {
         val array = JSONArray(prefs.getString(key, "[]"))
         (0 until array.length()).mapNotNull { i -> runCatching { Track.fromJson(array.getJSONObject(i)) }.getOrNull() }
-    }.getOrDefault(emptyList())
+    }.getOrDefault(emptyList()).filterNot(::isRemoved).distinctBy { it.libraryKey() }
 
     fun writeTracks(key: String, tracks: List<Track>) {
         val array = JSONArray()
-        tracks.distinctBy { it.id }.take(100).forEach { array.put(it.json()) }
+        val unique = tracks.filterNot(::isRemoved).distinctBy { it.libraryKey() }
+        (if (key == "saved") unique else unique.take(100)).forEach { array.put(it.json()) }
         prefs.edit().putString(key, array.toString()).apply()
+    }
+
+    /** Unregister the import, never delete the user's original document. Keep a
+     * tombstone so an old media session cannot restore it after an app restart. */
+    fun removeLocal(track: Track) {
+        require(track.source == Source.LOCAL)
+        prefs.edit().putStringSet("removed_local_uris", removedLocalUris + track.url)
+            .putLong("local_removal_revision", localRemovalRevision + 1).apply()
+    }
+    fun restoreLocal(track: Track, importRevision: Long = localRemovalRevision): Boolean {
+        if (importRevision != localRemovalRevision && isRemoved(track)) return false
+        prefs.edit().putStringSet("removed_local_uris", removedLocalUris - track.url).apply()
+        return true
+    }
+    val localRemovalRevision: Long get() = prefs.getLong("local_removal_revision", 0)
+    val removedLocalUris: Set<String> get() = prefs.getStringSet("removed_local_uris", emptySet()).orEmpty().toSet()
+    fun isRemoved(track: Track) = track.source == Source.LOCAL && track.url in removedLocalUris
+    /** Older builds left unhearted imports in Home/history. Their registration
+     * lived in Saved, so migrate those orphan references to explicit removals. */
+    fun reconcileImports(otherReferences: List<Track>) {
+        val registered = tracks("saved").filter { it.source == Source.LOCAL }.map { it.libraryKey() }.toSet()
+        val orphans = (tracks("history") + otherReferences).filter { it.source == Source.LOCAL && it.libraryKey() !in registered }
+        if (orphans.isNotEmpty()) prefs.edit().putStringSet("removed_local_uris", removedLocalUris + orphans.map { it.url }).apply()
     }
 
     var theme: String
