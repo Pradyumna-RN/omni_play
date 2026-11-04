@@ -210,6 +210,8 @@ fun MusicApp(
     onRetryRadio: () -> Unit = {},
     onProcessing: (Boolean) -> Unit = {},
     playbackPosition: StateFlow<Long>? = null,
+    audioLevels: StateFlow<labs.rtensor.dsp.AudioLevelFrame?>? = null,
+    onMetering: (Boolean) -> Unit = {},
 ) {
     val startPage = if (initialPage == "saved") "library" else initialPage
     var page by rememberSaveable { mutableStateOf(startPage) }
@@ -294,7 +296,7 @@ fun MusicApp(
                             "search" -> SearchResults(state, ::play, onSave)
                             "explore" -> ProviderHome(state.copy(feed = state.explore, feedBusy = state.exploreBusy, feedError = state.exploreError, feedHasMore = false), ::openEntry, onRefreshExplore, {}, "Explore")
                             "library" -> LibraryScreen(state, ::play, onSave, ::focusSearch, onRemovePlay)
-                            "now" -> NowScreen(state, onToggle, onPrevious, onNext, onSeek, onSave, onSkipTo, onProcessing, playbackPosition, onRetryRadio)
+                            "now" -> NowScreen(state, onToggle, onPrevious, onNext, onSeek, onSave, onSkipTo, onProcessing, playbackPosition, onRetryRadio, audioLevels, onMetering)
                             "collection" -> CollectionScreen(state, ::play, onSave)
                             "settings" -> SettingsScreen(state, onTheme, onOpenLocal, onChooseMasters, onClearMasters, onClearHistory,
                                 onConnect, onWebSignIn, onDisconnect, onCancelConnect, onGoogleSignIn, onGoogleSignOut, onCancelGoogle, onCheckUpdates, onDownloadUpdate, onInstallUpdate,
@@ -848,7 +850,8 @@ private const val SwapMs = 180
 
 @Composable
 private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () -> Unit, onNext: () -> Unit, onSeek: (Long) -> Unit,
-    onSave: (Track) -> Unit, onSkipTo: (Int) -> Unit, onProcessing: (Boolean) -> Unit, playbackPosition: StateFlow<Long>?, onRetryRadio: () -> Unit) {
+    onSave: (Track) -> Unit, onSkipTo: (Int) -> Unit, onProcessing: (Boolean) -> Unit, playbackPosition: StateFlow<Long>?, onRetryRadio: () -> Unit,
+    audioLevels: StateFlow<labs.rtensor.dsp.AudioLevelFrame?>?, onMetering: (Boolean) -> Unit) {
     val track = state.loadingTrack ?: state.current
     if (track == null) {
         Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) { Text("Choose a recording to start listening.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -922,6 +925,7 @@ private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () ->
                     }
                     RouteLabel(state.routeLabel)
                     if (showsAudioComparison(state)) AudioComparison(state, onProcessing)
+                    ChannelMonitor(state.audioProcessing.report, playing && !loading, track.id, audioLevels, onMetering)
                     Spacer(Modifier.height(30.dp))
                     Row(Modifier.fillMaxWidth().padding(bottom = 6.dp), verticalAlignment = Alignment.Bottom) {
                         Text("Up next", fontSize = 20.sp, fontWeight = FontWeight.Medium, letterSpacing = (-.5).sp, modifier = Modifier.weight(1f))
@@ -1394,7 +1398,13 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onLocal
     if (showLicences) AlertDialog(
         onDismissRequest = { showLicences = false },
         title = { Text("Open-source licences") },
-        text = { Text(notices, fontSize = 13.sp, lineHeight = 17.sp, modifier = Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState())) },
+        text = {
+            val fullNotices = remember(notices) {
+                if (!BuildConfig.APPLE_RUNTIME_INCLUDED) notices else notices + "\n\nApple runtime acknowledgements\n\n" +
+                    android.text.Html.fromHtml(context.assets.open("apple-runtime/acknowledgements.html").bufferedReader().use { it.readText() }, android.text.Html.FROM_HTML_MODE_LEGACY).toString()
+            }
+            Text(fullNotices, fontSize = 13.sp, lineHeight = 17.sp, modifier = Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState()))
+        },
         confirmButton = { TextButton(onClick = { showLicences = false }) { Text("Close") } },
     )
 }

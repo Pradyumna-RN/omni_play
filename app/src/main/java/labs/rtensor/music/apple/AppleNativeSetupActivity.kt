@@ -22,6 +22,7 @@ import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import labs.rtensor.music.ui.MusicTheme
+import labs.rtensor.music.BuildConfig
 
 internal class AppleNativeSetupActivity : ComponentActivity() {
     private val account by lazy { AppleAccount.get(this) }
@@ -33,6 +34,16 @@ internal class AppleNativeSetupActivity : ComponentActivity() {
             var user by remember { mutableStateOf("") }; var password by remember { mutableStateOf("") }
             var code by remember { mutableStateOf("") }; var importing by remember { mutableStateOf(false) }
             var error by remember { mutableStateOf<String?>(null) }
+            var prepare by remember { mutableIntStateOf(0) }
+            LaunchedEffect(prepare) {
+                if (BuildConfig.APPLE_RUNTIME_INCLUDED) {
+                    importing = true; error = null
+                    try { account.prepareBundledRuntime() }
+                    catch (cancel: CancellationException) { throw cancel }
+                    catch (failure: Exception) { error = failure.message?.take(240) ?: "Apple Music setup could not finish." }
+                    finally { importing = false }
+                }
+            }
             val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
                 if (uri != null) lifecycleScope.launch {
                     importing = true; error = null
@@ -45,8 +56,9 @@ internal class AppleNativeSetupActivity : ComponentActivity() {
             Surface(Modifier.fillMaxSize()) { Column(Modifier.fillMaxSize().systemBarsPadding().verticalScroll(rememberScrollState()).padding(20.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 TextButton(onClick = { account.cancel(); finish() }) { Text("Back") }
-                Text("Apple Music · native", style = MaterialTheme.typography.headlineSmall)
+                Text("Apple Music", style = MaterialTheme.typography.headlineSmall)
                 Text("Experimental account playback inside Music. Tries multichannel first, then the highest available lossless rate. Requires your own active subscription.")
+                if (!BuildConfig.APPLE_RUNTIME_INCLUDED) {
                 Text("Import a compatible Apple Music 3.6.0-beta installer (build 1109, APK or APKM) once. Only verified runtime libraries are kept privately; the installer is never installed or uploaded. Current Apple Music installers use a different runtime.")
                 OutlinedButton(enabled = !importing && !state.connecting && !state.needsCode,
                     // Document providers assign several incompatible MIME types to APKM.
@@ -54,8 +66,9 @@ internal class AppleNativeSetupActivity : ComponentActivity() {
                     onClick = { picker.launch(arrayOf("*/*")) }) {
                     Text(if (importing) "Verifying runtime…" else if (state.runtimeImported) "Replace compatible runtime" else "Import runtime installer")
                 }
-                if (state.runtimeImported) {
-                    Text("Compatible runtime verified on this device.")
+                } else if (importing) Text("Preparing Apple Music…")
+                else if (!state.runtimeImported && error != null) OutlinedButton(onClick = { prepare++ }) { Text("Retry setup") }
+                if (state.runtimeImported && !importing) {
                     if (!state.needsCode) {
                         OutlinedTextField(user, { user = it }, label = { Text("Apple Account email") }, singleLine = true,
                             enabled = !state.connecting, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email), modifier = Modifier.fillMaxWidth())

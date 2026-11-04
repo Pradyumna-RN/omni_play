@@ -67,6 +67,11 @@ internal class AppleAccount(private val context: Context, private val vault: Acc
         runtime.close()
         mutable.update { it.copy(runtimeImported = files.installed(), error = null) }
     }
+    suspend fun prepareBundledRuntime() {
+        check(BuildConfig.APPLE_NATIVE_INCLUDED) { "This build does not include the native Apple adapter." }
+        files.installBundled()
+        mutable.update { it.copy(runtimeImported = files.installed(), error = null) }
+    }
     fun signInNative(user: String, password: String) {
         require(user.length in 3..320 && password.length in 1..1024)
         authJob?.cancel(); runtime.close()

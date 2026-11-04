@@ -1,4 +1,48 @@
-# Current verification: Music 0.3.26 / standard surround bed
+# Current verification: Music 0.3.27 / volume, channel monitor and bundled setup
+
+**331 unique app/DSP checks pass, with no failures, errors or skips.** The full
+244-app/86-DSP run passed first. After the compression-only asset representation
+change and an added physical-left/right RTL check, all nine affected player/setup
+checks pass on the final representation (245 unique app checks, 86 DSP checks).
+Android lint and the four exact-library/asset APK guards pass on the final build.
+All four README architecture diagrams render. Light/dark stereo, 5.1 and compact
+7.1 native UI previews were inspected.
+
+- Real private DMR comparison on a 32-second reference measures a 14 dB RMS gain
+  increase after removing Music's fixed -14 dB preamp cut: -32.276 to -18.276 dBFS,
+  peak 0.91553. The complete 189.856-second recording passes the real decoder/DMR
+  route at unity preamp, including switching and bounded output. The original
+  native peak limiter stays active; private renderer source/defaults are unchanged.
+- Meter tests cover absolute per-channel RMS/peak, PCM8/16/24/32/float, silence,
+  unknown layouts, buffer-state preservation, backpressure and pause/seek resets.
+  Stereo remains byte-exact. UI checks prove meter publications do not recompose
+  the surrounding player and that RTL does not swap physical speakers. Metering
+  stops outside the open, playing, foreground panel. These are sink PCM levels,
+  before output volume/effects, not an acoustic measurement or an exact hardware
+  timing claim. Worst-case host metering at 16 channels/192 kHz used 34.4 ms of
+  one CPU thread per second of audio; phone performance remains unmeasured.
+- The exact user-supplied 3.6.0-beta/build1109 APKM matches all 18 pinned images
+  in ARM64 and x86-64. Automatic compressed-asset preparation and strict failure/
+  cleanup are tested on Android API 30 and 35. The 17-image playback closure excludes
+  the unused ICU test utility. A source preparer reproduces all 37 packaged assets
+  exactly; no Apple code was executed by these tests. The test resource package
+  explicitly tracks external assets so incremental renames invalidate its cache.
+- The supplied runtime is included only through an explicit external build input.
+  The user stated redistribution permission and a paid monthly fee; no independent
+  agreement verification is claimed. Original acknowledgements remain available.
+  Public source archives contain no vendor images or private DMR implementation.
+  The compressed APK remains within the existing 200 MB OTA limit.
+
+No physical phone, live subscriber sign-in or commercial Apple playback was tested.
+Delivered lossless/multichannel availability and compatibility of the old runtime
+with 16 KiB-page phones remain unverified. DMR still renders stereo from the actual
+surround bed; no Spatial mode, scene decoder or synthetic upmix is reintroduced.
+Native sanitizer/runtime-metadata results retained below are unchanged-source
+baseline evidence, not newly executed checks for this release.
+
+Version **0.3.27/code30** retains the package, signing identity and preview OTA feed.
+
+# Previous verification: Music 0.3.26 / standard surround bed
 
 **236 app tests and 79 DSP tests pass** (315 total), with no failures, errors or
 skips. Android lint, APK assembly and all four native packaging guards pass.

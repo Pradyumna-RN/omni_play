@@ -21,6 +21,17 @@ internal object Glyph {
             path(fill = SolidColor(Color.Black), stroke = SolidColor(Color.Black), strokeLineWidth = 1.7f, strokeLineCap = StrokeCap.Round, strokeLineJoin = StrokeJoin.Round, pathBuilder = draw)
         }.build()
 
+    val ChannelMonitor = outline("Channel monitor") {
+        moveTo(4f, 10f); lineTo(4f, 14f); moveTo(8f, 6f); lineTo(8f, 18f)
+        moveTo(12f, 3f); lineTo(12f, 21f); moveTo(16f, 7f); lineTo(16f, 17f)
+        moveTo(20f, 10f); lineTo(20f, 14f)
+    }
+    val Listener = outline("Listener") {
+        moveTo(4f, 14f); lineTo(4f, 11f); curveTo(4f, 0f, 20f, 0f, 20f, 11f); lineTo(20f, 14f)
+        moveTo(4f, 12f); lineTo(7f, 12f); lineTo(7f, 19f); lineTo(4f, 19f); close()
+        moveTo(17f, 12f); lineTo(20f, 12f); lineTo(20f, 19f); lineTo(17f, 19f); close()
+    }
+
     /** Filled compass: the disc is solid and the needle is cut out with even-odd filling. */
     val CompassFilled = ImageVector.Builder("Explore selected", 24.dp, 24.dp, 24f, 24f).apply {
         path(fill = SolidColor(Color.Black), pathFillType = androidx.compose.ui.graphics.PathFillType.EvenOdd) {

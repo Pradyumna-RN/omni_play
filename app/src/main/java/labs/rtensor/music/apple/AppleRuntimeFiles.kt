@@ -3,6 +3,7 @@ package labs.rtensor.music.apple
 import android.content.Context
 import android.net.Uri
 import android.os.Build
+import labs.rtensor.music.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.currentCoroutineContext
@@ -17,7 +18,7 @@ import java.security.MessageDigest
 import java.util.UUID
 import java.util.zip.ZipInputStream
 
-/** One-time, local import of compatible runtime files. These files are never in our APK. */
+/** Verifies compatible runtime files from a local import or an authorized build asset. */
 internal class AppleRuntimeFiles(private val context: Context) {
     private val profileText by lazy { context.assets.open("apple/runtime-profile.json").bufferedReader().use { it.readText() } }
     private val profile by lazy { JSONObject(profileText) }
@@ -29,13 +30,39 @@ internal class AppleRuntimeFiles(private val context: Context) {
     }
     val directory: File get() = File(context.filesDir, "apple-runtime/$profileId/$arch")
     fun installed(): Boolean = runCatching { File(directory, "verified").readText() == profileId && expected().keys.all { File(directory, it).isFile } }.getOrDefault(false)
-    suspend fun import(uri: Uri) = withContext(Dispatchers.IO) {
+    suspend fun import(uri: Uri) = install { pending, checkActive ->
+        context.contentResolver.openInputStream(uri)?.use { readPackage(it, pending, expected(), arch, checkActive) }
+            ?: error("The installer could not be opened.")
+    }
+    /** Licensed builds prepare their private asset automatically; ordinary source builds
+     * retain the local-import route and contain no vendor runtime. */
+    suspend fun installBundled() = withContext(Dispatchers.IO) {
+        check(BuildConfig.APPLE_RUNTIME_INCLUDED) { "This build has no bundled Apple runtime." }
+        if (!verify()) install { pending, checkActive ->
+            expected().forEach { (name, _) ->
+                checkActive()
+                context.assets.open("apple-runtime/$arch/$name.bin").use { input ->
+                    File(pending, name).outputStream().use { output ->
+                        var size = 0L
+                        val buffer = ByteArray(65536)
+                        while (true) {
+                            checkActive()
+                            val count = input.read(buffer); if (count < 0) break
+                            size += count; require(size <= MAX_IMAGE) { "The bundled runtime image is too large." }
+                            output.write(buffer, 0, count)
+                        }
+                    }
+                }
+                check(File(pending, name).setReadOnly())
+            }
+        }
+    }
+    private suspend fun install(write: (File, () -> Unit) -> Unit) = withContext(Dispatchers.IO) {
         val job = currentCoroutineContext()
         val root = File(context.filesDir, "apple-runtime").apply { mkdirs() }
         val pending = File(root, "pending-${UUID.randomUUID()}").apply { check(mkdirs()) }
         try {
-            context.contentResolver.openInputStream(uri)?.use { readPackage(it, pending, expected(), arch) { job.ensureActive() } }
-                ?: error("The installer could not be opened.")
+            write(pending) { job.ensureActive() }
             expected().forEach { (name, digest) -> require(File(pending, name).isFile && sha(File(pending, name)) == digest) {
                 "This installer is not compatible with the native adapter. It needs Apple Music 3.6.0-beta, build 1109, with $arch libraries."
             } }

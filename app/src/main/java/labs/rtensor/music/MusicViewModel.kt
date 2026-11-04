@@ -136,6 +136,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     val state = mutable.asStateFlow()
     private val mutablePosition = MutableStateFlow(0L)
     val playbackPosition = mutablePosition.asStateFlow()
+    val audioLevels = AudioPipeline.levels
+    fun setMetering(enabled: Boolean) { AudioPipeline.setMetering(enabled) }
     private val catalogueCache = CatalogueTrackCache()
     private val metadata = mutableMapOf<String, YouTubeMetadata>()
     private fun enrich(track: Track) = metadata[track.id]?.enrich(track) ?: track

@@ -28,7 +28,11 @@ class DownmixAudioSink(
     private val processStereo: Boolean = false,
     /** Original or Processed; defaults to the two-mode [processingEnabled] switch. */
     private val listeningMode: () -> ListeningMode = { if (processingEnabled()) ListeningMode.PROCESSED else ListeningMode.ORIGINAL },
+    private val renderPreampDb: Float? = null,
+    meteringEnabled: () -> Boolean = { false },
+    onLevels: (AudioLevelFrame?) -> Unit = {},
 ) : ForwardingAudioSink(delegate) {
+    private val meter = AudioLevelMeter(meteringEnabled, onLevels)
     private var engine: DownmixEngine? = null
     private var inputFormat: Format? = null
     private var inputChannels = 0
@@ -95,7 +99,8 @@ class DownmixAudioSink(
             require(format.sampleMimeType == MimeTypes.AUDIO_RAW) { "Downmix requires decoded PCM" }
             require(outputChannels == null || (format.channelCount == 2 && outputChannels.contentEquals(intArrayOf(0, 1)))) { "A decoder channel-remapping array needs explicit layout reconciliation" }
             require(positions.size == format.channelCount)
-            val specification = DownmixFormat(renderRate, positions)
+            val specification = DownmixFormat(renderRate, positions,
+                preampDb = renderPreampDb ?: if (positions.size == 2) 0f else -14f)
             frameBytes = PcmFloatConverter.bytesPerSample(format.pcmEncoding) * format.channelCount
             inputChannels = format.channelCount
             created = engineFactory(specification)
@@ -113,6 +118,7 @@ class DownmixAudioSink(
             delegate.setAudioAttributes(renderedAttributes())
             delegate.configure(stereo, 0, null)
             engine = created
+            meter.configure(format.sampleRate, positions, specification.sampleRate, STEREO)
             report = DownmixReport(format.sampleRate, positions, processing = if (format.channelCount == 2) "Stereo enhancement" else "Multichannel render",
                 processingEnabled = mode != ListeningMode.ORIGINAL, listeningMode = mode, renderSampleRate = specification.sampleRate)
             onReport(report)
@@ -127,6 +133,9 @@ class DownmixAudioSink(
     private fun bypass(format: Format, specifiedBufferSize: Int, outputChannels: IntArray?, positions: List<SpeakerPosition>, reason: String) {
         delegate.setAudioAttributes(requestedAttributes)
         delegate.configure(format, specifiedBufferSize, outputChannels)
+        val source = List(format.channelCount.coerceIn(0, 16)) { positions.getOrNull(it) }
+        val rendered = outputChannels?.map { source.getOrNull(it) } ?: source
+        meter.configure(format.sampleRate, source, format.sampleRate, rendered)
         report = DownmixReport(format.sampleRate, positions, outputChannels = outputChannels?.size ?: format.channelCount,
             processing = "Original audio", processingEnabled = false,
             comparisonAvailable = false, unavailableReason = reason, sourceChannels = format.channelCount)
@@ -134,7 +143,12 @@ class DownmixAudioSink(
     }
 
     override fun handleBuffer(buffer: ByteBuffer, presentationTimeUs: Long, encodedAccessUnitCount: Int): Boolean {
-        val active = engine ?: return delegate.handleBuffer(buffer, presentationTimeUs, encodedAccessUnitCount)
+        val active = engine ?: run {
+            val start = buffer.position()
+            val accepted = delegate.handleBuffer(buffer, presentationTimeUs, encodedAccessUnitCount)
+            inputFormat?.let { meter.bypass(buffer, start, buffer.position(), it.pcmEncoding) }
+            return accepted
+        }
         val format = checkNotNull(inputFormat)
         try {
             check(!tailStarted) { "Cannot append PCM after end of stream without flushing" }
@@ -148,6 +162,7 @@ class DownmixAudioSink(
                 floatInput.clear()
                 PcmFloatConverter.convert(buffer, floatInput, frames * inputChannels, format.pcmEncoding)
                 floatInput.flip()
+                meter.input(floatInput, floatInput.position(), floatInput.limit(), C.ENCODING_PCM_FLOAT)
                 val outputFrames = renderBlock(active, frames)
                 pending = floatOutput
                 pendingPts = firstPts!! + renderedFrames * 1_000_000L / active.format.sampleRate
@@ -168,7 +183,10 @@ class DownmixAudioSink(
 
     private fun drainPending(): Boolean {
         val buffer = pending ?: return true
-        if (!delegate.handleBuffer(buffer, pendingPts, 1)) return false
+        val start = buffer.position()
+        val accepted = delegate.handleBuffer(buffer, pendingPts, 1)
+        meter.output(buffer, start, buffer.position(), C.ENCODING_PCM_FLOAT)
+        if (!accepted) return false
         check(!buffer.hasRemaining()) { "Output accepted a buffer without consuming it" }
         pending = null
         return true
@@ -243,6 +261,7 @@ class DownmixAudioSink(
     override fun handleDiscontinuity() {
         clearStream(); engine?.reset(); delegate.handleDiscontinuity()
     }
+    override fun pause() { meter.reset(); delegate.pause() }
     override fun flush() {
         clearStream(); engine?.reset(); delegate.flush()
     }
@@ -258,6 +277,7 @@ class DownmixAudioSink(
         delegate.release(); onReport(null)
     }
     private fun clearStream() {
+        meter.reset()
         pending = null; inputBuffer = null; inputFrames = 0; nextPts = 0
         firstPts = null; tailRemaining = 0; tailStarted = false; wroteAudio = false
         inputEndPts = 0

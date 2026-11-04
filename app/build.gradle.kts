@@ -16,10 +16,11 @@ android {
         applicationId = "labs.rtensor.music"
         minSdk = 30
         targetSdk = 35
-        versionCode = 29
-        versionName = "0.3.26"
+        versionCode = 30
+        versionName = "0.3.27"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("boolean", "APPLE_NATIVE_INCLUDED", providers.gradleProperty("rtensorAppleJniDir").isPresent.toString())
+        buildConfigField("boolean", "APPLE_RUNTIME_INCLUDED", providers.gradleProperty("rtensorAppleRuntimeAssetsDir").isPresent.toString())
         // An integrated build must not install as 32-bit using a dependency's
         // unrelated JNI library when the renderer is supplied only for 64-bit.
         if (providers.gradleProperty("rtensorDspJniDir").isPresent) {
@@ -64,6 +65,19 @@ android {
         }
     }
     packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
+    // Explicit authorized build input, outside the public repository.
+    providers.gradleProperty("rtensorAppleRuntimeAssetsDir").orNull?.let { directory ->
+        sourceSets.getByName("main").assets.srcDir(file(directory))
+    }
+}
+
+// AGP's local-test resource APK can otherwise stay up to date after an external
+// asset rename. Include the authorized assets explicitly for reproducible tests.
+providers.gradleProperty("rtensorAppleRuntimeAssetsDir").orNull?.let { directory ->
+    tasks.matching { it.name == "packageDebugUnitTestForUnitTest" }.configureEach {
+        dependsOn("mergeDebugAssets")
+        inputs.dir(file(directory))
+    }
 }
 
 dependencies {
@@ -190,9 +204,40 @@ tasks.register("verifyAppleNativeBundle") {
                 val sha = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
                 check(bytes.contentEquals(root.resolve("$abi/libmusicappleJNI.so").readBytes()) && sha == metadata["adapterSha256"])
             }
-            check(zip.entries().asSequence().none { it.name.substringAfterLast('/') in setOf("libCoreFP.so", "libCoreADI.so", "libCoreLSKD.so", "libandroidappmusic.so", "libstoreservicescore.so") })
+            val runtimeDirectory = providers.gradleProperty("rtensorAppleRuntimeAssetsDir").orNull
+            val profile = JsonSlurper().parse(file("src/main/assets/apple/runtime-profile.json")) as Map<*, *>
+            val libraries = profile["libs"] as Map<*, *>
+            val allowed = mutableSetOf<String>()
+            if (runtimeDirectory != null) {
+                val assets = file(runtimeDirectory)
+                check(!assets.canonicalFile.toPath().startsWith(rootProject.projectDir.canonicalFile.toPath())) {
+                    "Keep the authorized vendor runtime outside the public source repository"
+                }
+                val noticeEntry = "assets/apple-runtime/acknowledgements.html"
+                allowed += noticeEntry
+                val noticeBytes = zip.getInputStream(checkNotNull(zip.getEntry(noticeEntry))).use { it.readBytes() }
+                check(noticeBytes.contentEquals(assets.resolve("apple-runtime/acknowledgements.html").readBytes()))
+                check(MessageDigest.getInstance("SHA-256").digest(noticeBytes).joinToString("") { "%02x".format(it) } ==
+                    "e9f0f1ec4f861f5d36f845a6201e76f9e5f2b695a06aa39740612e3698576c60")
+                for (abi in listOf("arm64-v8a", "x86_64")) {
+                    val images = libraries[abi] as Map<*, *>
+                    for ((image, expected) in images) {
+                        val entry = "assets/apple-runtime/$abi/$image.bin"
+                        allowed += entry
+                        val bytes = zip.getInputStream(checkNotNull(zip.getEntry(entry))).use { it.readBytes() }
+                        check(bytes.contentEquals(assets.resolve("apple-runtime/$abi/$image.bin").readBytes()))
+                        val sha = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
+                        check(sha == expected) { "Bundled Apple runtime does not match the verified profile: $abi/$image" }
+                    }
+                }
+            }
+            val vendorNames = (libraries.values.flatMap { (it as Map<*, *>).keys }).map { it.toString() }.toSet()
+            check(zip.entries().asSequence().filter { it.name.substringAfterLast('/') in vendorNames }.all { it.name in allowed }) {
+                "Unexpected vendor runtime image in the APK"
+            }
+            check(zip.entries().asSequence().filter { it.name.startsWith("assets/apple-runtime/") && !it.isDirectory }.all { it.name in allowed })
         }
-        logger.lifecycle("Verified: source-matched Apple adapter for ARM64/x86-64; no Apple native libraries bundled")
+        logger.lifecycle("Verified: source-matched Apple adapter and exact optional authorized runtime assets for ARM64/x86-64")
     }
 }
 

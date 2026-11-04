@@ -84,6 +84,46 @@ class DownmixAudioSinkTest {
     private fun wrapper(h: Harness, layout: (Int) -> List<SpeakerPosition> = { roles }) = DownmixAudioSink(h.output.sink, layout,
         engineFactory = { CountingEngine(it).also(h.engines::add) }, onReport = h.reports::add, processStereo = true)
 
+    @Test fun liveStereoMetersStayByteExactAcrossOutputBackpressure() {
+        val h = Harness();val levels = mutableListOf<AudioLevelFrame?>()
+        val sink = DownmixAudioSink(h.output.sink, { error("Stereo needs no layout") }, meteringEnabled = { true }, onLevels = levels::add)
+        sink.configure(format(2), 321, null)
+        val pcm = buffer(2400 * 8).apply { repeat(2400) { putFloat(.5f);putFloat(-.25f) };flip() }
+        val bytes = ByteArray(pcm.remaining()).also { pcm.duplicate().get(it) }
+        h.output.blockNext = true
+        assertFalse(sink.handleBuffer(pcm, 0, 1));assertTrue(levels.filterNotNull().isEmpty())
+        assertTrue(sink.handleBuffer(pcm, 0, 1))
+        assertArrayEquals(bytes, h.output.bytes.toByteArray())
+        assertEquals(1, levels.filterNotNull().size)
+        assertEquals(-6.0206f, levels.last()!!.input[0].rmsDb, .0001f)
+        sink.pause();assertNull(levels.last())
+    }
+
+    @Test fun musicCanRemoveFixedSurroundAttenuationWhileRetainingNativePeakProtection() {
+        if (System.getProperty("rtensor.dsp.expectNative") == "true") assertTrue(NativeDownmixEngine.isAvailable)
+        else org.junit.Assume.assumeTrue(NativeDownmixEngine.isAvailable)
+        fun render(gain: Float): FloatArray {
+            val h = Harness();val sink = DownmixAudioSink(h.output.sink, { roles }, renderPreampDb = gain)
+            sink.configure(format(), 0, null)
+            repeat(20) { block ->
+                val pcm = buffer(512 * 24).apply {
+                    repeat(512) { n ->
+                        val x = (kotlin.math.sin((block * 512 + n) * .08) * .05).toFloat()
+                        repeat(6) { putFloat(x) }
+                    };flip()
+                }
+                assertTrue(sink.handleBuffer(pcm, block * 512L * 1_000_000 / 48000, 1))
+            }
+            sink.release()
+            val pcm = ByteBuffer.wrap(h.output.bytes.toByteArray()).order(ByteOrder.nativeOrder())
+            return FloatArray(pcm.remaining() / 4) { pcm.float }
+        }
+        val quiet = render(-14f);val unity = render(0f)
+        fun energy(x: FloatArray) = x.sumOf { it.toDouble() * it }
+        assertTrue("Remove the accidental app-level attenuation", energy(unity) > energy(quiet) * 20)
+        assertTrue(unity.all { it.isFinite() && kotlin.math.abs(it) <= 1.0001f })
+    }
+
     @Test fun unsupportedStereoRateBypassesWithoutChangingFormatOrBytes() {
         val h = Harness(); val sink = wrapper(h); val f = format(2, C.ENCODING_PCM_24BIT, 32000)
         sink.configure(f, 1234, null)

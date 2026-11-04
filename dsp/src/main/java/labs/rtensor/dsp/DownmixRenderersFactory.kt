@@ -31,6 +31,9 @@ open class DownmixRenderersFactory(
     private val processingEnabled: () -> Boolean = { true },
     /** Before [onReport], so the trailing report lambda keeps its meaning. */
     private val listeningMode: () -> ListeningMode = { if (processingEnabled()) ListeningMode.PROCESSED else ListeningMode.ORIGINAL },
+    private val renderPreampDb: Float? = null,
+    private val meteringEnabled: () -> Boolean = { false },
+    private val onLevels: (AudioLevelFrame?) -> Unit = {},
     private val onReport: (DownmixReport?) -> Unit = {},
 ) : DefaultRenderersFactory(context) {
     private var positions: List<SpeakerPosition>? = null
@@ -48,7 +51,8 @@ open class DownmixRenderersFactory(
             if (decoded.size != channels) throw DownmixException(DownmixStage.LAYOUT,
                 "Decoder speaker layout changed from ${decoded.size} to $channels channels without a format notification")
             decoded
-        }, onReport = onReport, processingEnabled = processingEnabled, listeningMode = listeningMode)
+        }, onReport = onReport, processingEnabled = processingEnabled, listeningMode = listeningMode,
+            renderPreampDb = renderPreampDb, meteringEnabled = meteringEnabled, onLevels = onLevels)
     }
 
     override fun buildAudioRenderers(context: Context, extensionRendererMode: Int, mediaCodecSelector: MediaCodecSelector,

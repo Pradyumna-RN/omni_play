@@ -78,6 +78,22 @@ DSP, and requires an output capable of receiving float PCM.
 This is an app-owned audio path. It does not access protected Apple Music PCM,
 decode Atmos objects itself, capture another app or provide a streaming catalogue.
 
+## Channel metering and Music gain
+
+`AudioLevelMeter` reads consumed PCM without altering bytes, buffer positions or
+marks. Independent channel RMS/peaks use full-scale dBFS, never relative per-channel
+normalization. Approximately 50 ms windows publish through a dedicated flow only
+while the player monitor is open and playing in the foreground. Stereo bypass is
+still unchanged. Source and output channels are distinct; unknown speaker layouts
+are not guessed. Pause/flush/discontinuity reset meter history.
+These are sink PCM measurements before output gain, device effects and hardware
+buffering, not acoustic measurements or sample-exact alignment with the listener.
+
+Music supplies `renderPreampDb = 0f`, removing its prior fixed −14 dB surround
+attenuation. The private renderer's existing peak limiter stays active in both
+comparison modes. Standalone `DownmixFormat` defaults and the private renderer
+source are unchanged; other clients can supply their own preamp.
+
 ## Checks
 
 ```sh

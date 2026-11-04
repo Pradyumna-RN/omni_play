@@ -1,4 +1,4 @@
-# Apple Music account playback — 0.3.26
+# Apple Music account playback — 0.3.27
 
 Music now contains two experimental account paths. Both require the listener's
 active subscription and run inside this app on Android 11+ (ARM64/x86-64).
@@ -23,16 +23,18 @@ that behavior has not been tested with a live subscriber here.
 
 ## Native lossless and multichannel
 
-Choose **Set up lossless & multichannel** in the same settings card. Import your
-compatible Apple Music **3.6.0-beta / build 1109** APK or APKM, then enter your Apple
-Account credentials and verification code privately in the app. Music verifies
-every required runtime library against its pinned SHA-256 before loading anything.
-The source installer is never installed or uploaded. In 0.3.25 the picker accepts
-APKM bundles regardless of the MIME type assigned by the file manager. In
-0.3.24, a greyed-out bundle can be imported by renaming a copy to `.zip` without
-extracting it. Current Apple Music 7.x
-installers use a different native ABI and will be rejected rather than guessed.
-Music does not download or distribute Apple's runtime files.
+Choose **Set up lossless & multichannel** in the same settings card. In an
+authorized runtime-bundled build, Music prepares the compatible runtime
+automatically, then shows Apple Account sign-in and verification-code fields.
+There is no document-selection step. Account subscription/entitlement is still
+required, and successful import does not verify live subscriber playback.
+
+Ordinary public-source builds contain no Apple images and retain the one-time
+local import option. The profile requires Apple Music **3.6.0-beta / build 1109**
+for ARM64 or x86-64. Current installers have a different ABI and are rejected.
+Every image is checked against its pinned SHA-256 before loading; preparation is
+cancellable and commits the private directory only after complete verification.
+The installer itself is not installed, uploaded or shipped in Music.
 
 The adapter runs in a non-exported, app-private service process so a vendor crash
 does not crash the interface. Passwords and codes are not persisted by Music.
@@ -72,8 +74,9 @@ per-segment key binding, no credentials on CDN requests and settings callbacks.
 Generated 24-bit ALAC fixtures decode sample-exactly at 192 kHz stereo and 96 kHz
 5.1 through the actual FFmpeg Java/JNI decoder, including a flush/seek.
 
-No compatible Apple binary or subscriber credentials were available for live
-execution here. **Native library loading, Apple sign-in, full commercial-track
+The user-supplied compatible archive passed static hash/ELF inspection and the
+actual importer for both architectures. Automatic bundled preparation is tested
+without executing Apple code. No phone or live subscriber session was available. **Native library loading, Apple sign-in, full commercial-track
 playback, entitlement availability and phone performance remain unverified.**
 The UI integration is implemented; those tests do not establish that a particular
 phone/account will receive lossless or JOC. Test that on the subscribed device
@@ -83,8 +86,35 @@ music upload is needed in chat.
 Build the public adapter with `tools/apple/build_native.py` for both Android
 ABIs and pass `-PrtensorAppleJniDir=<output>/jni`. Host JNI tests also accept
 `-PrtensorAppleHostLibraryDir=<output>/host`. `:app:verifyAppleNativeBundle`
-checks source hashes, packaged adapter hashes and the absence of Apple libraries.
+checks source/adapter hashes and rejects unexpected vendor images. For an
+authorized bundled build, additionally pass
+`-PrtensorAppleRuntimeAssetsDir=/absolute/private/assets`, containing
+`apple-runtime/<ABI>/<18 pinned library names>.bin` and the unmodified original
+`apple-runtime/acknowledgements.html`. The directory must be outside the source
+repository. The APK guard checks every asset hash and the original acknowledgements;
+public source archives exclude all vendor images. The distributor is responsible
+for the redistribution authorization. No contract verification is claimed here.
 
 In 0.3.25, dependency loading starts from the adapter’s playback entry points.
 Unrelated SDK test utilities are not preloaded. A missing required dependency
 still rejects the runtime and identifies the library that requested it.
+
+The supplied old runtime does not meet 16 KiB ELF alignment throughout. Its
+behavior on 16 KiB-page phones remains unverified; the Android 11 minimum and
+two architecture builds are not a guarantee of native runtime compatibility.
+
+The `.bin` suffix is only the compressed APK asset representation. Automatic
+setup restores the original `.so` names and verifies the original byte hashes.
+It prevents Android from storing these assets as uncompressed install-time JNI
+libraries and keeps the APK within the existing OTA size limit.
+
+The build assets can be reproduced from the authorized two-architecture APKM:
+
+```sh
+python3 tools/apple/prepare_runtime_assets.py /private/compatible-installer.apkm \
+  --output /private/runtime-assets
+```
+
+Then pass `-PrtensorAppleRuntimeAssetsDir=/private/runtime-assets`. The preparer
+rejects changed library/acknowledgement hashes and an output inside the source
+repository. It performs no download, account operation or native execution.

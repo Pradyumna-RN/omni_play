@@ -56,7 +56,8 @@ class SurroundBedToDmrTest {
                 else -> null
             }
         } as AudioSink
-        val sink = DownmixAudioSink(output, { FfmpegSpeakerLayout.positions(decoder.channelLayoutMask, decoder.channelCount) }, onReport = reports::add, listeningMode = { mode })
+        val sink = DownmixAudioSink(output, { FfmpegSpeakerLayout.positions(decoder.channelLayoutMask, decoder.channelCount) },
+            onReport = reports::add, listeningMode = { mode }, renderPreampDb = 0f)
         try {
             var configured = false
             var at=0;var queuedEos=false;var done=false

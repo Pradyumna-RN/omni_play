@@ -127,6 +127,7 @@ class MainActivity : ComponentActivity() {
                 onRetryRadio = model::retryRadio,
                 onProcessing = model::processing,
                 playbackPosition = model.playbackPosition,
+                audioLevels = model.audioLevels, onMetering = model::setMetering,
                 onRemovePlay = model::removePlay, onRefreshForYou = model::refreshForYou,
             )
         }

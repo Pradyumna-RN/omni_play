@@ -1,4 +1,15 @@
-# Provider playback checkpoint — 0.3.26
+# Provider playback checkpoint — 0.3.27
+
+## Runtime packaging and verification
+
+An explicit authorized build input now permits bundling the pinned Apple runtime
+outside the public source repository. Setup prepares and verifies it automatically;
+ordinary builds retain local import. The user supplied the archive and stated
+redistribution permission and a paid monthly fee; no independent agreement
+verification is claimed. No account or subscription is bundled. Native runtime
+execution, live Apple sign-in, commercial playback and 16 KiB-page compatibility
+remain unverified. Historical statements about no runtime bundling below describe
+earlier releases.
 
 ## Current audio route
 

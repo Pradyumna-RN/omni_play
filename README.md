@@ -56,6 +56,8 @@ plays the audio**. Provider requests and source selection run off the UI/audio
 threads. Software decoding uses a worker; PCM rendering runs in Media3's audio
 path. Player events and `AudioPipeline` reports update the UI, while a separate
 position StateFlow updates the timelines without rebuilding the whole screen.
+The expandable channel monitor has its own level StateFlow; metering is disabled
+when collapsed, paused or outside the foreground.
 
 ### Audio signal flow
 
@@ -80,11 +82,17 @@ flowchart TB
     STEREO --> SINK["DefaultAudioSink<br/>Android AudioTrack"]
     BYPASS --> SINK
     ORIGINAL -->|"If supported"| SINK
+    PCM -.->|"Input levels"| METER["Read-only PCM meters<br/>Absolute RMS / peak dBFS"]
+    STEREO -.->|"Rendered levels"| METER
+    BYPASS -.->|"Unchanged levels"| METER
+    METER -->|"Approx. 20 Hz / panel open"| PANEL["Player channel monitor<br/>Actual source positions + output"]
     SINK --> DEVICE["Active Android output device"]
 ```
 
 The adapter converts known multichannel **44.1/88.2/176.4 kHz → 48/96/192 kHz**
-for the core. Stereo bypasses that conversion. Original and Processed share the
+for the core. Stereo bypasses that conversion. Music uses unity preamp for the surround path, retaining the original core's peak
+limiter instead of the previous fixed −14 dB cut. Stereo bytes remain unchanged.
+Original and Processed share the
 stream lifecycle and switch with a fade, without loading another recording.
 The private adapter explicitly disables synthetic upmixing. The standard decoder
 feeds its original 5.1/7.1 bed to DMR; no invented side, rear or height speakers,
@@ -115,8 +123,11 @@ not forwarded to returned media/CDN URLs.
 
 Apple Music has experimental in-app account playback: first-party web sign-in
 for Widevine AAC, and a subscriber-native adapter for ALAC and multichannel
-recordings. The native path requires a compatible, user-imported Apple runtime;
-Apple libraries are not distributed in Music. Qobuz still uses a connected gateway.
+recordings. Authorized integrated builds can package the compatible runtime as
+private build assets and prepare it automatically before sign-in. Ordinary public
+source builds retain local runtime import and include no Apple runtime files.
+The distributor supplies redistribution authorization; this repository contains
+no Apple binaries. Qobuz still uses a connected gateway.
 Native TIDAL account playback remains experimental; live subscription
 playback and physical-phone performance need separate validation.
 
@@ -125,14 +136,14 @@ playback and physical-phone performance need separate validation.
 ```mermaid
 flowchart TB
     SETTINGS["Settings / Playback sources"] --> WEB["Apple first-party web sign-in<br/>Isolated WebView profile"]
-    SETTINGS --> IMPORT["Import compatible APK / APKM<br/>Exact runtime hashes / device ABI"]
+    SETTINGS --> IMPORT["Prepare compatible runtime<br/>Bundled assets or local import<br/>Exact hashes / device ABI"]
     IMPORT --> NATIVE["Private in-app native process<br/>Subscriber sign-in and verification code"]
     WEB --> SESSION["Encrypted account session<br/>Apple catalogue matching"]
     NATIVE --> SESSION
     SESSION --> CHOICE{"Available matching rendition?"}
     CHOICE -->|"Native multichannel / ALAC"| HLS["Pinned HLS rendition<br/>Actual MP4 codec / rate / channels"]
     HLS --> DEMUX["Media3 sample extraction<br/>Per-segment key / MP4 sample metadata"]
-    DEMUX <--> SDK["Imported native runtime<br/>Account-authorized sample processing"]
+    DEMUX <--> SDK["Verified native runtime<br/>Account-authorized sample processing"]
     DEMUX --> CLEAR["Encoded audio in memory<br/>ALAC / E-AC-3 / JOC"]
     CLEAR --> DECODE["FFmpeg ALAC / standard surround-bed decoder"]
     DECODE --> PCM["Stereo bypass or multichannel DMR<br/>Original / Processed"]
@@ -179,6 +190,24 @@ the Android installer. Installation still needs the user's confirmation.
 | [decoder-openjoc](decoder-openjoc/) | Standalone experimental reconstruction research; excluded from Music. |
 | [dsp](dsp/) | PCM/rate/layout adapter, original private DMR JNI boundary, Original/Processed comparison and diagnostics. |
 | [Updates](app/src/main/java/labs/rtensor/music/updates/) | GitHub release discovery and verified in-place APK updates. |
+
+## Music 0.3.27 — channel monitor, volume and automatic Apple setup
+
+Adds an expandable channel monitor to the player. Input nodes represent only the
+actual decoded speakers; unknown layouts use numbered channels. RMS fill and peak
+rings use a fixed −60 to 0 dBFS scale, with separate output meters before Android
+volume. Pause, seek, track changes and leaving the foreground clear the display.
+Meter updates stay outside MusicState and do not rebuild the player controls.
+
+Removes Music's fixed −14 dB multichannel preamp reduction while retaining the
+private core's peak limiter. Stereo bypass remains sample-unchanged. This fixes a
+measured surround-path level loss, not a verified phone comparison with YouTube Music.
+
+The integrated build can prepare a user-authorized, hash-pinned Apple runtime
+without document import. The runtime assets remain outside the public source;
+ordinary builds still support local import. This does not establish successful
+native loading, Apple subscriber sign-in or delivered commercial lossless/Atmos.
+The old runtime also has unverified compatibility with 16 KiB-page devices.
 
 ## Music 0.3.26 — original surround-bed rendering
 
