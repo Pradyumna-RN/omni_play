@@ -3,6 +3,146 @@
 Temporary name: **Music**. Native Android player from RTensorLabs with the approved
 Margin visual direction: warm paper, DM Sans, original provider artwork and raspberry controls.
 
+## Architecture
+
+Music has three main paths: **discover a recording**, **choose its audio source**,
+and **decode/render it inside the Android app**. The diagrams describe the current
+implementation; experimental adapters and unfinished integrations are labelled.
+
+### App and playback control
+
+```mermaid
+flowchart TB
+    UI["Compose interface<br/>Home / Explore / Library<br/>Player / Settings"]
+    VM["MusicViewModel<br/>Screen state and queue actions"]
+    UI <-->|"Actions / state"| VM
+    VM <--> STORE["Local library and settings<br/>Saved songs / history / files"]
+    VM <--> YT["YouTube data layer<br/>Catalogue and stream URLs"]
+    YT <--> ENGINE["Bundled JavaScript engine<br/>Native HTTP and proof bridges"]
+    ENGINE <--> CLOUD["YouTube / YouTube Music"]
+    VM <-->|"Commands / player events"| CONTROL["MediaController"]
+    CONTROL <--> SERVICE["Playback service<br/>MediaSession and notification"]
+    SERVICE --> SELECT["Source routing<br/>Match / rank / pin a recording"]
+    STORE -->|"Imported files"| SELECT
+    YT -->|"YouTube fallback"| SELECT
+    SOURCES["Connected playback sources<br/>TIDAL account: experimental<br/>Provider servers / addons"] --> SELECT
+    SELECT --> PLAYER["Media3 ExoPlayer<br/>Buffer / seek / stream cache"]
+    PLAYER --> AUDIO["Decode and PCM rendering<br/>See audio flow below"]
+    AUDIO --> OUTPUT["Android audio output<br/>Phone / wired / Bluetooth / USB"]
+```
+
+The ViewModel also uses local listening history with `Recommender` for Mixed for
+you and radio filtering. The catalogue item keeps its YouTube identity, artwork
+and history when another source supplies the audio. Matching checks title, artist, duration and edition.
+Available candidates rank **JOC first → discrete lossless multichannel → lossless
+stereo by sample rate/bit depth**, with local files competing against connected
+sources. An explicitly imported local track plays its own file directly.
+
+Source selection happens before the physical MediaSource is created. Seeks retain
+that source and encoding. A failed or contradictory provider format triggers a
+bounded fallback through a new source at the current position. Rendition rejection
+is independent of rotating URLs; byte-cache reuse across changing paths requires
+an explicit immutable-file identity. Adaptive streams keep their representation
+pinned and bypass the progressive-file cache.
+
+The hidden WebViews run the bundled YouTube client and proof code; **ExoPlayer
+plays the audio**. Provider requests and source selection run off the UI/audio
+threads. Software decoding uses a worker; PCM rendering runs in Media3's audio
+path. Player events and `AudioPipeline` reports update the UI, while a separate
+position StateFlow updates the timelines without rebuilding the whole screen.
+
+### Audio signal flow
+
+```mermaid
+flowchart TB
+    INPUT["Selected file or stream"] --> DEMUX["Media3 demux / manifest parsing<br/>Actual encoded audio format"]
+    DEMUX -->|"48 kHz clear JOC<br/>Scene decoder enabled"| JOC["OpenJOC - experimental<br/>7.1.4 float PCM<br/>Explicit speaker positions"]
+    DEMUX -->|"AC-3 / E-AC-3<br/>FFmpeg packaged"| FFMPEG["FFmpeg decoder<br/>Multichannel bed PCM"]
+    DEMUX -->|"Other supported codecs<br/>Platform fallback"| PLATFORM["Android / Media3 decoder"]
+    JOC --> PCM["Decoded PCM<br/>Channel-layout information"]
+    FFMPEG --> PCM
+    PLATFORM --> PCM
+    PCM --> CHANNELS{"PCM route?"}
+
+    CHANNELS -->|"Mono or stereo"| BYPASS["Unchanged PCM<br/>No app DSP or resampling"]
+    CHANNELS -->|"Known multichannel layout<br/>DMR available"| ADAPT["DownmixAudioSink<br/>Float + rate adapter"]
+    CHANNELS -->|"Unsupported processing<br/>or unknown layout"| ORIGINAL["Android delegate<br/>Original PCM if supported"]
+    ADAPT --> MODE{"Mode?"}
+    MODE -->|"Original"| FRONT["DMR comparison<br/>Front L/R only<br/>Shared gain and delay"]
+    MODE -->|"Processed"| DMR["Private DMR<br/>Speaker downmix"]
+    MODE -->|"Spatial"| SPATIAL["DMR field + HRIRs<br/>Binaural for headphones"]
+    FRONT --> STEREO["Two-channel rendered PCM"]
+    DMR --> STEREO
+    SPATIAL --> STEREO
+    STEREO --> SINK["DefaultAudioSink<br/>Android AudioTrack"]
+    BYPASS --> SINK
+    ORIGINAL -->|"If supported"| SINK
+    SINK --> DEVICE["Active Android output device"]
+```
+
+The adapter converts known multichannel **44.1/88.2/176.4 kHz → 48/96/192 kHz**
+for the core. Stereo bypasses that conversion. Original/Processed/Spatial share
+the stream's processing lifecycle and switch with a fade, without loading another
+recording. When decoded input already contains height speakers, synthetic height
+upmix stays off. Plain surround beds may use the renderer's synthetic 9.1.6 field.
+
+The private DMR is bundled into integrated APKs through JNI; there is no separate
+DSP app to install. Its implementation and coefficients stay outside this public
+repository. **Multichannel here describes the decoded input:** processed and
+spatial output is two-channel PCM. Spatial targets headphones; physical output
+routing is still Android's responsibility. Android's mixer/hardware may convert
+audio, so stereo bypass does not establish system-wide bit-perfect output.
+
+Unsupported layouts use the Android delegate only when it accepts the format.
+Other failures are classified by decoder, layout, DSP or output stage and reported
+back to the player.
+
+OpenJOC reconstructs supported JOC signals experimentally and does not claim Dolby
+renderer equivalence. Its reported 609-sample speaker latency is uncompensated.
+FFmpeg's bed decode is a separate route. See [decoder details](decoder-openjoc/README.md),
+[PCM/DSP integration](dsp/README.md) and [current provider status](PROVIDER_PLAYBACK_STATUS.md).
+
+### Accounts, storage and updates
+
+Google account selection, the YouTube web session and TIDAL's browser PKCE flow
+are separate account paths. `AccountSession` seals session credentials and source
+profiles with Android KeyStore; saved songs, preferences and listening history
+stay in local app storage. Account/server authorization is used for API requests,
+not forwarded to returned media/CDN URLs.
+
+Apple Music and Qobuz can be represented through compatible user-connected
+gateways. **Their native account playback is unfinished.** `tools/apple/` is a
+read-only runtime compatibility investigation, not a working playback adapter.
+Native TIDAL account playback and OpenJOC remain experimental; live subscription
+playback and physical-phone performance need separate validation.
+
+```mermaid
+flowchart LR
+    RELEASE["GitHub release<br/>APK + checksums"] --> UPDATE["GitHubUpdater<br/>Size + SHA-256"]
+    UPDATE --> IDENTITY["Verify app ID<br/>Version + signature"]
+    IDENTITY --> INSTALL["Android installer<br/>User confirms"]
+    INSTALL --> APP["Music updated<br/>App data retained"]
+```
+
+The updater checks the APK size and hash, requires the same package and signing
+certificate as the installed app, and requires a newer version code before opening
+the Android installer. Installation still needs the user's confirmation.
+
+### Code map
+
+| Component | Responsibility |
+| --- | --- |
+| [MainActivity](app/src/main/java/labs/rtensor/music/MainActivity.kt), [UI](app/src/main/java/labs/rtensor/music/ui/) | Compose screens, system account/file pickers and playback controls. |
+| [MusicViewModel](app/src/main/java/labs/rtensor/music/MusicViewModel.kt) | Observable state, catalogue requests, queue commands, history, radio and the independent progress clock. |
+| [YouTubeRuntime](app/src/main/java/labs/rtensor/music/data/YouTubeRuntime.kt), [youtube-engine](youtube-engine/) | Bundled YouTube client, native request/proof bridges, session verification and signed stream resolution. |
+| [Auth](app/src/main/java/labs/rtensor/music/auth/), [YouTubeLoginActivity](app/src/main/java/labs/rtensor/music/YouTubeLoginActivity.kt) | Google account selection, device-assisted YouTube web login and session capture; TIDAL PKCE lives in the source adapter. |
+| [Playback](app/src/main/java/labs/rtensor/music/playback/) | MediaSession/ExoPlayer, source factories, cache/range handling, fallback, background playback and notification. |
+| [Playback sources](app/src/main/java/labs/rtensor/music/sources/) | TIDAL account adapter, server/addon connectors, manifest validation, matching, ranking and rendition/file identities. |
+| [Local data](app/src/main/java/labs/rtensor/music/data/) | Library/history, imported master matching, account storage, metadata and on-device recommendation helpers. |
+| [decoder-ffmpeg](decoder-ffmpeg/), [decoder-openjoc](decoder-openjoc/) | Optional software bed decoding and experimental JOC reconstruction, before the PCM sink. |
+| [dsp](dsp/) | Public PCM/rate/layout adapter, private DMR JNI boundary, listening modes, binaural stage and diagnostics. |
+| [Updates](app/src/main/java/labs/rtensor/music/updates/) | GitHub release discovery and verified in-place APK updates. |
+
 ## Music 0.3.19 — provider identity and decoder reset fixes
 
 Fixes failed recordings re-entering selection when a signed URL rotates. Rendition
