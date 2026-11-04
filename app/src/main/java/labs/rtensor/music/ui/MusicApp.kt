@@ -48,6 +48,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
@@ -85,6 +86,7 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -451,9 +453,15 @@ private fun HomeScreen(state: MusicState, onSearch: () -> Unit, onPlay: (Track, 
                 Column(Modifier.weight(.46f)) {
                     Caption(if (recent == null) "START WITH A SONG" else "LAST PLAYED")
                     Spacer(Modifier.height(10.dp))
-                    Text(recent?.title ?: "Find your\nnext repeat.", fontFamily = font, fontWeight = FontWeight.Medium, fontSize = 27.sp, lineHeight = 31.sp, letterSpacing = (-1).sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                    if (recent == null) Text("Find your\nnext repeat.", fontFamily = font, fontWeight = FontWeight.Medium,
+                        fontSize = 27.sp, lineHeight = 31.sp, letterSpacing = (-1).sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                    else ScrollingMetadata(recent.title,
+                        TextStyle(fontFamily = font, fontWeight = FontWeight.Medium, fontSize = 27.sp, lineHeight = 31.sp, letterSpacing = (-1).sp))
                     Spacer(Modifier.height(10.dp))
-                    Text(recent?.artist ?: "A song, an artist,\na familiar feeling.", fontSize = 12.sp, lineHeight = 19.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    if (recent == null) Text("A song, an artist,\na familiar feeling.", fontSize = 12.sp, lineHeight = 19.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    else ScrollingMetadata(recent.artist,
+                        TextStyle(fontSize = 12.sp, lineHeight = 19.sp, color = MaterialTheme.colorScheme.onSurfaceVariant))
                     Spacer(Modifier.height(18.dp))
                     Row(Modifier.clip(RoundedCornerShape(24.dp)).pressable { if (recent != null) onPlay(recent, state.history) else onSearch() }.padding(end = 12.dp),
                         verticalAlignment = Alignment.CenterVertically) {
@@ -600,9 +608,23 @@ private fun LazyListScope.feedSections(sections: List<FeedSection>, onEntry: (Fe
 private fun MediaCard(title: String, subtitle: String, art: Track, size: Dp, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Column(modifier.width(size).clip(RoundedCornerShape(12.dp)).pressable(onClick = onClick)) {
         Artwork(art, Modifier.size(size).clip(RoundedCornerShape(12.dp)), size = size)
-        Text(title, fontSize = 13.sp, lineHeight = 18.sp, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 10.dp))
-        if (subtitle.isNotBlank()) Text(subtitle, fontSize = 11.sp, lineHeight = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 3.dp, bottom = 4.dp))
+        ScrollingMetadata(title, TextStyle(fontSize = 13.sp, lineHeight = 18.sp, fontWeight = FontWeight.Medium), Modifier.padding(top = 10.dp))
+        // Keep the artist slot even before metadata arrives, so the next shelf never moves.
+        ScrollingMetadata(subtitle, TextStyle(fontSize = 11.sp, lineHeight = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant), Modifier.padding(top = 3.dp, bottom = 4.dp))
     }
+}
+
+/** One line per metadata field. Marquee changes drawing, not measurement or gestures. */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun ScrollingMetadata(text: String, style: TextStyle, modifier: Modifier = Modifier) {
+    val reduced = LocalReducedMotion.current
+    val line = remember(text) { text.replace("\r\n", " ").replace('\n', ' ').replace('\r', ' ') }
+    Text(line, style = LocalTextStyle.current.merge(style),
+        modifier = modifier.fillMaxWidth().clipToBounds().then(if (reduced) Modifier else Modifier.basicMarquee(
+            iterations = Int.MAX_VALUE, initialDelayMillis = 1_500, repeatDelayMillis = 1_500, velocity = 24.dp)),
+        minLines = 1, maxLines = 1, softWrap = false,
+        overflow = if (reduced) TextOverflow.Ellipsis else TextOverflow.Clip)
 }
 
 @Composable
@@ -1623,8 +1645,8 @@ private fun MiniPlayer(state: MusicState, onOpen: () -> Unit, onToggle: () -> Un
                     Artwork(shown, Modifier.size(44.dp).clip(RoundedCornerShape(10.dp)), size = 44.dp)
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
-                        Text(shown.title, fontSize = 14.sp, lineHeight = 18.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(shown.artist, fontSize = 12.sp, lineHeight = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
+                        ScrollingMetadata(shown.title, TextStyle(fontSize = 14.sp, lineHeight = 18.sp, fontWeight = FontWeight.Medium))
+                        ScrollingMetadata(shown.artist, TextStyle(fontSize = 12.sp, lineHeight = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant), Modifier.padding(top = 2.dp))
                     }
                 }
             }

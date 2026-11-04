@@ -143,6 +143,14 @@ the Android installer. Installation still needs the user's confirmation.
 | [dsp](dsp/) | Public PCM/rate/layout adapter, private DMR JNI boundary, listening modes, binaural stage and diagnostics. |
 | [Updates](app/src/main/java/labs/rtensor/music/updates/) | GitHub release discovery and verified in-place APK updates. |
 
+## Music 0.3.22 — stable Home rows and scrolling song information
+
+Song choices, Last played and the compact bottom bar use one line each for the
+title and artist. Long metadata scrolls horizontally within its own slot, keeping
+artwork, controls and the next row in place. An empty artist retains its slot
+while metadata loads. Text follows the device font size; full-player layout and
+playback behaviour are unchanged.
+
 ## Music 0.3.21 — simpler Settings
 
 Settings is one scrolling page, without the pinned section selector or Reduce

@@ -1,4 +1,26 @@
-# Current verification: Music 0.3.21 / simplified Settings
+# Current verification: Music 0.3.22 / stable Home layout and scrolling metadata
+
+**182 app tests, 88 DSP tests and 8 scene-decoder tests pass** (278 total), with
+no failures, errors or skipped tests. Android lint and all three integrated
+APK packaging guards also pass.
+
+- The pre-fix Compose checks reproduce shelves moving 57 dp at the normal test
+  width and 83 dp on a narrow screen with larger text, plus a 56 dp shift of the
+  Home Play control when a title/artist wraps.
+- Song cards, Last played and the compact bar use a single title line and a single
+  artist line, including when the artist is initially empty. Text keeps the current
+  typography and scales with the configured font size.
+- Regression checks compare section/control coordinates across horizontal scrolling,
+  metadata refreshes and short/long song names, at normal and enlarged font sizes.
+- A frame-clock/pixel check verifies that overflowing compact-bar text visibly scrolls
+  while its bounds and playback-control positions remain unchanged. Full metadata
+  remains in accessibility semantics. Reduced-motion rendering uses static ellipsis.
+
+These are host Robolectric/Compose rendering checks. No Android phone is connected.
+The full player, source resolution, decoder/DSP binaries and playback behaviour are
+unchanged. Version 0.3.22/code25 uses the existing package/signature and OTA filenames.
+
+# Previous verification: Music 0.3.21 / simplified Settings
 
 **178 app tests, 88 DSP tests and 8 scene-decoder tests pass** (274 total), with
 no failures, errors or skipped tests. Android lint and all three integrated
