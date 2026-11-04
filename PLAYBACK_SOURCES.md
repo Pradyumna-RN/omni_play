@@ -63,6 +63,27 @@ and a remote source falls back to the next candidate. Protected provider players
 automatically expose raw PCM to this app. Device decoding and commercial account
 playback require validation with the user's actual source and phone.
 
+## Rendition identity and byte caching
+
+Failed renditions are remembered by their source, recording, format and stable
+representation ID. Signed URL changes and inline-manifest signatures do not make
+a rejected rendition eligible again. DASH uses its Representation ID when supplied;
+without one, selection falls back to the representation index and format.
+
+Gateway/addon responses may supply `representationId` (a stable rendition ID) and
+`fileId` (an immutable identifier for the exact encoded bytes). A `fileId` must
+change if metadata, container or audio bytes change. A catalogue track ID, a signed
+URL, and a hash of a signed manifest do not establish that identity. Adapter-bound
+source namespaces keep separate configured servers and the native account apart.
+
+With a valid `fileId`, byte-cache identity survives signed-path/host rotation.
+Without one, byte caching retains transport isolation; we do not assume two URLs
+with the same codec/track fields contain identical bytes. Native TIDAL currently
+does not provide a verified immutable-file identifier here, so its changing paths
+can miss the byte cache. Normal seeks keep their existing MediaSource and URL, and
+DASH playback already bypasses this progressive-file cache. Queue-level cache
+isolation also remains: this does not promise cache hits across independent plays.
+
 ## Direct TIDAL and experimental JOC
 
 TIDAL sign-in opens the system browser. Tokens and pending PKCE state are sealed

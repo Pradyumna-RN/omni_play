@@ -3,6 +3,20 @@
 Temporary name: **Music**. Native Android player from RTensorLabs with the approved
 Margin visual direction: warm paper, DM Sans, original provider artwork and raspberry controls.
 
+## Music 0.3.19 — provider identity and decoder reset fixes
+
+Fixes failed recordings re-entering selection when a signed URL rotates. Rendition
+rejection is independent of transport URLs; exact-file cache reuse uses explicit
+immutable-file IDs when supplied, with source/format isolation retained.
+
+Fixes a stale end timestamp after decoder flush followed directly by EOF. The
+pinned OpenJOC `OUTPUT_PENDING` retry contract was checked against its source and
+a real C-API backpressure probe. Decoder latency is explicitly documented as
+uncompensated; no unvalidated sample trimming was added. Apple tooling, TIDAL
+sign-in, provider routes and the existing UI are retained. VersionCode is 22.
+
+See [review findings](PROVIDER_REVIEW_FINDINGS.md) for evidence and remaining limits.
+
 ## Music 0.3.18 — experimental scene decoding and native TIDAL sources
 
 Adds opt-in OpenJOC 0.20.1 reconstruction of supported clear 48 kHz JOC music into

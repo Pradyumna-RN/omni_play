@@ -65,3 +65,13 @@ guards. Media3 parses the real M4A reference to EOF and reports E-AC-3 JOC befor
 renderer selection. Native packet/seek/flush tests pass with cooperative polling;
 the initial busy-poll harness timeout under combined build load was corrected
 without changing the decoder or extending its deadline.
+
+## 0.3.19 review follow-up
+
+Rendition rejection now has its own stable identity, independent of signed URL
+paths, manifest signatures and representation ordering when IDs are available.
+Exact-file cache identities are optional and source-bound; unknown-file byte
+ranges stay isolated. A stale JNI sample position after flush → empty EOS is
+fixed. Decoder latency remains uncompensated and is now documented explicitly.
+Apple tooling, the TIDAL account path and existing provider features are retained.
+See [the review record](PROVIDER_REVIEW_FINDINGS.md).

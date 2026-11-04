@@ -124,7 +124,7 @@ public class OpenJocDecoderTest {
     try {
       Result r=decode(d,encoded,6,0);
       assertEquals((300*1536+32)*12*4,r.pcm.length);
-      assertEquals(0,r.first);assertTrue(d.getLatencySamples()>0);
+      assertEquals(0,r.first);assertEquals(609,d.getLatencySamples());
       ByteBuffer samples=ByteBuffer.wrap(r.pcm).order(ByteOrder.nativeOrder());double heights=0;boolean audio=false;
       for(int i=0;samples.hasRemaining();i++){float v=samples.getFloat();assertTrue(Float.isFinite(v));audio|=Math.abs(v)>1e-6f;if(i%12>=8)heights+=v*v;}
       assertTrue(audio);assertTrue("Decoded objects must reach height speakers",heights>1e-5);
@@ -164,6 +164,14 @@ public class OpenJocDecoderTest {
       DecoderInputBuffer held=d.dequeueInputBuffer();assertNotNull(held);d.flush();
       Result actual=decode(d,encoded,6,3_000_000);assertEquals(3_000_000,actual.first);
       assertEquals((300*1536+32)*12*4,actual.pcm.length);
+    }finally{d.release();}
+  }
+  @Test public void flushThenEosDoesNotReuseThePreviousStreamsSamplePosition() throws Exception {
+    byte[] encoded=recording();OpenJocAudioDecoder d=new OpenJocAudioDecoder(65536);
+    try {
+      decode(d,encoded,6,0);d.flush();
+      Result empty=decode(d,new byte[0],6,37_000_000);
+      assertTrue(empty.eos);assertEquals(0,empty.pcm.length);assertEquals(37_000_000,empty.end);
     }finally{d.release();}
   }
 }

@@ -27,12 +27,13 @@ internal object SourceStreamDecoder {
             o.optBoolean("atmos") || o.optString("audioQuality") == "DOLBY_ATMOS",
             manifest = o.optBoolean("manifest"), transportMime = o.optString("transportMime").ifBlank {
                 when (o.optString("format").lowercase()) { "dash" -> "application/dash+xml"; "hls" -> "application/x-mpegURL"; else -> mime }
-            })
+            }, representationId = identity(o, "representationId"), fileId = identity(o, "fileId"))
         return stream.takeIf { !requirePlayable || (it.eligible && it.matches(track)) }
     }
 
     private fun mediaUrl(o: JSONObject) = listOf("url", "streamUrl", "streamURL", "directUrl", "mediaUrl", "downloadUrl")
         .firstNotNullOfOrNull { o.optString(it).takeIf { v -> v.isNotBlank() } }.orEmpty()
+    private fun identity(o: JSONObject, key: String) = (o.opt(key) as? String)?.trim()?.takeIf { it.length <= 512 }.orEmpty()
     private fun number(o: JSONObject, metadata: JSONObject, keys: List<String>): Double = keys.firstNotNullOfOrNull { key ->
         o.optDouble(key, metadata.optDouble(key, Double.NaN)).takeIf { it.isFinite() && it > 0 }
     } ?: 0.0

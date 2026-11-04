@@ -13,7 +13,17 @@ speakers, the DMR adapter leaves its synthetic height upmix disabled.
 The JNI adapter owns native decoding on one worker thread. Its bounded input and
 output pools support backpressure, flush, seek preroll and filter draining before
 EOS. The reference JOC fixture emits 32 extra drain samples; the library also
-reports internal render latency. Neither is a bit-perfect or zero-latency claim.
+reports internal render latency. **The app does not compensate that latency:**
+it does not subtract it from timestamps, trim it from PCM, or request additional
+decoder-latency preroll from Media3. Existing seek trimming only discards output
+whose presentation time precedes the requested seek time. The pinned speaker
+renderer reports 609 samples (about 12.69 ms at 48 kHz); that is different from
+the fixture's 32-sample drain tail. Neither is a bit-perfect or zero-latency claim.
+
+The ABI-1.7 implementation returns `OUTPUT_PENDING` before staging any of the
+offered input. Retrying that same input after draining output is required. The
+host `tools/backpressure_probe.cpp` exercises the real C API, forces refusals,
+then compares the retried PCM byte-for-byte with normally drained decoding.
 
 ## Source and build
 

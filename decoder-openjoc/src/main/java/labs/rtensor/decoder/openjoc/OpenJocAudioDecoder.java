@@ -48,6 +48,7 @@ public final class OpenJocAudioDecoder implements Decoder<DecoderInputBuffer, Si
   @Override public String getName() { return "openjoc-0.20.1-speaker-experimental"; }
   public int getChannelCount() { return CHANNELS; }
   public int getSampleRate() { return RATE; }
+  /** Informational native delay; not subtracted from PCM or presentation times. */
   public int getLatencySamples() { return latencySamples; }
   /** FFmpeg/AV channel-mask order: FL FR FC LFE BL BR SL SR TFL TFR TBL TBR. */
   public long getChannelLayoutMask() { return 0x3fL | (1L<<9) | (1L<<10) | (1L<<12) | (1L<<14) | (1L<<15) | (1L<<17); }

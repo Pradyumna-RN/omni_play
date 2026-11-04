@@ -6,6 +6,7 @@ import labs.rtensor.music.data.Track
 import androidx.media3.common.StreamKey
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import org.json.JSONObject
+import org.json.JSONArray
 import java.security.MessageDigest
 
 enum class MusicProvider(val label: String, val wire: String) {
@@ -44,15 +45,24 @@ data class SourceConnection(val id: String, val name: String, val provider: Musi
 data class ProviderStream(val id: String, val provider: MusicProvider, val url: String, val title: String, val artist: String,
     val durationMs: Long, val mime: String, val sampleRate: Int, val bitDepth: Int, val channels: Int,
     val atmos: Boolean = false, val manifest: Boolean = false, val transportMime: String = mime,
-    val streamKeys: List<StreamKey> = emptyList()) {
+    val streamKeys: List<StreamKey> = emptyList(),
+    /** Bound by the adapter, never accepted from a server response. */
+    val sourceId: String = "",
+    /** Provider rendition ID; independent of signed URLs and manifest ordering. */
+    val representationId: String = "",
+    /** Optional immutable encoded-file ID, not a catalogue or manifest hash. */
+    val fileId: String = "") {
     val lossless: Boolean get() = mime in setOf("audio/flac", "audio/alac", "audio/wav", "audio/x-wav", "audio/raw")
     val verifiedAtmosCodec: Boolean get() = atmos && mime == "audio/eac3-joc"
+    val representationKey: String get() = hash("rendition-v1", listOf(provider.wire, sourceId, id, mime,
+        transportMime, sampleRate, bitDepth, channels, verifiedAtmosCodec,
+        representationId.ifBlank { streamKeys.joinToString() }, fileId))
     val cacheKey: String get() {
-        // Signed URLs rotate. Stable recording/format identity keeps seeks safe,
-        // while preventing AAC, FLAC and different masters from sharing bytes.
+        // Rejection uses representationKey, never a signed URL. Byte ranges can
+        // survive path rotation only when the source identifies the exact file.
+        if (fileId.isNotBlank()) return "source-v3:$representationKey"
         val location = url.toHttpUrlOrNull()?.newBuilder()?.query(null)?.fragment(null)?.build()?.toString() ?: url
-        val identity = "${provider.wire}:$id:$mime:$transportMime:$sampleRate:$bitDepth:$channels:${streamKeys.joinToString()}:$location"
-        return "source-v2:" + MessageDigest.getInstance("SHA-256").digest(identity.toByteArray()).joinToString("") { "%02x".format(it) }
+        return hash("source-v3", listOf(representationKey, location))
     }
     fun matches(track: Track): Boolean = PlaybackRoute.matches(track, asMaster())
     fun asMaster() = Master(url, title, artist, durationMs, channels, sampleRate, bitDepth, mime, verifiedAtmosCodec)
@@ -67,6 +77,8 @@ data class ProviderStream(val id: String, val provider: MusicProvider, val url: 
             (channels <= 2 || supportedMultichannel || (sampleRate == 0 && (lossless || verifiedAtmosCodec))) && durationMs > 0
     }
     val requestedLabel: String get() = "${provider.label} · checking audio…"
+    private fun hash(prefix: String, fields: List<Any>): String = "$prefix:" + MessageDigest.getInstance("SHA-256")
+        .digest(JSONArray(fields).toString().toByteArray()).joinToString("") { "%02x".format(it) }
 }
 
 object SourceQuality {

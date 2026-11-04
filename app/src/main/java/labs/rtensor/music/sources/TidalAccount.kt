@@ -142,10 +142,10 @@ class TidalAccount(
                     try {
                         val response = authenticated("tracks/$id/playbackinfopostpaywall", mapOf("countryCode" to country,
                             "audioquality" to "HI_RES_LOSSLESS", "playbackmode" to "STREAM", "assetpresentation" to "FULL"))
-                    require(response.optString("assetPresentation") == "FULL") { "TIDAL did not return the full recording." }
+                        require(response.optString("assetPresentation") == "FULL") { "TIDAL did not return the full recording." }
                         TidalManifests.decode(item, response, API).forEach { candidate ->
                             SourceStreamDecoder.decode(candidate.metadata, track, MusicProvider.TIDAL)
-                                ?.copy(streamKeys = candidate.streamKeys)?.let(result::add)
+                                ?.copy(streamKeys = candidate.streamKeys, sourceId = "native:tidal")?.let(result::add)
                         }
                     } catch (e: kotlinx.coroutines.CancellationException) { throw e }
                     catch (e: Exception) { failure = e }
@@ -178,7 +178,7 @@ class TidalAccount(
             val data = JSONObject().put("assetPresentation", "FULL").put("audioMode", "DOLBY_ATMOS")
                 .put("manifest", android.util.Base64.encodeToString(text.toByteArray(), android.util.Base64.NO_WRAP))
             return TidalManifests.decode(item, data, url.toString(), externalManifest = true).mapNotNull {
-                SourceStreamDecoder.decode(it.metadata, track, MusicProvider.TIDAL)?.copy(streamKeys = it.streamKeys)
+                SourceStreamDecoder.decode(it.metadata, track, MusicProvider.TIDAL)?.copy(streamKeys = it.streamKeys, sourceId = "native:tidal")
             }
         } catch (e: kotlinx.coroutines.CancellationException) { throw e }
         catch (_: Exception) { return emptyList() } // An unavailable Atmos mix never poisons the lossless alternative.

@@ -37,6 +37,7 @@ data class SourcePlaybackInfo(val stream: ProviderStream?, val fallbackLabel: St
  * request runs on the UI or audio-render thread. A resolved URL is pinned to the
  * lifetime of its MediaSource; a seek never selects a different encoding. */
 class PlaybackSources(val settings: SourceSettings, val tidal: TidalAccount? = null,
+    private val now: () -> Long = System::currentTimeMillis,
     private val clientFactory: (SourceConnection) -> SourceServerClient = { SourceServerClient(it) }) {
     private val mutable = MutableStateFlow<Map<String, SourcePlaybackInfo>>(emptyMap())
     val state = mutable.asStateFlow()
@@ -51,7 +52,7 @@ class PlaybackSources(val settings: SourceSettings, val tidal: TidalAccount? = n
         if (rejected[key].orEmpty().size >= 6) return@coroutineScope null
         val profiles = settings.connections.value.filter { it.enabled }
         val tidalRevision = tidal?.revision ?: 0L
-        val cached = synchronized(resolved) { resolved[key]?.takeIf { System.currentTimeMillis() - it.time < 120_000 && it.settings == profiles && it.tidalRevision == tidalRevision } }
+        val cached = synchronized(resolved) { resolved[key]?.takeIf { now() - it.time < 120_000 && it.settings == profiles && it.tidalRevision == tidalRevision } }
         val streams = cached?.streams ?: (profiles.map { connection -> async {
             withTimeoutOrNull(4500) { runCatching { clientFactory(connection).resolve(track) }.getOrElse { e ->
                 if (e is kotlinx.coroutines.CancellationException) throw e
@@ -59,8 +60,8 @@ class PlaybackSources(val settings: SourceSettings, val tidal: TidalAccount? = n
             } }.orEmpty()
         } } + listOfNotNull(tidal?.takeIf { it.state.value.connected }?.let { account -> async {
             withTimeoutOrNull(6500) { account.resolve(track) }.orEmpty()
-        } })).flatMap { it.await() }.also { candidates -> synchronized(resolved) { resolved[key] = Resolved(candidates, System.currentTimeMillis(), profiles, tidalRevision) } }
-        var remote = SourceQuality.best(track, streams.filter { it.cacheKey !in rejected[key].orEmpty() })
+        } })).flatMap { it.await() }.also { candidates -> synchronized(resolved) { resolved[key] = Resolved(candidates, now(), profiles, tidalRevision) } }
+        var remote = SourceQuality.best(track, streams.filter { it.representationKey !in rejected[key].orEmpty() })
         if (local != null && remote != null) {
             val comparator = PlaybackRoute.qualityOrder
             if (comparator.compare(local, remote.asMaster()) >= 0) remote = null
@@ -94,7 +95,7 @@ class PlaybackSources(val settings: SourceSettings, val tidal: TidalAccount? = n
         val current = mutable.value[key]?.stream ?: return false
         if (rejected.size > 128) rejected.keys.firstOrNull { it != key }?.let(rejected::remove)
         val entries = rejected.computeIfAbsent(key) { ConcurrentHashMap.newKeySet() }
-        return entries.size < 6 && entries.add(current.cacheKey)
+        return entries.size < 6 && entries.add(current.representationKey)
     }
     fun isRemote(key: String) = mutable.value[key]?.stream != null
     fun label(key: String, render: DownmixReport?) = mutable.value[key]?.label(render)

@@ -44,10 +44,12 @@ class ProviderSourcesTest {
         it.connections.value.forEach { c -> it.remove(c.id) }
     }
     private fun stream(id: String, provider: MusicProvider, rate: Int, mime: String = "audio/flac", channels: Int = 2, atmos: Boolean = false) =
-        ProviderStream(id, provider, "https://cdn.example/$id", song.title, song.artist, 200000, mime, rate, 24, channels, atmos)
+        ProviderStream(id, provider, "https://cdn.example/$id", song.title, song.artist, 200000, mime, rate, 24, channels, atmos,
+            sourceId = "server:${connection.id}")
     private fun json(s: ProviderStream) = JSONObject().put("id", s.id).put("provider", s.provider.wire).put("url", s.url)
         .put("title", s.title).put("artist", s.artist).put("durationMs", s.durationMs).put("mime", s.mime)
         .put("sampleRate", s.sampleRate).put("bitDepth", s.bitDepth).put("channels", s.channels).put("atmos", s.atmos)
+        .put("representationId", s.representationId).put("fileId", s.fileId)
     private fun client(profile: SourceConnection = connection, requests: MutableList<Request> = CopyOnWriteArrayList(), respond: (Request) -> String): SourceServerClient {
         val http = SourceServerClient.defaultClient().newBuilder().addInterceptor { chain ->
             val request = chain.request(); requests.add(request)
@@ -75,6 +77,22 @@ class ProviderSourcesTest {
         assertNotEquals(a.cacheKey, a.copy(url = "https://another-cdn.example/a").cacheKey)
         assertNotEquals(a.cacheKey, a.copy(url = "https://cdn.example/another-container").cacheKey)
         assertNotEquals(a.cacheKey, a.copy(transportMime = "audio/mp4").cacheKey)
+        assertEquals(a.representationKey, a.copy(url = "https://cdn.example/path-token-B/audio.flac").representationKey)
+        assertNotEquals(a.representationKey, a.copy(sourceId = "server:another").representationKey)
+    }
+
+    @Test fun immutableEncodedFileIdsAllowCacheReuseWithoutMixingContainersOrFileVersions() = runBlocking {
+        val original = stream("recording", MusicProvider.APPLE_MUSIC, 96000).copy(fileId = "encoded-file-v1")
+        val first = client { JSONObject().put("streams", JSONArray().put(json(original).put("sourceId", "native:tidal"))).toString() }.resolve(song).single()
+        assertEquals("server:one", first.sourceId)
+        assertEquals("encoded-file-v1", first.fileId)
+        val refreshed = first.copy(url = "https://different-cdn.example/new-token/audio.flac")
+        assertEquals(first.cacheKey, refreshed.cacheKey)
+        assertNotEquals(first.cacheKey, refreshed.copy(fileId = "encoded-file-v2").cacheKey)
+        assertNotEquals(first.cacheKey, refreshed.copy(transportMime = "audio/mp4").cacheKey)
+        assertNotEquals(first.cacheKey, refreshed.copy(sourceId = "server:two").cacheKey)
+        val unknown = client { JSONObject().put("streams", JSONArray().put(json(original).put("fileId", JSONObject.NULL))).toString() }.resolve(song).single()
+        assertEquals("", unknown.fileId)
     }
 
     @Test fun nonAtmosLossyMultichannelNeverOutranksLosslessAndMissingRateIsNotInvented() {
@@ -134,18 +152,22 @@ class ProviderSourcesTest {
     @Test fun addonSearchAndStreamMergeMetadataWithoutInventingAPlayableUrl() = runBlocking {
         val profile = connection.copy(protocol = SourceProtocol.ADDON, provider = MusicProvider.LIBRARY)
         var missingUrl = false
+        var knownFile = false
         val requests = CopyOnWriteArrayList<Request>()
         val source = client(profile, requests) { request ->
             when {
-                request.url.encodedPath.endsWith("search") -> """{"tracks":[{"id":"one/id","title":"Afterimage","artist":"Serein","duration":200}]}"""
+                request.url.encodedPath.endsWith("search") -> """{"tracks":[{"id":"one/id","title":"Afterimage","artist":"Serein","duration":200,"fileId":"catalogue-only-id"}]}"""
                 missingUrl -> """{"codec":"flac","sample_rate":192000,"bit_depth":24}"""
-                else -> """{"url":"https://cdn.example/one.flac","codec":"flac","sample_rate":192000,"bit_depth":24,"format":"flac"}"""
+                else -> JSONObject("""{"url":"https://cdn.example/one.flac","codec":"flac","sample_rate":192000,"bit_depth":24,"format":"flac"}""")
+                    .apply { if (knownFile) put("fileId", "immutable-encoded-file") }.toString()
             }
         }
         val resolved = source.resolve(song).single()
         assertEquals(192000, resolved.sampleRate); assertEquals(24, resolved.bitDepth)
+        assertEquals("", resolved.fileId)
         assertEquals("/personal/stream/one%2Fid", requests.last().url.encodedPath)
         assertEquals("Serein Afterimage", requests.first().url.queryParameter("q"))
+        knownFile = true; assertEquals("immutable-encoded-file", source.resolve(song).single().fileId)
         missingUrl = true; assertTrue(source.resolve(song).isEmpty())
     }
 
@@ -179,6 +201,26 @@ class ProviderSourcesTest {
         assertEquals("Fallback must use already resolved candidates", 1, requests)
         registry.selected("play-one", null, "YouTube"); assertFalse(registry.reject("play-one"))
         assertEquals(high, registry.choose(song, "play-two", null))
+    }
+
+    @Test fun rejectedRenditionStaysRejectedWhenItsSignedPathRotatesAfterTheLookupExpires() = runBlocking {
+        val store = settings(); store.save(connection)
+        val bad = stream("bad", MusicProvider.APPLE_MUSIC, 192000)
+        val good = stream("good", MusicProvider.APPLE_MUSIC, 96000)
+        var clock = 0L
+        var lookups = 0
+        val registry = PlaybackSources(store, now = { clock }) { profile -> client(profile) {
+            lookups++
+            JSONObject().put("streams", JSONArray()
+                .put(json(bad.copy(url = "https://cdn.example/rotating-token-$lookups/audio.flac")))
+                .put(json(good))).toString()
+        } }
+        val first = checkNotNull(registry.choose(song, "rotating", null))
+        assertEquals("bad", first.id)
+        registry.selected("rotating", first, "YouTube"); assertTrue(registry.reject("rotating"))
+        clock = 120_001
+        assertEquals("good", registry.choose(song, "rotating", null)?.id)
+        assertEquals(2, lookups)
     }
 
     @Test fun labelsUseActualCodecAndDecodedChannelsInsteadOfAnAddonClaim() {

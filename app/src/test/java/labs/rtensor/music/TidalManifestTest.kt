@@ -48,6 +48,23 @@ class TidalManifestTest {
         assertNotEquals(base.copy(streamKeys = result[0].streamKeys).cacheKey, base.copy(streamKeys = result[1].streamKeys).cacheKey)
     }
 
+    @Test fun dashRenditionIdentitySurvivesSignedUrlRotationAndRepresentationReordering() {
+        val main = """<Representation id="surround" bandwidth="4608000"><SegmentTemplate timescale="1" duration="5" initialization="init.mp4" media="audio-${'$'}Number${'$'}.m4s"/></Representation>"""
+        val other = main.replace("surround", "alternate").replace("4608000", "3000000")
+        val original = mpd().replace(main, main + other)
+        assertTrue(original.contains("alternate"))
+        val rotated = original.replace(main + other, other + main).replace("https://cdn.example/music/", "https://cdn.example/rotated-token/")
+        fun parse(xml: String) = TidalManifests.decode(item, response(xml), "https://api.example/").map {
+            checkNotNull(SourceStreamDecoder.decode(it.metadata, song, MusicProvider.TIDAL)).copy(streamKeys = it.streamKeys)
+        }.associateBy { it.representationId }
+        val before = parse(original); val after = parse(rotated)
+        assertEquals(2, before.size)
+        assertNotEquals(before.getValue("surround").representationKey, before.getValue("alternate").representationKey)
+        assertEquals(before.getValue("surround").representationKey, after.getValue("surround").representationKey)
+        assertNotEquals(before.getValue("surround").streamKeys, after.getValue("surround").streamKeys)
+        assertNotEquals(before.getValue("surround").cacheKey, after.getValue("surround").cacheKey)
+    }
+
     @Test fun btsKeepsChannelsAndDoesNotInventStereoForUnknownMetadata() {
         val bts = """{"codecs":"flac","encryptionType":"NONE","channels":8,"urls":["https://cdn.example/track.flac"]}"""
         assertEquals(8, TidalManifests.decode(item, response(bts), "https://api.example/").single().metadata.getInt("channels"))

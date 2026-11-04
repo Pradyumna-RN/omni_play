@@ -74,6 +74,9 @@ class SourceServerClient(private val connection: SourceConnection, private val c
             val stream = result.optJSONObject("stream") ?: result
             if (mediaUrl(stream).isBlank()) return@mapNotNull null
             val merged = JSONObject(item.toString()).apply {
+                // Search/catalogue IDs cannot attest to the bytes of the
+                // rendition returned by /stream. Only that response can.
+                remove("fileId")
                 stream.keys().forEach { key -> put(key, stream.get(key)) }
             }
             decodeStream(merged, track)
@@ -101,7 +104,7 @@ class SourceServerClient(private val connection: SourceConnection, private val c
     }
 
     private fun decodeStream(o: JSONObject?, track: Track, requirePlayable: Boolean = true): ProviderStream? =
-        SourceStreamDecoder.decode(o, track, connection.provider, requirePlayable)
+        SourceStreamDecoder.decode(o, track, connection.provider, requirePlayable)?.copy(sourceId = "server:${connection.id}")
 
     private fun mediaUrl(o: JSONObject) = listOf("url", "streamUrl", "streamURL", "directUrl", "mediaUrl", "downloadUrl")
         .firstNotNullOfOrNull { o.optString(it).takeIf { v -> v.isNotBlank() } }.orEmpty()

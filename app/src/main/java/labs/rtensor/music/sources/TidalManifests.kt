@@ -26,9 +26,11 @@ internal object TidalManifests {
     }.getOrDefault(emptyList())
 
     private fun metadata(item: JSONObject, response: JSONObject, mime: String, url: String, channels: Int, rate: Int) =
-        JSONObject(item.toString()).put("provider", "tidal").put("url", url).put("mime", mime)
+        // A search/catalogue identifier is not proof of exact encoded-file bytes.
+        JSONObject(item.toString()).apply { remove("fileId") }.put("provider", "tidal").put("url", url).put("mime", mime)
             .put("sampleRate", rate).put("bitDepth", response.optInt("bitDepth"))
             .put("channels", channels).put("atmos", mime == "audio/eac3-joc")
+            .put("representationId", response.optString("audioQuality"))
 
     private fun bts(item: JSONObject, response: JSONObject, manifest: JSONObject): List<Candidate> {
         require(manifest.optString("encryptionType", "NONE").equals("NONE", true))
@@ -82,6 +84,7 @@ internal object TidalManifests {
                 val actualMime = if (mime == "audio/eac3" && response.optString("audioMode") == "DOLBY_ATMOS") "audio/eac3-joc" else mime
                 val data = metadata(item, response, actualMime, uri, channels, rate)
                     .put("manifest", true).put("transportMime", "application/dash+xml")
+                f.id?.takeIf { it.isNotBlank() && it.length <= 512 }?.let { data.put("representationId", it) }
                 candidates += Candidate(data, listOf(StreamKey(0, adaptation, index)))
             }
         }
