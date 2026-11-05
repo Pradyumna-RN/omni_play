@@ -10,6 +10,7 @@ import labs.rtensor.music.data.Track
 import labs.rtensor.music.data.YouTubeLink
 
 /** The one way a [Track] becomes a playable session item, shared by the phone UI and the car. */
+@androidx.media3.common.util.UnstableApi
 internal object PlayableItems {
     fun build(track: Track, route: PlaybackRoute): MediaItem {
         val extras = Bundle().apply {
