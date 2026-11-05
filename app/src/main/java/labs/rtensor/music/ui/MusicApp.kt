@@ -371,9 +371,10 @@ private fun AppHeader(page: String, onHome: () -> Unit, onSettings: () -> Unit, 
             }
             Spacer(Modifier.width(48.dp))
         } else {
-            // A small monogram stands in for the old wordmark so search can share the row.
+            // A small monogram stands in for the old wordmark so search can share the row. Like
+            // the Home tab, it reports itself as selected while Home is already showing.
             Column(Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).clip(RectangleShape).clickable(onClick = onHome).padding(horizontal = 6.dp, vertical = 8.dp)
-                .semantics { contentDescription = "Music, go home" }, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                .semantics { contentDescription = "Music, go home"; selected = page == "home" }, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                 Text("M", style = DisplayStyle, fontSize = 24.sp, lineHeight = 22.sp)
                 Spacer(Modifier.height(3.dp))
                 Box(Modifier.width(14.dp).height(4.dp).background(SignalAccent))
@@ -536,7 +537,8 @@ private fun HomeScreen(state: MusicState, onSearch: () -> Unit, onPlay: (Track, 
                         }
                         Spacer(Modifier.width(12.dp))
                         SignalAction(if (recentLoading) "Loading" else if (recentPlaying) "Pause" else "Play",
-                            if (recentPlaying) Glyph.Pause else Icons.Outlined.PlayArrow, loading = recentLoading) {
+                            if (recentPlaying) Glyph.Pause else Icons.Outlined.PlayArrow, loading = recentLoading,
+                            enabled = !(recentIsCurrent && state.resolving)) {
                             if (recentIsCurrent) onToggle() else onPlay(recent, listOf(recent))
                         }
                     }
@@ -632,8 +634,8 @@ private fun LastPlayedRow(track: Track, time: String, onClick: () -> Unit) {
 
 /** A square accent action with ink text. Text stays a real Text node, so it reads and tests as the label. */
 @Composable
-private fun SignalAction(label: String, icon: ImageVector, loading: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    Row(modifier.heightIn(min = 48.dp).pressable(onClick = onClick).background(SignalAccent).padding(horizontal = 14.dp),
+private fun SignalAction(label: String, icon: ImageVector, loading: Boolean, modifier: Modifier = Modifier, enabled: Boolean = true, onClick: () -> Unit) {
+    Row(modifier.heightIn(min = 48.dp).pressable(enabled = enabled, onClick = onClick).background(SignalAccent).padding(horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(20.dp), contentAlignment = Alignment.Center) {
             if (loading) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = Ink)
@@ -977,7 +979,7 @@ private fun HistoryList(state: MusicState, onPlay: (Track, List<Track>) -> Unit,
                 Text(day.label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background).padding(top = 12.dp, bottom = 6.dp))
             }
-            items(day.events, key = { "play:${it.startedAt}" }) { event ->
+            items(day.events, key = { "play:${it.startedAt}:${it.track.libraryKey()}" }) { event ->
                 HistoryRow(event, timeFormat.format(java.util.Date(event.startedAt)), state.current?.id == event.track.id,
                     { onPlay(event.track, listOf(event.track)) }, { onRemove(event) }, motionModifier())
             }
@@ -1031,7 +1033,9 @@ private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () ->
     val position = if (pending) 0 else state.positionMs
     val queueIndex = state.queueIndex
     val hasNext = queueIndex >= 0 && queueIndex < state.queue.lastIndex
-    val canSkip = !pending && !loading
+    // Same rule as the mini player: buffering never locks the transport, so a stalled song can
+    // still be paused or skipped here. Only finding audio (resolving) holds Play/Pause back.
+    val canSkip = !pending
     val scheme = MaterialTheme.colorScheme
     val upcoming = if (queueIndex >= 0) state.queue.withIndex().drop(queueIndex + 1) else emptyList()
     BoxWithConstraints(Modifier.fillMaxSize().background(scheme.background)) {
@@ -1077,7 +1081,7 @@ private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () ->
                     // Symmetric transport controls keep Play/Pause on the screen centre.
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         LabelledControl("Previous", Glyph.Previous, onPrevious, enabled = canSkip)
-                        Button(onClick = onToggle, enabled = !loading, shape = RectangleShape, modifier = Modifier.weight(1f).height(72.dp),
+                        Button(onClick = onToggle, enabled = !state.resolving, shape = RectangleShape, modifier = Modifier.weight(1f).height(72.dp),
                             contentPadding = PaddingValues(horizontal = 10.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = SignalAccent, contentColor = Ink,
                                 disabledContainerColor = SignalAccent.copy(alpha = .55f), disabledContentColor = Ink)) {
@@ -1511,7 +1515,7 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onLocal
             // A saved server is only a candidate; each song is checked before anything plays from it.
             SettingItem("Playback sources",
                 if (state.appleAccount.connected) "Apple Music signed in${if (state.tidalAccount.connected) " · TIDAL" else ""}"
-                else if (state.tidalAccount.connected) "TIDAL signed in${if (count > 0) " · $count saved servers" else ""}"
+                else if (state.tidalAccount.connected) "TIDAL signed in${if (count > 0) " · $count saved ${if (count == 1) "server" else "servers"}" else ""}"
                 else if (count == 0) "Sign in to Apple Music, TIDAL or connect a music source"
                 else "$count saved ${if (count == 1) "server" else "servers"} · checked per song before it plays",
                 Glyph.MusicNote, onClick = { showSources = !showSources }, expanded = showSources)

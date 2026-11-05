@@ -161,4 +161,45 @@ class NavigationAndOverlayUiTest {
         compose.setContent { MusicApp(MusicState(reducedMotion = true)) }
         compose.onNodeWithContentDescription("Music, go home").assertWidthIsAtLeast(48.dp).assertHeightIsAtLeast(48.dp)
     }
+
+    @Test fun fullPlayerTransportWorksWhileBufferingButPlayWaitsWhileFindingAudio() {
+        var toggles = 0; var nexts = 0; var previous = 0
+        val state = mutableStateOf(MusicState(current = track, queue = listOf(track, other), queueIndex = 0, playing = true, buffering = true,
+            durationMs = 200_000, reducedMotion = true))
+        compose.setContent { MusicApp(state.value, initialPage = "now", onToggle = { toggles++ }, onNext = { nexts++ }, onPrevious = { previous++ }) }
+        compose.onNode(hasClickAction() and hasText("Loading")).assertIsEnabled().performClick()
+        compose.onNodeWithContentDescription("Next").assertIsEnabled().performClick()
+        compose.onNodeWithContentDescription("Previous").assertIsEnabled().performClick()
+        compose.runOnIdle { assertEquals(listOf(1, 1, 1), listOf(toggles, nexts, previous)) }
+        // While the audio is still being found there is nothing to pause yet, in either player.
+        compose.runOnIdle { state.value = state.value.copy(buffering = false, resolving = true) }
+        compose.onNode(hasClickAction() and hasText("Loading")).assertIsNotEnabled()
+        compose.onNodeWithContentDescription("Next").assertIsEnabled()
+    }
+
+    @Test fun homeHeroDoesNotOfferATapThatDoesNothingWhileFindingAudio() {
+        compose.setContent { MusicApp(MusicState(history = listOf(track), current = track, queue = listOf(track), queueIndex = 0, resolving = true, reducedMotion = true)) }
+        compose.onNode(hasClickAction() and hasText("Loading")).assertIsNotEnabled()
+    }
+
+    @Test fun sourcesEditorFormSurvivesRecreationWithoutKeepingTheToken() {
+        val restore = StateRestorationTester(compose)
+        restore.setContent { MusicApp(MusicState(reducedMotion = true), initialPage = "settings") }
+        compose.onNodeWithText("Playback sources").performScrollTo().performClick()
+        compose.onNodeWithText("Add a source").performScrollTo().performClick()
+        compose.onNodeWithText("HTTPS server URL").performScrollTo().performTextInput("https://personal.example")
+        compose.onNodeWithText("Server access token (optional)").performScrollTo().performTextInput("secret-token")
+        restore.emulateSavedInstanceStateRestore()
+        compose.onNodeWithText("https://personal.example").assertExists()
+        compose.onNodeWithText("Check and save").assertExists()
+        // The token field is empty again: secrets never go into saved instance state.
+        compose.onNode(hasSetTextAction() and hasText("Server access token (optional)")).assert(
+            SemanticsMatcher.expectValue(SemanticsProperties.EditableText, androidx.compose.ui.text.AnnotatedString("")))
+    }
+
+    @Test fun oneSavedServerIsSingular() {
+        val source = labs.rtensor.music.sources.SourceSummary("s1", "Home server", "TIDAL", "HiFi API")
+        compose.setContent { MusicApp(MusicState(tidalAccount = AccountState(connected = true), playbackSources = listOf(source), reducedMotion = true), initialPage = "settings") }
+        compose.onNodeWithText("TIDAL signed in · 1 saved server").performScrollTo().assertIsDisplayed()
+    }
 }
