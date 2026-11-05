@@ -224,8 +224,8 @@ Matches are cached seven days, metadata ten minutes; identical requests coalesce
 and match searches are limited to three concurrent jobs. No playlist-wide audio
 lookup, account token IPC or audio-thread browser work is added.
 
-The Spotify page interface is undocumented and can change. Public build-operation
-discovery and simulated requests are tested, but real account sign-in,
+The Spotify page interface is undocumented and can change. Public build-operation discovery, anonymous catalogue browser probes
+and simulated requests are tested, but real account sign-in,
 personalised results and Android device performance still need verification.
 [Setup, architecture and limitations](SPOTIFY_RECOMMENDATIONS.md).
 

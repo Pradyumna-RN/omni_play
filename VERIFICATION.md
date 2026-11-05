@@ -1,6 +1,6 @@
 # Current verification: Music 0.3.30 / recommendation source choice
 
-**269 unique app checks, 86 DSP checks and nine browser-bridge checks pass**, with
+**269 unique app checks, 86 DSP checks and ten browser-bridge checks pass**, with
 no failures, errors or skips. The full app run passes 268 checks; the final
 36-check affected run adds one MediaSession diagnostics regression. Debug lint
 passes. All four README architecture diagrams and the Spotify data-flow diagram
@@ -24,11 +24,17 @@ render successfully.
   provider, updater and DSP regressions remain covered by the full run.
 - Simulated page tests cover metadata privacy, anonymous-account rejection,
   provider feed/radio and collection paging, origin/subframe and command guards,
-  sanitised errors, concurrent operation discovery and recovery from a temporary
-  asset failure. Current public Spotify desktop/search assets contain all five
-  required operation definitions; this is public-interface evidence only.
+  sanitised errors, concurrent operation discovery, temporary asset failure recovery
+  and the track-detail firstArtist/
+  otherArtists schema found during the public browser probe. Current public
+  Spotify desktop/search assets contain all five required operation definitions.
+  Seven real public-catalogue checks pass in a browser: Home, search, track details,
+  song radio, album, playlist and a second playlist page. A test-only harness
+  permits Spotify’s anonymous catalogue token; the app itself still requires
+  sign-in. All returned track lists contain artist/title/duration metadata. This
+  is public-interface evidence, not subscriber/personalised-account validation.
 
-Spotify is **experimental and metadata-only**. No real Spotify session, Android
+Spotify is **experimental and metadata-only**. No signed-in Spotify account, Android
 phone, personalised response or device smoothness was verified. Search remains
 YouTube search. Matching is metadata-based, not an audio fingerprint/ISRC proof.
 [Setup, architecture and limitations](SPOTIFY_RECOMMENDATIONS.md).

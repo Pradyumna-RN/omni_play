@@ -99,9 +99,9 @@ version would be a useful later addition for unmatched tracks.
 
 ## Verification boundaries
 
-`node --test spotify-engine/test/catalogue.test.mjs` runs nine tests against a
+`node --test spotify-engine/test/catalogue.test.mjs` runs ten tests against a
 simulated Spotify page: profile privacy, anonymous-session rejection, Home/radio
-requests, lazy current-operation discovery, strict collection paging, command
+requests, lazy current-operation discovery, strict collection paging, track-detail artist fields, command
 allowlisting, transient asset retry, sanitised errors and origin/subframe/message guards.
 
 Android/JVM tests cover preference persistence, stable track identity, strict
@@ -114,9 +114,13 @@ audio and packaging checks are run separately; see [verification](VERIFICATION.m
 The current public Spotify desktop application and lazy search asset were also
 inspected to confirm that `home`, `fetchPlaylistContents`, `getAlbum`, `getTrack`
 and `searchTracks` operation definitions are present. This confirms discovery of
-those definitions only. It does not prove authenticated response compatibility,
-radio availability, login completion, real playlist playback or phone smoothness.
-No user cookie/token was supplied or used for this public-asset check.
+those definitions. A browser test also reads Spotify’s public anonymous Home,
+search, track details, song radio, album and two playlist pages; all seven checks
+pass with complete recording metadata. The test harness permits only the page’s
+own anonymous catalogue access; the app’s sign-in requirement is unchanged.
+These checks do not prove authenticated response compatibility,
+personalised radio availability, login completion, actual audio playback or phone smoothness.
+No signed-in account credentials were supplied or used for these public checks.
 
 Before treating Spotify as stable, test an actual account on Android 11 and a
 recent WebView: sign-in/restart/reconnect, Home and album/playlist paging, radio,

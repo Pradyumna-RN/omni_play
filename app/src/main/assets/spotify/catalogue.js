@@ -67,7 +67,8 @@
     const [, kind, id] = object.uri.split(':');
     const title = typeof object.name === 'string' ? object.name : object.name?.text || object.title?.text || object.title;
     if (typeof title !== 'string' || !title.trim()) return null;
-    const artists = object.artists?.items || object.artists || [];
+    const declared = object.artists?.items || object.artists;
+    const artists = Array.isArray(declared) ? declared : [...(object.firstArtist?.items || []), ...(object.otherArtists?.items || [])];
     const artist = Array.isArray(artists) ? artists.map(a => a.profile?.name || a.name || '').filter(Boolean).join(', ') : '';
     return {id, kind, title: title.slice(0, 512), artist: artist.slice(0, 512), artwork: art(object),
       durationMs: object.duration?.totalMilliseconds || object.duration_ms || object.trackDuration?.totalMilliseconds || 0};

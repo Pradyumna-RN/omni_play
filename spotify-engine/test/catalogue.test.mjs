@@ -19,7 +19,7 @@ function page({anonymous = false, failure = false, origin = 'https://open.spotif
     fetchPlaylistContents: {data: {playlistV2: {content: {totalCount: 3, items: [{itemV2: {data: music(seed)}}, {itemV2: {data: music(next)}}]},
       unrelated: music('d'.repeat(22))}}},
     getAlbum: {data: {albumUnion: {tracksV2: {totalCount: 1, items: [{track: music(next)}]}}}},
-    getTrack: {data: {trackUnion: music(next)}},
+    getTrack: {data: {trackUnion: {...music(next), artists: undefined, firstArtist: {items: [{profile: {name: 'Mira'}}]}, otherArtists: {items: [{profile: {name: 'Guest'}}]}}}},
     searchTracks: {data: {searchV2: {tracksV2: {items: [{item: {data: music(seed)}}]}}}}
   };
   const registry = new Map();
@@ -114,4 +114,11 @@ test('a transient build-asset failure can be retried without losing the account'
   const p = page({assetFailureOnce: true});
   assert.equal((await p.request('home')).error, 'PAGE_CHANGED');
   assert.equal((await p.request('home')).result.sections[0].title, 'Made for you');
+});
+
+test('track details combine firstArtist and otherArtists without losing recording metadata', async () => {
+  const p=page(); const result=await p.request('collection', {uri:`spotify:track:${next}`});
+  assert.equal(result.result.items.length,1);
+  assert.equal(result.result.items[0].artist,'Mira, Guest');
+  assert.equal(result.result.items[0].durationMs,180000);
 });
