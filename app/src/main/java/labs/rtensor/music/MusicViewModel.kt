@@ -48,6 +48,7 @@ import labs.rtensor.music.auth.GoogleProfileStore
 import labs.rtensor.music.data.AccountState
 import labs.rtensor.music.data.FeedEntry
 import labs.rtensor.music.data.FeedSection
+import labs.rtensor.music.data.HomeFeed
 import labs.rtensor.music.updates.GitHubUpdater
 import labs.rtensor.music.updates.UpdateState
 import labs.rtensor.music.updates.checked
@@ -101,6 +102,10 @@ data class MusicState(
     val feed: List<FeedSection> = emptyList(),
     val feedBusy: Boolean = false,
     val feedHasMore: Boolean = false,
+    /** Songs "More from your feed" added below Home's recommendations, in the order they arrived. */
+    val feedMore: List<Track> = emptyList(),
+    /** The last "More from your feed" found nothing new, so the button is gone. */
+    val feedEnded: Boolean = false,
     val feedError: String? = null,
     /** False when an account is connected but YouTube answered the feed as signed out. */
     val feedPersonalized: Boolean = true,
@@ -257,7 +262,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             youtube.runtime.account.collect { account ->
                 val changed = account.connected != mutable.value.account.connected || account.revision != mutable.value.account.revision
                 val refresh = changed && mutable.value.recommendationEngine == RecommendationEngine.YOUTUBE
-                mutable.update { it.copy(account = account, feed = if (refresh) emptyList() else it.feed, explore = if (refresh) emptyList() else it.explore) }
+                mutable.update { it.copy(account = account, feed = if (refresh) emptyList() else it.feed, feedMore = if (refresh) emptyList() else it.feedMore,
+                    feedEnded = it.feedEnded && !refresh, explore = if (refresh) emptyList() else it.explore) }
                 if (refresh) { clearCarHome(); refreshFeed(); refreshExplore() }
             }
         }
@@ -365,11 +371,16 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         feedJob = viewModelScope.launch {
             mutable.update { it.copy(feedBusy = true, feedError = null) }
             try {
-                val feed = if (engine == RecommendationEngine.SPOTIFY) spotify.home() else youtube.home(more)
+                val fetch: suspend (Boolean) -> HomeFeed = { next -> if (engine == RecommendationEngine.SPOTIFY) spotify.home() else youtube.home(next) }
+                if (more) {
+                    val added = loadMoreHomeFeed(mutable.value) { fetch(true) }
+                    if (revision == recommendationRevision) mutable.update { it.withMoreHomeFeed(added).copy(feedBusy = false) }
+                    return@launch
+                }
+                val feed = fetch(false)
                 if (revision != recommendationRevision) return@launch
-                mutable.update { it.copy(feedBusy = false, feed = if (more) it.feed + feed.sections else feed.sections, feedHasMore = feed.hasMore,
-                    feedPersonalized = engine == RecommendationEngine.SPOTIFY || !it.account.connected || feed.personalized) }
-                if (!more && mutable.value.forYou.isEmpty()) refreshForYou()
+                mutable.update { it.withHomeFeed(feed, engine == RecommendationEngine.SPOTIFY || !it.account.connected || feed.personalized).copy(feedBusy = false) }
+                if (mutable.value.forYou.isEmpty()) refreshForYou()
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { if (revision == recommendationRevision) mutable.update { it.copy(feedBusy = false, feedError = catalogueErrorMessage(e, CatalogueMessages.FEED)) } }
         }
@@ -464,7 +475,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         recommendationRevision++
         clearCarHome()
         feedJob?.cancel(); exploreJob?.cancel(); forYouJob?.cancel()
-        mutable.update { it.copy(feed = emptyList(), explore = emptyList(), forYou = emptyList(), feedHasMore = false,
+        mutable.update { it.copy(feed = emptyList(), feedMore = emptyList(), feedEnded = false, explore = emptyList(), forYou = emptyList(), feedHasMore = false,
             feedError = null, exploreError = null, feedBusy = false, exploreBusy = false, forYouBusy = false) }
         radio?.changeProvider()
         refreshFeed(); refreshExplore(); refreshForYou()
@@ -915,9 +926,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
 /** Songs the phone recommends right now (Mixed for you, then Home's feed), as the car's Home tab lists them. */
 internal fun carHomeTracks(state: MusicState): List<Track> {
-    val feedSongs = state.feed.flatMap { it.items }.filter { it.videoId.isNotBlank() || it.kind == "spotify_track" }
-        .mapNotNull { runCatching { it.asTrack() }.getOrNull() }
-    return (state.forYou + feedSongs).filter { it.source != Source.LOCAL }.distinctBy { it.libraryKey() }.take(100)
+    return (state.forYou + labs.rtensor.music.ui.feedSongs(state.feed) + state.feedMore).filter { it.source != Source.LOCAL }.distinctBy { it.libraryKey() }.take(100)
 }
 
 internal const val PLAYER_STARTING = "The audio player is still starting. Try again in a moment."

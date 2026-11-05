@@ -509,7 +509,7 @@ private fun HomeScreen(state: MusicState, onSearch: () -> Unit, onPlay: (Track, 
     val recentPlaying = recentIsCurrent && state.playing && !recentLoading
     val hasFeed = state.feed.isNotEmpty()
     // Last played stays at the top of Home, also after the provider feed has loaded.
-    val showHero = recent != null || (state.forYou.isEmpty() && state.feed.none { section -> section.items.any { it.videoId.isNotBlank() || it.kind == "spotify_track" } })
+    val showHero = recent != null || (state.forYou.isEmpty() && state.feedMore.isEmpty() && state.feed.none { section -> section.items.any { it.videoId.isNotBlank() || it.kind == "spotify_track" } })
     val now = remember(state.playEvents, state.history) { System.currentTimeMillis() }
     // Everything below is read from what you actually played on this phone; nothing is invented.
     val lastPlayedAt = remember(state.playEvents) {
@@ -521,7 +521,7 @@ private fun HomeScreen(state: MusicState, onSearch: () -> Unit, onPlay: (Track, 
         Recommender.artistAffinity(state.playEvents, now).filterValues { it > 0 }.entries
             .sortedByDescending { it.value }.take(2).mapNotNull { names[it.key] }
     }
-    val recommendations = remember(state.forYou, state.feed, state.playEvents, state.history, state.current) {
+    val recommendations = remember(state.forYou, state.feed, state.feedMore, state.playEvents, state.history, state.current) {
         homeRecommendationGroups(state)
     }
     val unheard = recommendations.newToYou
@@ -632,6 +632,9 @@ private fun HomeScreen(state: MusicState, onSearch: () -> Unit, onPlay: (Track, 
         // Collections remain available in Explore; Home focuses on individual songs.
         if (state.feedHasMore) item(key = "more") {
             SignalOutlineButton("More from your feed", Modifier.fillMaxWidth().padding(top = 20.dp), enabled = !state.feedBusy, onClick = onMore)
+        } else if (state.feedEnded) item(key = "more") {
+            Text("Nothing new in your feed right now. Pull down to refresh.", fontSize = 13.sp, lineHeight = 19.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.fillMaxWidth().padding(top = 20.dp))
         }
     }
     }
