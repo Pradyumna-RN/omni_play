@@ -41,4 +41,10 @@ class SpotifySettingsUiTest {
         compose.onNodeWithText("Disconnect Spotify").performScrollTo().performClick()
         compose.runOnIdle { assertEquals(1, disconnects) }
     }
+    @Test fun aSignInThatEndsWithoutAConnectionSaysSoUnderTheChoice() {
+        val message = labs.rtensor.music.spotify.SpotifyRecommendations.cancelledMessage("the sign-in page could not load")
+        compose.setContent { MusicApp(MusicState(reducedMotion = true, spotifyAccount = AccountState(error = message)), initialPage = "settings") }
+        compose.onNodeWithText(message).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithContentDescription("YouTube Music recommendations").assertIsSelected()
+    }
 }

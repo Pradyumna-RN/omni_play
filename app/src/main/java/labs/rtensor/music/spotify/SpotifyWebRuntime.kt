@@ -2,6 +2,7 @@ package labs.rtensor.music.spotify
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.MutableContextWrapper
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Looper
@@ -15,11 +16,16 @@ import java.util.UUID
 /** Lives exclusively in :spotify_metadata. No audio, remote navigation bridge or token API. */
 internal interface SpotifyLoginObserver {
     fun pageChanged(url: String, finished: Boolean)
-    fun failed(message: String)
+    fun failed(problem: SpotifySignInProblem)
 }
 
 internal class SpotifyWebRuntime private constructor(private val context: Context) {
     private val vault = AccountSession(context, "spotify_metadata_session")
+    /** The page borrows the sign-in activity while it is on screen, so Spotify's own pickers and
+     * dialogs (the phone-number country list) have a window. Hidden, it holds only the app. */
+    private val host = MutableContextWrapper(context)
+    /** After Android ended this process mid sign-in, reopen Spotify itself if it kept the session. */
+    private var resumeLogin = false
     private val waiting = mutableMapOf<String, CompletableDeferred<JSONObject>>()
     private var channel: WebMessagePort? = null
     private var ready = CompletableDeferred<Unit>()
@@ -29,12 +35,13 @@ internal class SpotifyWebRuntime private constructor(private val context: Contex
     private class PageChanged : IOException("Spotify page changed")
     private val script by lazy { context.assets.open("spotify/catalogue.js").bufferedReader().use { it.readText() } }
     val canRequest get() = channel != null
+    val hasBrowser get() = browser != null
 
     @SuppressLint("SetJavaScriptEnabled")
     fun view(): WebView {
         check(Looper.myLooper() == Looper.getMainLooper())
         browser?.let { it.onResume(); return it }
-        val view = WebView(context)
+        val view = WebView(host)
         browser = view
         view.settings.apply {
             javaScriptEnabled = true; domStorageEnabled = true
@@ -56,7 +63,7 @@ internal class SpotifyWebRuntime private constructor(private val context: Contex
         view.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 val blocked = if (request.isForMainFrame) !navigationAllowed(request.url, loginObserver != null) else request.url.scheme != "https"
-                if (blocked && request.isForMainFrame) loginObserver?.failed("This page cannot finish sign-in here. Tap Continue to return to Spotify, or Sign in to try again.")
+                if (blocked && request.isForMainFrame) loginObserver?.failed(SpotifySignInProblem.blocked(SpotifySignInNavigation.hostOf(request.url)))
                 return blocked
             }
             override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
@@ -65,7 +72,11 @@ internal class SpotifyWebRuntime private constructor(private val context: Contex
                 loginObserver?.pageChanged(url.orEmpty(), false)
             }
             override fun onPageFinished(view: WebView, url: String?) {
-                if (!playerOrigin(url)) { loginObserver?.pageChanged(url.orEmpty(), true); return }
+                if (!playerOrigin(url)) {
+                    loginObserver?.pageChanged(url.orEmpty(), true)
+                    if (SpotifySignInNavigation.refusedByGoogle(url)) loginObserver?.failed(SpotifySignInProblem.GOOGLE_REFUSED)
+                    return
+                }
                 val expected = document
                 view.evaluateJavascript(script) {
                     if (expected != document || !playerOrigin(view.url)) return@evaluateJavascript
@@ -89,20 +100,24 @@ internal class SpotifyWebRuntime private constructor(private val context: Contex
                 }
             }
             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
-                if (request.isForMainFrame) loginObserver?.failed("The sign-in page could not load. Check your connection and tap Reload.")
+                if (request.isForMainFrame) loginObserver?.failed(SpotifySignInProblem.PAGE_FAILED)
             }
             override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, errorResponse: WebResourceResponse) {
-                if (request.isForMainFrame) loginObserver?.failed("The sign-in page could not load. Tap Reload to try again.")
+                if (!request.isForMainFrame) return
+                val url = request.url.toString()
+                val google = SpotifySignInNavigation.refusedByGoogle(url) ||
+                    (errorResponse.statusCode == 403 && SpotifySignInNavigation.googleAccounts(url))
+                loginObserver?.failed(if (google) SpotifySignInProblem.GOOGLE_REFUSED else SpotifySignInProblem.PAGE_ERROR)
             }
             override fun onReceivedSslError(view: WebView?, handler: SslErrorHandler, error: android.net.http.SslError?) {
                 handler.cancel()
-                loginObserver?.failed("The sign-in page failed its security check. Check the device clock and network, then tap Reload.")
+                loginObserver?.failed(SpotifySignInProblem.INSECURE)
             }
             override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
                 invalidate("Spotify catalogue stopped. Reconnect Spotify.")
                 (view.parent as? android.view.ViewGroup)?.removeView(view)
                 view.destroy(); browser = null
-                loginObserver?.failed("The sign-in page stopped. Tap Reload to reopen it.")
+                loginObserver?.failed(SpotifySignInProblem.PAGE_STOPPED)
                 return true
             }
         }
@@ -110,14 +125,21 @@ internal class SpotifyWebRuntime private constructor(private val context: Contex
         cookie.split(';').map(String::trim).filter { it.startsWith("sp_dc=") || it.startsWith("sp_key=") }.forEach {
             CookieManager.getInstance().setCookie(PLAYER, "$it; Domain=.spotify.com; Path=/; Secure; HttpOnly")
         }
-        val firstPage = if (loginObserver != null) SpotifySignInNavigation.loginUrl() else PLAYER
+        val firstPage = when {
+            loginObserver == null -> PLAYER
+            resumeLogin && hasSessionHint() -> PLAYER
+            else -> SpotifySignInNavigation.loginUrl()
+        }
+        resumeLogin = false
         loginObserver?.pageChanged(firstPage, false)
         view.loadUrl(firstPage)
         return view
     }
-    fun showLogin(observer: SpotifyLoginObserver, fresh: Boolean): WebView {
+    fun showLogin(observer: SpotifyLoginObserver, fresh: Boolean, window: Context? = null): WebView {
         val existing = browser
         loginObserver = observer
+        window?.let { host.baseContext = it }
+        resumeLogin = !fresh && existing == null
         return view().apply {
             settings.blockNetworkImage = false
             if (fresh && existing != null) openSignIn()
@@ -127,6 +149,7 @@ internal class SpotifyWebRuntime private constructor(private val context: Contex
     fun hideLogin(observer: SpotifyLoginObserver) {
         if (loginObserver !== observer) return
         loginObserver = null
+        host.baseContext = context
         browser?.let { it.settings.blockNetworkImage = true; it.onPause() }
     }
     fun hasSessionHint(): Boolean = CookieManager.getInstance().getCookie(PLAYER).orEmpty().split(';')

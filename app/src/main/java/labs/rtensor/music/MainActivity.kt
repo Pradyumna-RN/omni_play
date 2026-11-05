@@ -64,7 +64,8 @@ class MainActivity : ComponentActivity() {
     }
     private var appleTicket = -1L
     private val spotifySignIn = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        model.completeSpotifySignIn(result.resultCode == RESULT_OK)
+        model.completeSpotifySignIn(result.resultCode == RESULT_OK,
+            result.data?.getStringExtra(labs.rtensor.music.spotify.SpotifyLoginActivity.PROBLEM))
     }
     private val appleSignIn = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val ticket = result.data?.getLongExtra(labs.rtensor.music.apple.AppleWebLoginActivity.TICKET, appleTicket) ?: appleTicket

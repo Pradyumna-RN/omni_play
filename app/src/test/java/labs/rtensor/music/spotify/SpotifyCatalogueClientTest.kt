@@ -67,4 +67,20 @@ class SpotifyCatalogueClientTest {
         assertFalse(account.state.value.connecting); assertFalse(account.state.value.connected)
         assertTrue(account.state.value.error!!.contains("too long"))
     }
+    @Test fun cancelledOrFailedSignInLeavesAVisibleReasonAndANewAttemptClearsIt() = runBlocking {
+        val context: Application = ApplicationProvider.getApplicationContext()
+        val api = object : SpotifyCatalogueAccess {
+            override suspend fun request(operation: String, args: JSONObject): JSONObject = JSONObject().put("name", "Listener")
+        }
+        val account = SpotifyRecommendations(context, api)
+        account.connecting(); account.cancel()
+        assertFalse(account.state.value.connecting)
+        assertEquals("Spotify sign-in was cancelled before it finished. Tap Spotify to try again.", account.state.value.error)
+        account.connecting(); assertNull(account.state.value.error)
+        account.cancel("the sign-in page could not load")
+        assertEquals("Spotify sign-in didn't finish: the sign-in page could not load. Tap Spotify to try again.", account.state.value.error)
+        // A verified result after a fresh attempt replaces the message.
+        account.connecting(); assertTrue(account.verify())
+        assertNull(account.state.value.error); assertTrue(account.state.value.connected)
+    }
 }
