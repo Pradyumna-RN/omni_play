@@ -113,4 +113,13 @@ class NavigationAndOverlayUiTest {
         compose.onNodeWithContentDescription("Home").performClick()
         compose.runOnIdle { assertEquals("", queries.last()) }
     }
+
+    @Test fun savedSongsSharingAVideoIdButNotALibraryKeyBothShow() {
+        // A Spotify-matched copy keeps the YouTube id; the library tells them apart by libraryKey.
+        val matched = track.copy(title = "Afterimage (Spotify)", spotifyId = "0123456789abcdefABCDEF")
+        compose.setContent { MusicApp(MusicState(saved = listOf(track, matched), reducedMotion = true), initialPage = "library") }
+        compose.onNodeWithText("2 SAVED").assertIsDisplayed()
+        compose.onNodeWithText("Afterimage").assertIsDisplayed()
+        compose.onNodeWithText("Afterimage (Spotify)").assertIsDisplayed()
+    }
 }

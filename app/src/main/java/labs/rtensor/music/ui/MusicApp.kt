@@ -939,7 +939,8 @@ private fun SavedList(state: MusicState, onPlay: (Track, List<Track>) -> Unit, o
             }
             Spacer(Modifier.height(10.dp))
             LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
-                items(state.saved, key = { it.id }) { track -> TrackRow(track, true, state.current?.id == track.id, { onPlay(track, listOf(track)) }, { onSave(track) }, motionModifier()) }
+                // Saved is unique by libraryKey; a Spotify-matched copy can share the YouTube id.
+                items(state.saved, key = { it.libraryKey() }) { track -> TrackRow(track, true, state.current?.libraryKey() == track.libraryKey(), { onPlay(track, listOf(track)) }, { onSave(track) }, motionModifier()) }
             }
         }
     }
