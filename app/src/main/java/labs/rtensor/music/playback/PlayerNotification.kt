@@ -42,6 +42,25 @@ class PlayerNotification(private val context: Context) : MediaNotification.Provi
     private val main = Handler(Looper.getMainLooper())
     private var cover: Cover? = null
     private var loading: String? = null
+    private var watched: Player? = null
+    private var rebuild: (() -> Unit)? = null
+
+    /**
+     * Media3 rebuilds the notification only when the play state, queue or metadata change. The
+     * elapsed-time chronometer is drawn here, and a phone call or another app's short sound
+     * suppresses playback (audio focus) without changing any of those, so the clock kept counting
+     * through the call. Rebuild when playing starts or stops, or the position jumps, on its own;
+     * never for a stopped player, whose notification is gone.
+     */
+    private val refresher = object : Player.Listener {
+        override fun onEvents(player: Player, events: Player.Events) {
+            if (!events.containsAny(Player.EVENT_POSITION_DISCONTINUITY, Player.EVENT_IS_PLAYING_CHANGED)) return
+            if (events.containsAny(Player.EVENT_TIMELINE_CHANGED, Player.EVENT_PLAYBACK_STATE_CHANGED,
+                    Player.EVENT_PLAY_WHEN_READY_CHANGED, Player.EVENT_MEDIA_METADATA_CHANGED)) return
+            if (player.playbackState == Player.STATE_IDLE || player.currentTimeline.isEmpty) return
+            rebuild?.invoke()
+        }
+    }
 
     override fun createNotification(
         mediaSession: MediaSession,
@@ -51,6 +70,15 @@ class PlayerNotification(private val context: Context) : MediaNotification.Provi
     ): MediaNotification {
         ensureChannel()
         val player = mediaSession.player
+        rebuild = {
+            onNotificationChangedCallback.onNotificationChanged(
+                createNotification(mediaSession, mediaButtonPreferences, actionFactory, onNotificationChangedCallback))
+        }
+        if (watched !== player) {
+            watched?.removeListener(refresher)
+            player.addListener(refresher)
+            watched = player
+        }
         val metadata = player.mediaMetadata
         val key = metadata.artworkUri?.toString() ?: metadata.artworkData?.contentHashCode()?.toString()
         val shown = cover?.takeIf { it.key == key }
