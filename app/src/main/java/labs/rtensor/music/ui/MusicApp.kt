@@ -1608,12 +1608,22 @@ internal fun audioBadge(route: String): String? {
 private fun PosterTitle(text: String) {
     val colour = MaterialTheme.colorScheme.onBackground
     val shown = remember(text) { text.replace('\n', ' ').uppercase(Locale.getDefault()) }
-    val height = with(LocalDensity.current) { (38.sp * .95f * 2).toDp() } + 4.dp
-    Box(Modifier.fillMaxWidth().height(height), contentAlignment = Alignment.BottomStart) {
-        androidx.compose.foundation.text.BasicText(shown,
-            Modifier.fillMaxWidth().clearAndSetSemantics { this.text = AnnotatedString(text); heading() },
-            style = PosterStyle.copy(fontSize = 38.sp, lineHeight = .95.em, color = colour), maxLines = 2, overflow = TextOverflow.Ellipsis,
-            autoSize = androidx.compose.foundation.text.TextAutoSize.StepBased(minFontSize = 20.sp, maxFontSize = 38.sp, stepSize = 2.sp))
+    val density = LocalDensity.current
+    val measurer = androidx.compose.ui.text.rememberTextMeasurer()
+    val height = with(density) { (38.sp * .95f * 2).toDp() } + 4.dp
+    BoxWithConstraints(Modifier.fillMaxWidth().height(height), contentAlignment = Alignment.BottomStart) {
+        val width = constraints.maxWidth
+        val limit = constraints.maxHeight
+        // The largest size, in 2sp steps from 38sp down to 20sp, at which the title fits in two lines.
+        val size = remember(shown, width, limit, density) {
+            (38 downTo 20 step 2).firstOrNull { sp ->
+                val layout = measurer.measure(shown, PosterStyle.copy(fontSize = sp.sp, lineHeight = .95.em), maxLines = 2,
+                    constraints = androidx.compose.ui.unit.Constraints(maxWidth = width))
+                !layout.hasVisualOverflow && layout.size.height <= limit
+            } ?: 20
+        }
+        Text(shown, Modifier.fillMaxWidth().clearAndSetSemantics { this.text = AnnotatedString(text); heading() },
+            style = PosterStyle.copy(fontSize = size.sp, lineHeight = .95.em), color = colour, maxLines = 2, overflow = TextOverflow.Ellipsis)
     }
 }
 
