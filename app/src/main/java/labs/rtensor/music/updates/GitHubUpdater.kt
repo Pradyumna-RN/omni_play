@@ -17,6 +17,23 @@ import java.util.concurrent.TimeUnit
 data class AppRelease(val version: String, val apkUrl: String, val checksumUrl: String, val apkName: String, val bytes: Long)
 data class UpdateState(val checking: Boolean = false, val downloading: Boolean = false,
     val progress: Int = 0, val release: AppRelease? = null, val apkPath: String? = null, val message: String = "")
+/** A completed check. A verified download of the same release stays installable instead of being downloaded again. */
+fun UpdateState.checked(found: AppRelease?, fileExists: (String) -> Boolean = { File(it).isFile }): UpdateState {
+    val ready = apkPath?.takeIf { found != null && found == release && fileExists(it) }
+    return UpdateState(release = found, apkPath = ready, message = when {
+        found == null -> "You’re up to date."
+        ready != null -> "Verified update. Ready to install."
+        else -> "Version ${found.version} is available."
+    })
+}
+
+/** Messages the updater wrote for people are kept; library and network internals are not shown. */
+fun updateFailureMessage(error: Exception, fallback: String): String = when (error) {
+    is java.io.IOException -> "Could not reach GitHub. Check your connection and try again."
+    is IllegalStateException -> error.message?.takeIf { it.isNotBlank() } ?: fallback
+    else -> fallback
+}
+
 data class AppIdentity(val packageName: String, val versionCode: Long, val signers: Set<String>)
 
 class GitHubUpdater(private val context: Context) {

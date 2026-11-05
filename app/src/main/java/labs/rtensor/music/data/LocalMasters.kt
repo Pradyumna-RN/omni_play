@@ -54,15 +54,21 @@ class LocalMasters(private val context: Context) {
     private val prefs = context.getSharedPreferences("music_library", Context.MODE_PRIVATE)
     private val generation = AtomicLong()
 
+    /** The chosen folder's lasting read grant is gone (or was never granted), so its files cannot be
+     * opened. Songs no longer route to it until the folder is chosen again. */
+    @Volatile var accessLost: Boolean = false; private set
     @Volatile var entries: List<Master> = load(); private set
     var folder: String?
         get() = prefs.getString("masters_folder", null)
         set(value) { prefs.edit().putString("masters_folder", value).apply() }
 
-    private fun load(): List<Master> = runCatching {
-        val array = JSONArray(file.readText())
-        (0 until array.length()).mapNotNull { runCatching { Master.fromJson(array.getJSONObject(it)) }.getOrNull() }
-    }.getOrDefault(emptyList())
+    private fun load(): List<Master> {
+        folder?.let { chosen -> if (!hasReadGrant(context, chosen)) { accessLost = true; return emptyList() } }
+        return runCatching {
+            val array = JSONArray(file.readText())
+            (0 until array.length()).mapNotNull { runCatching { Master.fromJson(array.getJSONObject(it)) }.getOrNull() }
+        }.getOrDefault(emptyList())
+    }
 
     /** Walks the chosen folder (and its subfolders) and reads each audio file's real format. Call off the main thread. */
     fun index(tree: Uri, progress: (Int) -> Unit = {}): List<Master> {
@@ -88,13 +94,21 @@ class LocalMasters(private val context: Context) {
         synchronized(this) {
             checkScan(ticket)
             write(found)
+            val previous = folder
             folder = tree.toString()
             entries = found
+            accessLost = false
+            // A different folder replaces the old one; keep Android's grant list from filling up.
+            if (previous != null && previous != folder) releaseGrant(previous)
         }
         return found
     }
 
-    @Synchronized fun clear() { generation.incrementAndGet(); file.delete(); folder = null; entries = emptyList() }
+    @Synchronized fun clear() { generation.incrementAndGet(); file.delete(); folder = null; entries = emptyList(); accessLost = false }
+    /** Give back a folder grant Music no longer uses. */
+    fun releaseGrant(uri: String) {
+        runCatching { context.contentResolver.releasePersistableUriPermission(Uri.parse(uri), android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+    }
     @Synchronized fun removeUri(uri: String) {
         generation.incrementAndGet()
         entries = entries.filterNot { it.uri == uri }
@@ -142,6 +156,10 @@ class LocalMasters(private val context: Context) {
     private fun MediaFormat.long(key: String) = if (containsKey(key)) runCatching { getLong(key) }.getOrDefault(0L) else 0L
 
     companion object {
+        /** Whether Android still holds a lasting read grant for this document or folder. Non-content URIs need none. */
+        fun hasReadGrant(context: Context, uri: String): Boolean = runCatching {
+            Uri.parse(uri).scheme != "content" || context.contentResolver.persistedUriPermissions.any { it.isReadPermission && it.uri.toString() == uri }
+        }.getOrDefault(false)
         private val AudioExtensions = setOf("flac", "alac", "m4a", "wav", "aiff", "aif", "mka", "mkv", "mp4", "ec3", "eac3", "ac3", "ac4", "thd", "dts")
     }
 }

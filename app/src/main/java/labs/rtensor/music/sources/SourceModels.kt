@@ -32,7 +32,8 @@ data class SourceConnection(val id: String, val name: String, val provider: Musi
         fun fromJson(o: JSONObject) = SourceConnection(o.getString("id"), o.getString("name"), MusicProvider.valueOf(o.getString("provider")),
             SourceProtocol.valueOf(o.getString("protocol")), o.getString("url"), o.optString("token"), o.optBoolean("enabled", true))
         fun validateUrl(value: String): String {
-            val url = value.trim().toHttpUrlOrNull() ?: error("Enter a valid HTTPS server URL.")
+            // IllegalArgumentException: the settings form shows this message instead of a generic connection failure.
+            val url = requireNotNull(value.trim().toHttpUrlOrNull()) { "Enter a valid HTTPS server URL." }
             require(url.isHttps && url.username.isEmpty() && url.password.isEmpty() && url.query == null && url.fragment == null) {
                 "Use an HTTPS server URL without login details or query parameters."
             }

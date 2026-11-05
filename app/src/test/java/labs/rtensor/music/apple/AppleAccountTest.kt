@@ -89,6 +89,13 @@ class AppleAccountTest {
         account.completeWeb(ticket, credentials.json().toString())
         shadowOf(Looper.getMainLooper()).idle(); assertNull(vault.load())
     }
+    @Test fun aSignInResultDeliveredAfterTheAppProcessRestartedStillConnects() {
+        // The old process issued ticket 3, then Android ended it while Apple's page was open.
+        val vault = vault(); val account = AppleAccount(context, vault, http(), Runtime())
+        account.completeWeb(3, AppleCredentials("header.payload.signature", "synthetic-user-token").json().toString())
+        until { account.state.value.connected }
+        assertFalse(account.state.value.connecting); assertNotNull(vault.load())
+    }
     @Test fun nativeCancellationDiscardsLateCodesAndLeavesNoSavedAccount() {
         val vault = vault(); val runtime = Runtime(); val account = AppleAccount(context, vault, http(), runtime)
         account.signInNative("fixture@example.test", "synthetic-password")

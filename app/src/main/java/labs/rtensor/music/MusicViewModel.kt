@@ -48,6 +48,8 @@ import labs.rtensor.music.data.FeedEntry
 import labs.rtensor.music.data.FeedSection
 import labs.rtensor.music.updates.GitHubUpdater
 import labs.rtensor.music.updates.UpdateState
+import labs.rtensor.music.updates.checked
+import labs.rtensor.music.updates.updateFailureMessage
 import labs.rtensor.music.playback.MusicPlaybackService
 import labs.rtensor.music.playback.AudioPipeline
 import labs.rtensor.music.playback.AudioProcessingState
@@ -135,6 +137,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val spotifyMatches = SpotifyTrackMatcher.get(application)
     private var recommendationRevision = 0L
     private var collectionOffset: Int? = null
+    /** The collection page most recently requested, so Retry repeats that page. */
+    private var collectionRequestOffset = 0
     private val routes = mutableMapOf<String, PlaybackRoute>()
     private fun route(track: Track) = routes.getOrPut(track.id) { PlaybackRoute.choose(track, masters.entries.filterNot { it.uri in library.removedLocalUris }) }
     private val mutable = MutableStateFlow(MusicState(
@@ -144,7 +148,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         recommendationEngine = library.recommendationEngine,
         spotifyAccount = spotify.state.value,
         autoplay = library.autoplay, trackHistory = library.trackHistory,
-        mastersSummary = summary(masters.entries, masters.folder != null),
+        mastersSummary = if (masters.accessLost) MASTERS_ACCESS_LOST else summary(masters.entries, masters.folder != null),
         playbackSources = sources.settings.connections.value.map { it.summary() },
     ))
     val state = mutable.asStateFlow()
@@ -302,7 +306,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                     feedPersonalized = engine == RecommendationEngine.SPOTIFY || !it.account.connected || feed.personalized) }
                 if (!more && mutable.value.forYou.isEmpty()) refreshForYou()
             } catch (e: CancellationException) { throw e }
-            catch (e: Exception) { if (revision == recommendationRevision) mutable.update { it.copy(feedBusy = false, feedError = sourceMessage(e)) } }
+            catch (e: Exception) { if (revision == recommendationRevision) mutable.update { it.copy(feedBusy = false, feedError = catalogueErrorMessage(e, CatalogueMessages.FEED)) } }
         }
     }
 
@@ -335,7 +339,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 if (revision == recommendationRevision) mutable.update { it.copy(explore = sections, exploreBusy = false) }
             }
             catch (e: CancellationException) { throw e }
-            catch (e: Exception) { if (revision == recommendationRevision) mutable.update { it.copy(exploreBusy = false, exploreError = sourceMessage(e)) } }
+            catch (e: Exception) { if (revision == recommendationRevision) mutable.update { it.copy(exploreBusy = false, exploreError = catalogueErrorMessage(e, CatalogueMessages.FEED)) } }
         }
     }
 
@@ -357,6 +361,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     fun moreCollection() { collectionOffset?.let { offset -> mutable.value.collectionEntry?.let { browsePage(it, offset) } } }
     private fun browsePage(entry: FeedEntry, offset: Int) {
         collectionJob?.cancel()
+        // A new entry never continues the previous entry's paging.
+        if (offset == 0) collectionOffset = null
+        collectionRequestOffset = offset
         collectionJob = viewModelScope.launch {
             mutable.update { it.copy(collectionEntry = entry, collection = if (offset == 0) emptyList() else it.collection,
                 collectionBusy = true, collectionHasMore = false, error = null) }
@@ -365,14 +372,19 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 val page = if (spotifyEntry) spotify.collection(entry, offset) else null
                 val tracks = if (page != null) spotify.tracks(page) else youtube.collection(entry)
                 collectionOffset = page?.optInt("nextOffset", -1)?.takeIf { it > offset }
-                mutable.update { it.copy(collection = (if (offset == 0) tracks else it.collection + tracks).distinctBy(Track::libraryKey),
-                    collectionBusy = false, collectionHasMore = collectionOffset != null) }
+                mutable.update { it.collectionPageLoaded(offset, tracks, collectionOffset != null) }
             }
-            catch (e: CancellationException) { throw e }
-            catch (e: Exception) { mutable.update { it.copy(collectionBusy = false, error = sourceMessage(e)) } }
+            catch (e: CancellationException) {
+                // A provider can abandon a stale request with CancellationException (Spotify does
+                // after an account change). Only a cancelled job may end without leaving a state.
+                if (!isActive) throw e
+                mutable.update { it.collectionPageFailed(offset, CatalogueMessages.COLLECTION) }
+            }
+            catch (e: Exception) { mutable.update { it.collectionPageFailed(offset, catalogueErrorMessage(e, CatalogueMessages.COLLECTION)) } }
         }
     }
-    fun retryCollection() { mutable.value.collectionEntry?.let(::browse) }
+    /** Retry the page that failed: a failed "Load more" keeps the songs already shown. */
+    fun retryCollection() { mutable.value.collectionEntry?.let { browsePage(it, collectionRequestOffset) } }
 
     fun recommendationEngine(engine: RecommendationEngine) {
         if (engine == RecommendationEngine.SPOTIFY && !spotify.state.value.connected) return
@@ -424,6 +436,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun connectAccount() { youtube.runtime.beginSignIn() }
     fun disconnectAccount() {
+        // Choosing or forgetting a Google profile also signs YouTube out. Without a YouTube
+        // account there is nothing to remove, so the current song and queue keep playing.
+        if (!youtubeSignOutNeeded(mutable.value.account, youtube.runtime.hasSession())) return
         radio?.reset()
         controller?.stop(); controller?.clearMediaItems()
         mutablePosition.value = 0
@@ -438,9 +453,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             mutable.update { it.copy(update = it.update.copy(checking = true, message = "Checking GitHub releases…")) }
             try {
                 val release = updater.check()
-                mutable.update { it.copy(update = UpdateState(release = release, message = if (release == null) "You’re up to date." else "Version ${release.version} is available.")) }
+                mutable.update { it.copy(update = it.update.checked(release)) }
             } catch (e: CancellationException) { throw e }
-            catch (e: Exception) { mutable.update { it.copy(update = it.update.copy(checking = false, message = e.message ?: "Could not check for updates.")) } }
+            catch (e: Exception) { mutable.update { it.copy(update = it.update.copy(checking = false, message = updateFailureMessage(e, "Could not check for updates. Try again later."))) } }
         }
     }
     fun downloadUpdate() {
@@ -453,7 +468,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 val file = updater.download(release) { progress -> mutable.update { it.copy(update = it.update.copy(progress = progress)) } }
                 mutable.update { it.copy(update = it.update.copy(downloading = false, apkPath = file.path, message = "Verified update. Ready to install.")) }
             } catch (e: CancellationException) { throw e }
-            catch (e: Exception) { mutable.update { it.copy(update = it.update.copy(downloading = false, message = e.message ?: "The update download failed.")) } }
+            catch (e: Exception) { mutable.update { it.copy(update = it.update.copy(downloading = false, message = updateFailureMessage(e, "The update download failed. Retry the download."))) } }
         }
     }
     fun updateMessage(message: String) { mutable.update { it.copy(update = it.update.copy(message = message)) } }
@@ -551,7 +566,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 mutable.update { it.copy(results = results, searching = false) }
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
-                mutable.update { it.copy(searching = false, error = sourceMessage(e), errorDiagnostic = (e as? SourceException)?.diagnostic.orEmpty()) }
+                mutable.update { it.copy(searching = false, error = catalogueErrorMessage(e, CatalogueMessages.SEARCH), errorDiagnostic = (e as? SourceException)?.diagnostic.orEmpty()) }
             }
         }
     }
@@ -725,7 +740,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 val saved = listOf(track) + mutable.value.saved.filterNot { it.libraryKey() == track.libraryKey() }
                 library.writeTracks("saved", saved)
-                mutable.update { it.copy(saved = saved, importMessage = "Added ${track.title} to Saved.") }
+                // Without a lasting grant the file only stays readable until Music restarts.
+                val lasting = withContext(Dispatchers.IO) { LocalMasters.hasReadGrant(getApplication(), uri.toString()) }
+                mutable.update { it.copy(saved = saved, importMessage = if (lasting) "Added ${track.title} to Saved."
+                    else "Added ${track.title} to Saved for now. The app that holds this file did not allow lasting access, so import it again after Music restarts.") }
             } catch (e: CancellationException) { throw e }
             catch (_: Exception) { mutable.update { it.copy(importMessage = "Could not import this file. Choose a readable audio file.") } }
         }
@@ -745,18 +763,26 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 routes.clear()
                 mutable.update { it.copy(mastersBusy = false, mastersSummary = summary(found, true)) }
             } catch (e: CancellationException) { throw e }
-            catch (_: Exception) { mutable.update { it.copy(mastersBusy = false, mastersSummary = "Could not read this folder. Choose it again.") } }
+            catch (_: Exception) {
+                // An unreadable choice must not keep a grant for a folder Music does not use.
+                if (masters.folder != tree.toString()) masters.releaseGrant(tree.toString())
+                mutable.update { it.copy(mastersBusy = false, mastersSummary = "Could not read this folder. Choose it again.") }
+            }
         }
     }
 
     fun clearMasters() {
         mastersJob?.cancel()
         val oldUris = masters.entries.map { it.uri }.toSet()
-        masters.folder?.let { folder -> runCatching { getApplication<Application>().contentResolver.releasePersistableUriPermission(Uri.parse(folder), android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) } }
+        masters.folder?.let(masters::releaseGrant)
         masters.clear(); routes.clear()
         mutable.update { it.copy(mastersBusy = false, mastersSummary = summary(emptyList(), false)) }
         controller?.let { LibraryQueueEdits.reconcile(it, library::isRemoved, oldUris, ::mediaItem) }
         syncPlayer(includeQueue = true)
+    }
+
+    private companion object {
+        const val MASTERS_ACCESS_LOST = "Music can no longer read the chosen folder, so its recordings are not used. Choose the folder again."
     }
 
     private fun summary(found: List<labs.rtensor.music.data.Master>, chosen: Boolean): String {
@@ -803,9 +829,6 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         if (c.mediaItemCount == 0) { play(track); return }
         c.addMediaItem(c.currentMediaItemIndex + 1, mediaItem(track)); syncPlayer(includeQueue = true)
     }
-
-    private fun sourceMessage(e: Exception): String =
-        if (e is SourceException || e is labs.rtensor.music.spotify.SpotifyCatalogueException) e.message.orEmpty() else "Could not load this recording. Check your connection and retry."
 
     override fun onCleared() {
         radio?.reset()
