@@ -98,6 +98,8 @@ class YouTubeRuntime private constructor(context: Context) {
             throw error
         }
     }
+    /** True when a YouTube session is active or stored, so signing out has something to remove. */
+    @Synchronized fun hasSession(): Boolean = if (sessionLoaded) activeSession != null else session.isStored()
     suspend fun disconnect() = accountChange.withLock {
         reset(); activeSession = null; sessionLoaded = true; session.clear()
         mutableAccount.value = AccountState(); mutableProblem.value = null

@@ -33,6 +33,8 @@ class AccountSession(context: Context, prefsName: String = "youtube_account", pr
         val sealed = byteArrayOf(1) + cipher.iv + cipher.doFinal(credentials.toByteArray(Charsets.UTF_8))
         check(prefs.edit().putString("credentials", Base64.encodeToString(sealed, Base64.NO_WRAP)).commit())
     }
+    /** Whether sealed credentials are stored, without decrypting them. */
+    @Synchronized fun isStored(): Boolean = prefs.contains("credentials")
     @Synchronized fun clear() { prefs.edit().clear().commit() }
     companion object {
         private const val ALIAS = "music.youtube.oauth.v1"
