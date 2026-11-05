@@ -101,16 +101,19 @@ class AccentUiTest {
         }
     }
 
-    /** The dock is black in both themes: its tab mark must show for every accent, Ink included. */
-    @Test fun dockTabMarkStaysVisibleForEveryAccent() {
+    /** The dock is black in both themes: the chosen tab's three lights must show for every accent, Ink included. */
+    @Test fun dockTabLightsStayVisibleForEveryAccent() {
         val state = mutableStateOf(MusicState(current = track, durationMs = 224000, reducedMotion = true))
         compose.setContent { MusicApp(state.value) }
         for (choice in fixed) for (theme in listOf("light", "dark")) {
             compose.runOnIdle { state.value = state.value.copy(accent = choice, theme = theme) }
             val image = snapshot()
-            val tab = bounds(compose.onNodeWithContentDescription("Home"))
             val expected = accentColours(choice, theme == "dark", null).onDock
-            assertTrue("$choice $theme dock mark", close(pixel(image, tab.center.x, tab.top + 1), expected))
+            // The lights sit above the label, in the top part of the tab.
+            fun lights(tab: Rect) = Rect(tab.center.x - 12, tab.top + 8, tab.center.x + 12, tab.top + 22)
+            val home = bounds(compose.onNodeWithContentDescription("Home"))
+            assertTrue("$choice $theme lights on the chosen tab", anyPixel(image, lights(home), expected))
+            assertFalse("$choice $theme no lights on other tabs", anyPixel(image, lights(bounds(compose.onNodeWithContentDescription("Explore"))), expected))
             if (choice == AccentChoice.INK && theme == "light") save(image, "home-accent-ink-light-dock")
             image.recycle()
         }

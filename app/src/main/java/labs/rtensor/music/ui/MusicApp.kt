@@ -465,43 +465,33 @@ private val navTabs = listOf(
 )
 
 /**
- * A flat mono tab bar on the dark dock. A 3dp accent mark rides the top edge of the chosen tab
- * and stretches across to the next one, its leading edge first and the trailing edge catching
- * up. The mark is painted in the draw phase, so switching tabs never re-measures the bar.
+ * A flat tab bar on the dark dock with sentence-case labels. The chosen tab shows three small
+ * accent dots above its label, like the speaker lights; they fade between tabs and the labels
+ * never move, so switching tabs never re-measures the bar.
  */
 @Composable
 private fun AppNavigation(page: String, reduced: Boolean, onSelect: (String) -> Unit) {
     val selectedIndex = navTabs.indexOfFirst { it.id == page }.coerceAtLeast(0)
-    val lead = remember { Animatable(selectedIndex.toFloat()) }
-    val trail = remember { Animatable(selectedIndex.toFloat()) }
-    LaunchedEffect(selectedIndex, reduced) {
-        val target = selectedIndex.toFloat()
-        if (reduced) { lead.snapTo(target); trail.snapTo(target); return@LaunchedEffect }
-        // Springs keep their velocity when a second tap retargets them mid-flight.
-        launch { lead.animateTo(target, spring(dampingRatio = 1f, stiffness = 700f)) }
-        delay(40)
-        trail.animateTo(target, spring(dampingRatio = 1f, stiffness = 420f))
-    }
     val mark = LocalAccent.current.onDock
-    Row(
-        Modifier.fillMaxWidth().height(56.dp).background(Ink).drawBehind {
-            val slot = size.width / navTabs.size
-            val left = slot * minOf(lead.value, trail.value)
-            val right = slot * (maxOf(lead.value, trail.value) + 1f)
-            drawRect(mark, Offset(left, 0f), Size(right - left, 3.dp.toPx()))
-        },
-    ) {
+    Row(Modifier.fillMaxWidth().height(56.dp).background(Ink)) {
         navTabs.forEachIndexed { index, tab ->
             val selected = index == selectedIndex
             val color by animateColorAsState(if (selected) Paper else PaperMuted, tween(if (reduced) 0 else QuickMs), label = "tab colour")
-            Box(
+            val lit = animateFloatAsState(if (selected) 1f else 0f, if (reduced) snap() else tween(QuickMs, easing = Standard), label = "tab lights")
+            Column(
                 Modifier.weight(1f).fillMaxHeight()
                     .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { onSelect(tab.id) }
                     .semantics { contentDescription = tab.label; role = Role.Tab; this.selected = selected },
-                contentAlignment = Alignment.Center,
+                horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
             ) {
-                Text(tab.label.uppercase(), style = MonoSmall, fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
-                    color = color, maxLines = 1, modifier = Modifier.padding(top = 3.dp))
+                Canvas(Modifier.size(width = 20.dp, height = 4.dp).graphicsLayer { alpha = lit.value }) {
+                    val r = size.height / 2
+                    for (i in 0..2) drawCircle(mark, r, Offset(r + i * (size.width - 2 * r) / 2, r))
+                }
+                Spacer(Modifier.height(6.dp))
+                // The tab's name is its content description; the label adds nothing for TalkBack.
+                Text(tab.label, fontFamily = font, fontSize = 13.sp, lineHeight = 16.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                    color = color, maxLines = 1, modifier = Modifier.clearAndSetSemantics {})
             }
         }
     }
@@ -2055,7 +2045,7 @@ private fun MiniPlayer(state: MusicState, onOpen: () -> Unit, onToggle: () -> Un
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
                         ScrollingMetadata(shown.title, DisplayStyle.copy(fontSize = 16.sp, lineHeight = 20.sp, color = Paper))
-                        ScrollingMetadata(shown.artist, MonoSmall.copy(lineHeight = 16.sp, color = PaperMuted), Modifier.padding(top = 2.dp))
+                        ScrollingMetadata(shown.artist, TextStyle(fontFamily = font, fontSize = 13.sp, lineHeight = 16.sp, color = PaperMuted), Modifier.padding(top = 2.dp))
                     }
                 }
             }
