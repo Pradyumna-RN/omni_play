@@ -57,6 +57,16 @@ internal data class Look(
     /** A big headline: Classic ends it with a full stop. */
     fun headline(text: String): String = if (classic) "$text." else text
 
+    /** What a settings card is filled with: the page colour in Classic, the lifted panel otherwise. */
+    val cardFill: Color get() = if (classic) background else panel
+    /** A segmented selector's track, inside a card: set apart from the card in both looks. */
+    val selectorTrack: Color get() = if (classic) panel else background
+    /** The selector's outline: the muted text colour, so its boundary stands out 3:1 from the card. */
+    val selectorEdge: Color get() = muted
+    /** The chosen option is filled with the text colour and labelled in the page colour. */
+    val selectorThumb: Color get() = text
+    val onSelectorThumb: Color get() = background
+
     /** Filled and outlined buttons: square in Classic, pills in the Listening room. */
     val button: Shape get() = if (classic) RectangleShape else RoundedCornerShape(percent = 50)
     /** Bordered square controls such as Save: square in Classic, softly rounded otherwise. */

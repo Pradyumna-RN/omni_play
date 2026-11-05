@@ -2239,27 +2239,26 @@ private fun SlidingSelector(options: List<Pair<String, String>>, chosen: String,
     val index = options.indexOfFirst { it.first == chosen }.coerceAtLeast(0)
     val slot = remember { Animatable(index.toFloat()) }
     LaunchedEffect(index, reduced) { if (reduced) slot.snapTo(index.toFloat()) else slot.animateTo(index.toFloat(), IndicatorSpring) }
-    val highlight = MaterialTheme.colorScheme.surface
-    val edge = MaterialTheme.colorScheme.outline
-    val classic = LocalLook.current.classic
+    val look = LocalLook.current
+    val classic = look.classic
+    val shape = if (classic) RectangleShape else RoundedCornerShape(percent = 50)
+    // The track is set apart from its card by a muted outline (3:1 or more against the card), and
+    // the chosen option is a solid thumb in the text colour, so the choice never relies on a tint.
+    val thumb = look.selectorThumb
     Row(
-        Modifier.fillMaxWidth().height(44.dp).clip(if (classic) RectangleShape else RoundedCornerShape(percent = 50))
-            .background(MaterialTheme.colorScheme.surfaceVariant).selectableGroup()
+        Modifier.fillMaxWidth().height(44.dp).clip(shape).background(look.selectorTrack).border(1.dp, look.selectorEdge, shape).selectableGroup()
             .drawBehind {
                 val pad = 4.dp.toPx()
                 val w = (size.width - pad * 2) / options.size
-                val r = CornerRadius(if (classic) 10.dp.toPx() else (size.height - pad * 2) / 2)
-                val topLeft = Offset(pad + w * slot.value, pad)
-                val box = Size(w, size.height - pad * 2)
-                drawRoundRect(highlight, topLeft, box, r)
-                drawRoundRect(edge, topLeft, box, r, style = Stroke(.5.dp.toPx()))
+                val r = CornerRadius(if (classic) 0f else (size.height - pad * 2) / 2)
+                drawRoundRect(thumb, Offset(pad + w * slot.value, pad), Size(w, size.height - pad * 2), r)
             }
             .padding(4.dp),
     ) {
         options.forEachIndexed { i, (id, name) ->
             val selected = i == index
-            val fg by animateColorAsState(if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, tween(if (reduced) 0 else QuickMs), label = "selector fg")
-            Box(Modifier.weight(1f).fillMaxHeight().clip(if (classic) RectangleShape else RoundedCornerShape(percent = 50)).clickable { onChoose(id) }
+            val fg by animateColorAsState(if (selected) look.onSelectorThumb else look.muted, tween(if (reduced) 0 else QuickMs), label = "selector fg")
+            Box(Modifier.weight(1f).fillMaxHeight().clip(shape).clickable { onChoose(id) }
                 .semantics { contentDescription = describe(name); this.selected = selected; this.role = role },
                 contentAlignment = Alignment.Center) {
                 Text(name, fontSize = 14.sp, color = fg, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium, maxLines = 1)

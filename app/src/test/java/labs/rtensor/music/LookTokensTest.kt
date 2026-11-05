@@ -59,6 +59,16 @@ class LookTokensTest {
         }
     }
 
+    @Test fun selectorBoundaryAndChoiceStandOutInBothLooksAndThemes() {
+        for (look in listOf(roomLook(false), roomLook(true), classicLook(false), classicLook(true))) {
+            val label = "${look.choice} ${if (look.dark) "dark" else "light"}"
+            assertTrue("$label outline against the card", contrastRatio(look.selectorEdge, look.cardFill) >= MinMarkContrast)
+            assertTrue("$label chosen thumb against the track", contrastRatio(look.selectorThumb, look.selectorTrack) >= MinMarkContrast)
+            assertTrue("$label chosen label on the thumb", contrastRatio(look.onSelectorThumb, look.selectorThumb) >= MinTextContrast)
+            assertTrue("$label other labels on the track", contrastRatio(look.muted, look.selectorTrack) >= MinTextContrast)
+        }
+    }
+
     @Test fun classicKeepsTheSignalPaletteAndOnlyTwoLooksExist() {
         assertEquals(Paper, classicLook(false).background); assertEquals(Ink, classicLook(false).text)
         assertEquals(Ink, classicLook(true).background); assertEquals(Paper, classicLook(true).text)
