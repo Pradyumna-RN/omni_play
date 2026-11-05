@@ -202,4 +202,22 @@ class NavigationAndOverlayUiTest {
         compose.setContent { MusicApp(MusicState(tidalAccount = AccountState(connected = true), playbackSources = listOf(source), reducedMotion = true), initialPage = "settings") }
         compose.onNodeWithText("TIDAL signed in · 1 saved server").performScrollTo().assertIsDisplayed()
     }
+
+    @Test fun retryFollowsTheErrorOriginOnAnyPage() {
+        var searches = 0; var reloads = 0; var retries = 0
+        val entry = FeedEntry("album", "An album", "Serein", "", "album", "album-browse", "")
+        val state = mutableStateOf(MusicState(collectionEntry = entry, current = track, queue = listOf(track), queueIndex = 0,
+            error = "Could not open this album.", errorOrigin = ErrorOrigin.COLLECTION, reducedMotion = true))
+        compose.setContent { MusicApp(state.value, onSearch = { searches++ }, onRetryCollection = { reloads++ }, onRetry = { retries++ }) }
+        // A collection failure left on Home after navigating away still reloads the collection.
+        compose.onNodeWithText("Retry").performClick()
+        compose.runOnIdle { assertEquals(listOf(0, 1, 0), listOf(searches, reloads, retries)) }
+        // A playback error over search results that came back empty still retries playback.
+        compose.runOnIdle { state.value = state.value.copy(query = "Serein", searched = true, error = "HTTP 403", errorOrigin = ErrorOrigin.PLAYBACK) }
+        compose.onNodeWithText("Retry").performClick()
+        compose.runOnIdle { assertEquals(listOf(0, 1, 1), listOf(searches, reloads, retries)) }
+        compose.runOnIdle { state.value = state.value.copy(error = "Search failed", errorOrigin = ErrorOrigin.SEARCH) }
+        compose.onNodeWithText("Retry").performClick()
+        compose.runOnIdle { assertEquals(listOf(1, 1, 1), listOf(searches, reloads, retries)) }
+    }
 }

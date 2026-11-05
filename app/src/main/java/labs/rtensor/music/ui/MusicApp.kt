@@ -321,9 +321,13 @@ fun MusicApp(
                         enter = if (reduced) EnterTransition.None else expandVertically(tween(EnterMs, easing = EmphasizedDecelerate)) + fadeIn(tween(EnterMs, 60)),
                         exit = if (reduced) ExitTransition.None else shrinkVertically(tween(ExitMs, easing = EmphasizedAccelerate)) + fadeOut(tween(120)),
                     ) {
-                        // The error is shared, so Retry repeats what actually failed: a search or a
-                        // collection that came back empty, otherwise the recording that is playing.
+                        // The error is shared, so Retry repeats what actually failed. The ViewModel
+                        // names the origin; without one, a search or collection that came back empty
+                        // is retried, otherwise the recording that is playing.
                         val retry = when {
+                            state.errorOrigin == labs.rtensor.music.ErrorOrigin.SEARCH -> onSearch
+                            state.errorOrigin == labs.rtensor.music.ErrorOrigin.COLLECTION -> onRetryCollection
+                            state.errorOrigin == labs.rtensor.music.ErrorOrigin.PLAYBACK -> onRetry
                             page in rootPages && state.searched && state.query.isNotBlank() && (state.results.isEmpty() || state.current == null) -> onSearch
                             page == "collection" && (state.collection.isEmpty() || state.current == null) -> onRetryCollection
                             else -> onRetry
