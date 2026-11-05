@@ -8,9 +8,13 @@ and physical-phone performance have not been tested in this workspace.
 
 1. Open **Settings → Playback → Recommendation source**.
 2. YouTube Music is the default. Tap **Spotify** to open Spotify's own sign-in page
-   inside Music. Email sign-in and linked-account pages are supported by the
-   interactive browser. Complete Spotify’s sign-in, then use Continue/Connect if
-   automatic confirmation has not finished. Reload and retry are available.
+   inside Music. Email, phone-number and linked-account (Google, Facebook, Apple)
+   pages are supported by the interactive browser. Complete Spotify’s sign-in on
+   the page; Music connects as soon as Spotify opens. **Connect** (top right)
+   confirms manually; it does nothing destructive before Spotify has signed you
+   in. Reload and Sign in restart the page.
+   If sign-in is cancelled or fails, Settings says so under the choice, with the
+   reason the sign-in page showed. See [sign-in problems](#sign-in-problems).
 3. Music selects Spotify only after verifying the signed-in profile. The choice
    persists across app restarts. Reconnect if the session expires, or select
    YouTube Music at any time.
@@ -31,6 +35,20 @@ their order, and autoplay extends their end. History supplies optional seed song
 never replacement candidates when a provider request fails. Local-only files do
 not seed radio. An expired Spotify session produces a reconnect message instead
 of silently substituting history or another recommendation service.
+
+## Sign-in problems
+
+- **Google says this browser or app may not be secure.** Google can refuse to
+  finish a sign-in inside another app's page. Music recognises Google's refusal
+  page and asks you to use **Continue with email** or **Continue with phone
+  number** on Spotify's page instead; Spotify sends a code to the email or
+  phone on the same account (including accounts created with Google).
+- **Sign-in tried to open another site.** Only Spotify and its Google, Facebook
+  and Apple sign-in pages (including Google's YouTube and regional hand-off
+  pages) can open. Anything else is named by its host only; use email or phone.
+- **Android closed the sign-in page.** If Android ends the sign-in while you
+  read an emailed code, Music reopens it; when Spotify had already signed you
+  in, it opens Spotify and connects automatically.
 
 ## Data and audio flow
 
@@ -123,6 +141,18 @@ own anonymous catalogue access; the app’s sign-in requirement is unchanged.
 These checks do not prove authenticated response compatibility,
 personalised radio availability, login completion, actual audio playback or phone smoothness.
 No signed-in account credentials were supplied or used for these public checks.
+
+Live probe, 5 Nov 2026 (no account, desktop Chrome with Music's user agent):
+the login page answers 200 and rewrites its return address to
+`https://open.spotify.com/?flow_ctx=…`; Google, Facebook and Apple buttons
+redirect (303) to accounts.google.com, www.facebook.com and appleid.apple.com.
+The web player still exposes the platform registry with `TokenProvider` and
+`UserAPI` (`getUser` returns `displayName`). The shipped bridge answered
+`profile` with `AUTH_REQUIRED` for the anonymous page, as intended, and with the
+anonymous-token harness Home and search returned results. With an Android
+WebView user agent the page is the mobile player and the registry is not found,
+which is why Music keeps its desktop user agent. A signed-in profile, Google's
+treatment of the in-app page and the phone's WebView were not tested.
 
 Before treating Spotify as stable, test an actual account on Android 11 and a
 recent WebView: sign-in/restart/reconnect, Home and album/playlist paging, radio,
