@@ -11,6 +11,7 @@ import labs.rtensor.music.data.Track
 import labs.rtensor.music.ui.MinTextContrast
 import labs.rtensor.music.ui.MusicApp
 import labs.rtensor.music.ui.contrastRatio
+import androidx.compose.ui.graphics.toArgb
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
@@ -93,5 +94,23 @@ class ReleasePolishUiTest {
         }
         compose.onNodeWithContentDescription("Saved").assertIsSelected()
         compose.onNodeWithContentDescription("History").performClick().assertIsSelected()
+    }
+
+    @Test fun theDockMarksTheChosenTabWithOneLight() {
+        compose.setContent { MusicApp(MusicState(theme = "dark", reducedMotion = true, current = track)) }
+        val image = snapshot()
+        val home = compose.onNodeWithContentDescription("Home").fetchSemanticsNode().boundsInWindow
+        val light = labs.rtensor.music.ui.accentColours(AccentChoice.COVER, true, null).onDock
+        // Count separate lit runs across the top of the chosen tab: one light, not three dots.
+        var runs = 0; var inRun = false
+        val y = compose.onAllNodesWithTag("tab-light", useUnmergedTree = true).onFirst().fetchSemanticsNode().boundsInWindow.center.y.toInt()
+        for (x in home.left.toInt() until home.right.toInt()) {
+            val c = image.getPixel(x, y)
+            val lit = listOf(16, 8, 0).all { kotlin.math.abs((c shr it and 0xFF) - (light.toArgb() shr it and 0xFF)) <= 40 }
+            if (lit && !inRun) runs++
+            inRun = lit
+        }
+        image.recycle()
+        assertEquals(1, runs)
     }
 }

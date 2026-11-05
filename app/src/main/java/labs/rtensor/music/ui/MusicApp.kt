@@ -573,8 +573,8 @@ private val navTabs = listOf(
 )
 
 /**
- * A flat tab bar on the dark dock with sentence-case labels. The chosen tab shows three small
- * accent dots above its label, like the speaker lights; they fade between tabs and the labels
+ * A flat tab bar on the dark dock with sentence-case labels. The chosen tab shows one small
+ * accent light above its label, like a speaker light; it fades between tabs and the labels
  * never move, so switching tabs never re-measures the bar.
  */
 @Composable
@@ -593,14 +593,9 @@ private fun AppNavigation(page: String, reduced: Boolean, onSelect: (String) -> 
                     .semantics { contentDescription = tab.label; role = Role.Tab; this.selected = selected },
                 horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
             ) {
-                Canvas(Modifier.size(width = 20.dp, height = 4.dp).graphicsLayer { alpha = lit.value }) {
-                    val r = size.height / 2
-                    for (i in 0..2) {
-                        val c = Offset(r + i * (size.width - 2 * r) / 2, r)
-                        // A soft glow around each light, like the speakers in the room.
-                        drawCircle(Brush.radialGradient(listOf(mark.copy(alpha = .35f), Color.Transparent), c, r * 3.2f), r * 3.2f, c)
-                        drawCircle(mark, r, c)
-                    }
+                // One light over the chosen tab (three dots read as a "more" menu).
+                Canvas(Modifier.size(width = 20.dp, height = 5.dp).graphicsLayer { alpha = lit.value }.testTag("tab-light")) {
+                    drawCircle(mark, size.height / 2, center)
                 }
                 Spacer(Modifier.height(6.dp))
                 // The tab's name is its content description; the label adds nothing for TalkBack.
@@ -2830,8 +2825,8 @@ private fun MiniPlayer(state: MusicState, onOpen: () -> Unit, onToggle: () -> Un
                     // Soft shows the artwork instead.
                     if (look.soft) Artwork(shown, Modifier.size(44.dp).clip(RoundedCornerShape(10.dp)), size = 44.dp)
                     else if (look.classic) Box(Modifier.size(width = 8.dp, height = 40.dp).background(LocalAccent.current.onDock))
-                    else Box(Modifier.size(width = 8.dp, height = 40.dp).glow(LocalAccent.current.onDock, spread = 2.4f)
-                        .clip(RoundedCornerShape(4.dp)).background(LocalAccent.current.onDock))
+                    // No glow: the row clips it to a hard-edged rectangle.
+                    else Box(Modifier.size(width = 8.dp, height = 40.dp).clip(RoundedCornerShape(4.dp)).background(LocalAccent.current.onDock))
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
                         ScrollingMetadata(shown.title, if (look.soft) TextStyle(fontSize = 14.sp, lineHeight = 18.sp, fontWeight = FontWeight.Medium, color = look.stageText)
