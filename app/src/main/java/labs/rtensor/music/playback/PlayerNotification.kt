@@ -99,7 +99,8 @@ class PlayerNotification(private val context: Context) : MediaNotification.Provi
             } ?: run { loading = null }
         }
 
-        val playing = player.playWhenReady && player.playbackState != Player.STATE_ENDED && player.playbackState != Player.STATE_IDLE
+        val playing = showsPause(player)
+        val active = player.playWhenReady && player.playbackState != Player.STATE_ENDED && player.playbackState != Player.STATE_IDLE
         val tint = shown?.tint ?: DefaultTint
         val title = metadata.title?.toString().orEmpty().ifBlank { "Nothing playing" }
         val artist = metadata.artist?.toString().orEmpty()
@@ -147,7 +148,7 @@ class PlayerNotification(private val context: Context) : MediaNotification.Provi
             .setOnlyAlertOnce(true)
             .setSilent(true)
             .setShowWhen(false)
-            .setOngoing(playing)
+            .setOngoing(active)
             .build()
         return MediaNotification(NotificationId, notification)
     }
@@ -172,6 +173,9 @@ class PlayerNotification(private val context: Context) : MediaNotification.Provi
 
     companion object {
         const val Channel = "now_playing"
+
+        /** The same rule as the app and Android's own media controls: a song held silent by a call shows Play. */
+        internal fun showsPause(player: Player) = !androidx.media3.common.util.Util.shouldShowPlayButton(player, true)
         const val NotificationId = 1001
         private const val DefaultTint = 0xFF7A1F3D.toInt()
 

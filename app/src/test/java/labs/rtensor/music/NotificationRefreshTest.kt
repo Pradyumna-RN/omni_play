@@ -28,6 +28,7 @@ import androidx.media3.session.MediaSession
 import androidx.test.core.app.ApplicationProvider
 import com.google.common.collect.ImmutableList
 import labs.rtensor.music.playback.PlayerNotification
+import labs.rtensor.music.playback.PlayerTransport
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Test
@@ -110,6 +111,23 @@ class NotificationRefreshTest {
         runUntil("playback to resume") { p.isPlaying }
         assertTrue("The running clock must be redrawn after the call", posted.size > paused)
         assertEquals(PlayerNotification.NotificationId, posted.last().notificationId)
+    }
+
+    @Test fun duringACallTheNotificationAndTheAppBothShowPlayAndPlayKeepsPlaying() {
+        val (p, _) = playing()
+        assertTrue(PlayerNotification.showsPause(p))
+        val focus = shadowOf(context.getSystemService(AudioManager::class.java)).lastAudioFocusRequest
+        focus.listener.onAudioFocusChange(AudioManager.AUDIOFOCUS_LOSS_TRANSIENT)
+        runUntil("playback to be suppressed") { !p.isPlaying }
+        // The app's button shows Play (nothing is audible); the notification must agree.
+        assertFalse("The notification must show Play while a call holds the audio", PlayerNotification.showsPause(p))
+        // Tapping that Play must not pause: the song continues once the call ends.
+        PlayerTransport.toggle(p) { fail("No error") }
+        assertTrue("Play during a call must keep play requested", p.playWhenReady)
+        focus.listener.onAudioFocusChange(AudioManager.AUDIOFOCUS_GAIN)
+        runUntil("playback to resume after the call") { p.isPlaying }
+        PlayerTransport.toggle(p) { fail("No error") }
+        assertFalse("Pause while audible still pauses", p.playWhenReady)
     }
 
     @Test fun aStoppedPlayerDoesNotBringBackItsDismissedNotification() {
