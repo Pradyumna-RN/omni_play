@@ -60,8 +60,11 @@ class HomePlaybackTest {
         val state = mutableStateOf(MusicState(forYou = listOf(one, two), reducedMotion = true))
         val queues = mutableListOf<List<Track>>()
         compose.setContent { MusicApp(state.value, onPlay = { t, q -> queues += q; state.value = state.value.copy(current = t, queue = q, queueIndex = 0) }) }
+        // Home's shelves are lazy items: bring each one into view before using it.
+        compose.onAllNodes(hasScrollToKeyAction()).onFirst().performScrollToKey("unheard")
         compose.onNodeWithText(two.title).performScrollTo().performClick()
         compose.onNodeWithContentDescription("Back").performClick()
+        compose.onAllNodes(hasScrollToKeyAction()).onFirst().performScrollToKey("for-you")
         compose.onNodeWithText("Play mix").performScrollTo().performClick()
         compose.runOnIdle { assertEquals(listOf(listOf(two), listOf(one, two)), queues) }
     }

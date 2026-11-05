@@ -818,48 +818,8 @@ private fun HomeScreen(state: MusicState, onSearch: () -> Unit, onPlay: (Track, 
                 }
             }
         }
-        if ((recommendations.fromListening.isNotEmpty() || state.forYouBusy) && look.soft) item(key = "for-you") {
-            // Soft, as in 0.3.31: "Mixed for you" with a tonal Play mix and a row of cards.
-            Column(motionModifier().padding(top = 20.dp)) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        SectionTitle("Mixed for you")
-                        Text(if (state.recommendationEngine == labs.rtensor.music.recommendations.RecommendationEngine.SPOTIFY) "Radio from Spotify" else "From what you play most on this phone",
-                            fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp))
-                    }
-                    if (state.forYou.isNotEmpty()) FilledTonalButton(onClick = { onPlay(state.forYou.first(), state.forYou) }, shape = RoundedCornerShape(14.dp)) {
-                        Icon(Icons.Outlined.PlayArrow, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Play mix", fontSize = 12.sp)
-                    }
-                }
-                Spacer(Modifier.height(16.dp))
-                if (recommendations.fromListening.isEmpty()) LoadingLine(true, state.reducedMotion)
-                else LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    itemsIndexed(recommendations.fromListening, key = { i, t -> "$i:${t.id}" }) { _, track ->
-                        MediaCard(track.title, track.artist, track, 142.dp) { onPlay(track, listOf(track)) }
-                    }
-                }
-            }
-        } else if (recommendations.fromListening.isNotEmpty() || state.forYouBusy) item(key = "for-you") {
-            Column(motionModifier().fillMaxWidth().signalRule(bottom = true, thickness = 1.dp).padding(vertical = 20.dp)) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    val title = if (topArtists.isEmpty()) "From your listening" else "Your sound · ${topArtists.joinToString(" · ")}"
-                    if (look.classic) ScrollingMetadata(title.uppercase(Locale.ROOT), MonoLabel, Modifier.weight(1f))
-                    else ScrollingMetadata(title, SectionStyle, Modifier.weight(1f), poster = true)
-                    if (state.forYou.isNotEmpty()) {
-                        Spacer(Modifier.width(12.dp))
-                        SignalOutlineButton("Play mix") { onPlay(state.forYou.first(), state.forYou) }
-                    }
-                }
-                Spacer(Modifier.height(14.dp))
-                if (recommendations.fromListening.isEmpty()) LoadingLine(true, state.reducedMotion)
-                else LazyRow(horizontalArrangement = Arrangement.spacedBy(if (look.classic) 12.dp else 10.dp)) {
-                    itemsIndexed(recommendations.fromListening, key = { i, t -> "$i:${t.id}" }) { i, track ->
-                        if (look.classic) SignalCard(track, "A-%02d".format(Locale.ROOT, i + 1)) { onPlay(track, listOf(track)) }
-                        else RoomCard(track, Modifier.width(148.dp)) { onPlay(track, listOf(track)) }
-                    }
-                }
-            }
-        }
+        // Home shelves (ui/HomeShelves.kt): "Next up for you", "Play it again" and "Your mixes".
+        homeShelves(state, recommendations.fromListening, topArtists, onPlay)
         if (unheard.isNotEmpty() && look.soft) item(key = "unheard") {
             // Soft has no section like this in 0.3.31; it is set in Soft's type as a plain list,
             // so songs added by "More from your feed" still arrive below.
