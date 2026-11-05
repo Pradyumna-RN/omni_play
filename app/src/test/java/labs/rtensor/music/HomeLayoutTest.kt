@@ -67,14 +67,16 @@ class HomeLayoutTest {
 
     @Test fun lastPlayedTitleAndArtistWrappingDoesNotMoveItsPlayButtonOrTheNextSection() {
         val song = Track("local:hero", "Short song", "", "content://audio/hero", durationMs = 180_000)
-        val state = mutableStateOf(MusicState(history = listOf(song), reducedMotion = true))
+        // The section after Last played is the mix built from what you play.
+        val mix = Track("fixture:mix", "Mix song", "Mix artist", "https://music.youtube.com/watch?v=ccccccccccc")
+        val state = mutableStateOf(MusicState(history = listOf(song), forYou = listOf(mix), reducedMotion = true))
         compose.setContent { MusicApp(state.value) }
         val playTop = top("Play")
-        val recentTop = top("Recently played")
+        val recentTop = top("Play mix")
         for (track in listOf(song.copy(title = longTitle, artist = longArtist), song, song.copy(artist = longArtist))) {
             compose.runOnIdle { state.value = state.value.copy(history = listOf(track)) }
             assertEquals("Home's Play control must stay put as metadata wraps", playTop, top("Play"), .5f)
-            assertEquals("The section below Last played must stay put", recentTop, top("Recently played"), .5f)
+            assertEquals("The section below Last played must stay put", recentTop, top("Play mix"), .5f)
         }
     }
 

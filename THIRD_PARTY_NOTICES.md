@@ -16,7 +16,7 @@ Runtime client dependencies (pinned through the lockfile):
 | Omnitone third-order ambisonic HRIRs (derived from the SADIE database, University of York) | 2.0.0 | Apache-2.0, © 2016 Google Inc. |
 
 AndroidX/Media3, Kotlin/coroutines, Coil, OkHttp and Okio use Apache-2.0 and their
-upstream notices. DM Sans uses SIL OFL 1.1. Full licence texts are bundled in
+upstream notices. DM Sans, Archivo (static instances generated from the variable font) and DM Mono use SIL OFL 1.1. Full licence texts are bundled in
 Settings → Open-source licences. The old Python/Chaquopy/yt-dlp runtime is removed.
 Architecture images were created for the approved Margin concept; provider
 artwork is loaded at runtime. No album artwork or account data is bundled as fixtures.

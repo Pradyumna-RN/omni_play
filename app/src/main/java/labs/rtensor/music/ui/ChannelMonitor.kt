@@ -1,11 +1,9 @@
 package labs.rtensor.music.ui
 
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.KeyboardArrowUp
@@ -15,10 +13,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.AbsoluteAlignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.semantics.contentDescription
@@ -40,6 +38,9 @@ import labs.rtensor.dsp.ListeningMode
 import labs.rtensor.dsp.SpeakerPosition
 import kotlin.math.roundToInt
 
+/** Faded meters and rules on the black Signal panel. */
+private val PanelFaded = Color(0xFF3A3A37)
+
 /** Own composition/flow: meter updates never recompose the surrounding player. */
 @Composable
 internal fun ChannelMonitor(
@@ -47,18 +48,24 @@ internal fun ChannelMonitor(
     levels: StateFlow<AudioLevelFrame?>?, onMetering: (Boolean) -> Unit,
 ) {
     var expanded by rememberSaveable { mutableStateOf(false) }
-    Surface(Modifier.fillMaxWidth().padding(top = 16.dp), shape = RoundedCornerShape(20.dp),
-        color = MaterialTheme.colorScheme.surface,
-        border = BorderStroke(.5.dp, MaterialTheme.colorScheme.outline)) {
-        Column {
-            Row(Modifier.fillMaxWidth().clickable { expanded = !expanded }.padding(16.dp)
-                .semantics { contentDescription = if (expanded) "Collapse channel monitor" else "Expand channel monitor" },
-                verticalAlignment = Alignment.CenterVertically) {
-                Icon(Glyph.ChannelMonitor, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
-                Text("Channel monitor", Modifier.weight(1f).padding(start = 10.dp), fontWeight = FontWeight.Medium, fontSize = 14.sp)
-                Icon(if (expanded) Icons.Outlined.KeyboardArrowUp else Icons.Outlined.KeyboardArrowDown, null)
+    // The monitor is always the black Signal panel, in light and dark themes alike: lit
+    // channels in the accent, faded ones in dark grey, text in paper.
+    val panel = MaterialTheme.colorScheme.copy(
+        primary = SignalAccent, onPrimary = Ink, surface = Ink, onSurface = Paper,
+        onSurfaceVariant = PaperMuted, outline = PanelFaded, outlineVariant = InkRule,
+    )
+    MaterialTheme(colorScheme = panel, typography = MaterialTheme.typography, shapes = MaterialTheme.shapes) {
+        Surface(Modifier.fillMaxWidth().padding(top = 16.dp), color = Ink, contentColor = Paper) {
+            Column {
+                Row(Modifier.fillMaxWidth().clickable { expanded = !expanded }.heightIn(min = 48.dp).padding(horizontal = 16.dp, vertical = 12.dp)
+                    .semantics { contentDescription = if (expanded) "Collapse channel monitor" else "Expand channel monitor" },
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(width = 6.dp, height = 18.dp).background(SignalAccent))
+                    Text("Channel monitor", Modifier.weight(1f).padding(start = 10.dp), style = MonoLabel, color = PaperMuted)
+                    Icon(if (expanded) Icons.Outlined.KeyboardArrowUp else Icons.Outlined.KeyboardArrowDown, null, tint = Paper)
+                }
+                if (expanded) MonitorReadings(report, playing, trackId, levels, onMetering)
             }
-            if (expanded) MonitorReadings(report, playing, trackId, levels, onMetering)
         }
     }
 }
@@ -93,14 +100,14 @@ private fun MonitorReadings(report: DownmixReport?, playing: Boolean, trackId: S
             !playing -> "Paused · $count input channels"
             original -> "Original · front L/R of $count decoded channels"
             else -> "Processed · $count decoded channels into the renderer"
-        }, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }, style = MonoSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (source.isNotEmpty()) {
             if (source.all { it.position != null }) {
                 SpeakerMap(source, original)
                 Text(if (original) "Faded: decoded but not played in Original" else "Lit: channels the renderer is mixing",
-                    fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    style = MonoSmall, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text("Dashed: height · Outline: not in source · Lrc/Rrc: rear centres",
-                    fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    style = MonoSmall, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else {
                 Text("Speaker positions unavailable", fontSize = 12.sp, modifier = Modifier.padding(top = 10.dp))
                 source.chunked(4).forEachIndexed { row, channels ->
@@ -113,11 +120,11 @@ private fun MonitorReadings(report: DownmixReport?, playing: Boolean, trackId: S
             val output = frame?.output ?: List(report?.outputChannels?.coerceIn(0, 16) ?: 0) {
                 ChannelLevel(if (report?.outputChannels == 2) listOf(SpeakerPosition.FL, SpeakerPosition.FR)[it] else null, -120f, -120f)
             }
-            Text(if (output.size == 2) "Stereo output" else "Sink output · ${output.size} channels", fontSize = 12.sp, fontWeight = FontWeight.Medium)
+            Text(if (output.size == 2) "Stereo output" else "Sink output · ${output.size} channels", style = MonoLabel)
             Text(if (original) "Source front L/R, unprocessed" else "Renderer stereo downmix",
-                fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                style = MonoSmall, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             output.forEachIndexed { i, channel -> OutputMeter(channel.position?.let(::speakerLabel) ?: "Ch ${i + 1}", channel) }
-            Text("−60 to 0 dBFS · before device volume", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            Text("−60 to 0 dBFS · before device volume", style = MonoSmall, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 8.dp))
         }
     }
@@ -195,7 +202,7 @@ private fun SpeakerNode(label: String, channel: ChannelLevel, modifier: Modifier
             val inset = 2.dp.toPx()
             val radius = size.minDimension / 2 - inset
             val box = Size(size.width - inset * 2, size.height - inset * 2)
-            val corner = CornerRadius(8.dp.toPx())
+            val corner = CornerRadius.Zero
             val line = Stroke(1.2.dp.toPx(), pathEffect = if (dashed) PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 3.dp.toPx())) else null)
             if (state != NodeState.ABSENT) {
                 val fill = (if (state == NodeState.ACTIVE) color else outline).copy(alpha = .06f + .4f * strength(channel.rmsDb))
@@ -209,7 +216,7 @@ private fun SpeakerNode(label: String, channel: ChannelLevel, modifier: Modifier
                     topLeft = Offset(inset, inset), size = Size(radius * 2, radius * 2), style = Stroke(2.dp.toPx()))
             }
         }
-        Text(label, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = ink.copy(alpha = fade))
+        Text(label, style = MonoSmall, fontSize = 11.sp, fontWeight = FontWeight.Medium, color = ink.copy(alpha = fade))
     }
 }
 
@@ -220,8 +227,8 @@ private fun OutputMeter(label: String, channel: ChannelLevel) {
     Row(Modifier.fillMaxWidth().padding(top = 8.dp).semantics {
         contentDescription = "$label output, RMS ${dbLabel(channel.rmsDb)} dBFS, peak ${dbLabel(channel.peakDb)} dBFS"
     }, verticalAlignment = Alignment.CenterVertically) {
-        Text(label, Modifier.width(30.dp), fontSize = 11.sp)
-        Canvas(Modifier.weight(1f).height(5.dp).clip(CircleShape)) {
+        Text(label, Modifier.width(30.dp), style = MonoSmall, fontSize = 11.sp)
+        Canvas(Modifier.weight(1f).height(8.dp)) {
             drawRect(background)
             drawRect(color, size = androidx.compose.ui.geometry.Size(size.width * strength(channel.rmsDb), size.height))
             if (channel.peakDb > -60f) {
@@ -229,6 +236,6 @@ private fun OutputMeter(label: String, channel: ChannelLevel) {
                 drawLine(color, Offset(x, 0f), Offset(x, size.height), strokeWidth = 1.dp.toPx())
             }
         }
-        Text(if (channel.peakDb <= -60f) "−∞" else "${channel.peakDb.roundToInt()}", Modifier.width(34.dp).padding(start = 8.dp), fontSize = 11.sp)
+        Text(if (channel.peakDb <= -60f) "−∞" else "${channel.peakDb.roundToInt()}", Modifier.width(34.dp).padding(start = 8.dp), style = MonoSmall, fontSize = 11.sp)
     }
 }
