@@ -125,6 +125,22 @@ class RadioQueueTest {
             assertNull(p.getMediaItemAt(1).mediaMetadata.extras!!.getString("music_radio_provider"))
         } finally { scope.cancel(); p.release() }
     }
+    @Test fun switchingProviderWhilePlayingARadioSongKeepsItAndEverythingAlreadyPlayed() {
+        val p = player(); val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        fun generated(t: Track) = item(t).let { it.buildUpon().setMediaMetadata(it.mediaMetadata.buildUpon()
+            .setExtras(android.os.Bundle(it.mediaMetadata.extras).apply { putString("music_radio_provider", "YouTube Music") }).build()).build() }
+        val fetched = mutableListOf<Track>()
+        val radio = RadioQueue(p, scope, { true }, { t, _ -> fetched += t; listOf(song('z')) }, ::item, { _, _ -> }, { "Spotify" })
+        try {
+            // Played radio song, current radio song, a manual "play next", then a future radio song.
+            p.setMediaItems(listOf(item(seed), generated(song('c')), generated(song('e')), item(song('b')), generated(song('f'))), 2, 31_000)
+            p.play()
+            radio.changeProvider()
+            assertEquals(listOf(seed.id, song('c').id, song('e').id, song('b').id, song('z').id), ids(p))
+            assertEquals(2, p.currentMediaItemIndex); assertEquals(31_000L, p.currentPosition); assertTrue(p.playWhenReady)
+            assertEquals("The new provider is seeded by the current song", listOf(song('e')), fetched)
+        } finally { scope.cancel(); p.release() }
+    }
     @Test fun oldProviderCannotAppendAfterSwitchEvenWhenRequestIgnoresCancellation() {
         val p = player(); val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
         val late = CompletableDeferred<List<Track>>(); var provider = "YouTube Music"
