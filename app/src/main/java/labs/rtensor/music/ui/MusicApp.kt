@@ -1440,6 +1440,24 @@ private fun StatTile(value: String, label: String, modifier: Modifier = Modifier
     }
 }
 
+/**
+ * The colour that marks the song that is playing in a list: the accent, moved in lightness until
+ * it reads 4.5:1 as text on the page, or the text colour if no lightness does.
+ */
+@Composable
+private fun playingColour(): Color {
+    val accent = LocalAccent.current.accent
+    val ground = MaterialTheme.colorScheme.background
+    val text = MaterialTheme.colorScheme.onSurface
+    return remember(accent, ground, text) { closestLightness(accent) { contrastRatio(it, ground) >= MinTextContrast } ?: text }
+}
+
+/** "Playing ·" before the artist, so the playing song is never marked by colour alone. */
+@Composable
+private fun PlayingTag(colour: Color) {
+    Text("Playing · ", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = colour, maxLines = 1)
+}
+
 @Composable
 private fun HistoryRow(event: PlayEvent, time: String, current: Boolean, onPlay: () -> Unit, onRemove: () -> Unit, modifier: Modifier = Modifier) {
     val track = event.track
@@ -1447,11 +1465,15 @@ private fun HistoryRow(event: PlayEvent, time: String, current: Boolean, onPlay:
         Artwork(track, Modifier.size(48.dp).clip(LocalLook.current.art), size = 48.dp)
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
+            val playingColour = playingColour()
             Text(track.title, fontSize = 14.sp, lineHeight = 19.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                color = if (current) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+                color = if (current) playingColour else MaterialTheme.colorScheme.onSurface)
             val listened = clock(event.listenedMs)
-            Text(listOf(track.artist, "$time · $listened" + if (event.skipped) " · skipped" else "").filter { it.isNotBlank() }.joinToString(" · "),
-                fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 3.dp))
+            Row(Modifier.padding(top = 3.dp)) {
+                if (current) PlayingTag(playingColour)
+                Text(listOf(track.artist, "$time · $listened" + if (event.skipped) " · skipped" else "").filter { it.isNotBlank() }.joinToString(" · "),
+                    fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
         IconButton(onClick = onRemove) { Icon(Icons.Outlined.Close, "Remove ${track.title} from history", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) }
     }
@@ -2867,9 +2889,13 @@ private fun TrackRow(track: Track, saved: Boolean, current: Boolean, onPlay: () 
                 Artwork(track, Modifier.size(48.dp).clip(LocalLook.current.art), size = 48.dp)
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
-                    val titleColor by animateColorAsState(if (current) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface, tween(if (LocalReducedMotion.current) 0 else QuickMs), label = "row title")
+                    val playingColour = playingColour()
+                    val titleColor by animateColorAsState(if (current) playingColour else MaterialTheme.colorScheme.onSurface, tween(if (LocalReducedMotion.current) 0 else QuickMs), label = "row title")
                     Text(track.title, fontSize = 14.sp, lineHeight = 19.sp, fontWeight = FontWeight.Medium, color = titleColor, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    Text(track.artist, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 3.dp))
+                    Row(Modifier.padding(top = 3.dp)) {
+                        if (current) PlayingTag(playingColour)
+                        Text(track.artist, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
                 if (track.durationMs > 0) Text(clock(track.durationMs), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 8.dp))
             }
