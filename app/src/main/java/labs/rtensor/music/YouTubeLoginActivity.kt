@@ -1,6 +1,7 @@
 package labs.rtensor.music
 
 import android.annotation.SuppressLint
+import android.content.Intent
 import android.os.Bundle
 import android.webkit.CookieManager
 import android.webkit.WebView
@@ -26,6 +27,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeout
 import labs.rtensor.music.auth.DeviceYouTubeSignIn
+import labs.rtensor.music.auth.GoogleSignInPages
+import labs.rtensor.music.auth.SignInWebData
+import labs.rtensor.music.auth.WebSignInProblem
 import labs.rtensor.music.data.WebSession
 import labs.rtensor.music.data.YouTubeRuntime
 import labs.rtensor.music.ui.SavedMusicTheme
@@ -37,65 +41,45 @@ import kotlin.coroutines.resume
 class YouTubeLoginActivity : ComponentActivity() {
     private var browser: WebView? = null
     private var pageUrl by mutableStateOf("")
-    private var message by mutableStateOf("Sign in to YouTube. When YouTube Music opens, your account connects automatically.")
+    private var message by mutableStateOf(INSTRUCTIONS)
     private var busy by mutableStateOf(false)
+    private var loading by mutableStateOf(true)
     private var attemptedAutoConnect = false
     private var confirmationJob: Job? = null
+    /** The last problem shown here. Leaving without connecting reports it in Settings. */
+    private var problem: WebSignInProblem? = null
+    internal val page: WebView? get() = browser
 
-    private fun cancelLogin() { confirmationJob?.cancel(); setResult(RESULT_CANCELED); finish() }
+    private fun show(next: WebSignInProblem) { problem = next; message = next.page }
+    private fun cancelLogin() {
+        confirmationJob?.cancel()
+        setResult(RESULT_CANCELED, Intent().apply { problem?.let { putExtra(PROBLEM, it.summary) } })
+        finish()
+    }
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        // Recreated (Android ended Music while the listener was in another app, or a setting such
+        // as the system language changed): the page is gone, but cookies Google already set are not.
+        val restored = savedInstanceState != null
+        if (restored) message = RESTARTED
         setContent {
             SavedMusicTheme {
                 Surface(Modifier.fillMaxSize()) {
-                    Column(Modifier.fillMaxSize().systemBarsPadding()) {
+                    Column(Modifier.fillMaxSize().systemBarsPadding().imePadding()) {
                         Row(Modifier.fillMaxWidth().padding(8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                             TextButton(onClick = ::cancelLogin) { Text("Cancel") }
-                            // Off YouTube Music, this continues there with the Google session that already exists.
-                            TextButton(onClick = ::connectOrContinue, enabled = !busy && pageUrl.isNotBlank()) { Text(if (WebSession.canConfirm(pageUrl)) "Connect" else "Continue") }
+                            Row {
+                                TextButton(onClick = ::reload, enabled = !busy) { Text("Reload") }
+                                TextButton(onClick = ::connectOrContinue, enabled = !busy && pageUrl.isNotBlank()) { Text("Connect") }
+                            }
                         }
                         Text(if (pageUrl.isBlank()) "YouTube sign-in" else (runCatching { java.net.URI(pageUrl).host }.getOrNull() ?: "YouTube sign-in"), fontSize = 14.sp, modifier = Modifier.padding(horizontal = 16.dp))
                         Text(message, fontSize = 14.sp, lineHeight = 18.sp, modifier = Modifier.padding(16.dp))
-                        if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-                        AndroidView(modifier = Modifier.weight(1f).fillMaxWidth(), factory = { context ->
-                            WebView(context).apply {
-                                browser = this
-                                settings.javaScriptEnabled = true
-                                settings.domStorageEnabled = true
-                                settings.allowFileAccess = false; settings.allowContentAccess = false
-                                settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW
-                                CookieManager.getInstance().setAcceptCookie(true)
-                                CookieManager.getInstance().setAcceptThirdPartyCookies(this, false)
-                                webViewClient = object : WebViewClient() {
-                                    override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
-                                        // Google's own pages may use frames (passkeys, 2SV prompts); only top-level navigation is confined.
-                                        if (!request.isForMainFrame) return request.url.scheme != "https"
-                                        if (WebSession.isSignInNavigation(request.url.toString())) return false
-                                        message = "Google tried to open ${request.url.host ?: "another page"}. Tap Continue to finish in YouTube Music."
-                                        return true
-                                    }
-                                    override fun onPageFinished(view: WebView, url: String) {
-                                        pageUrl = url
-                                        val cookie = CookieManager.getInstance().getCookie("https://music.youtube.com").orEmpty()
-                                        if (!attemptedAutoConnect && !busy && WebSession.canConfirm(url) && cookie.split(';').any { it.trim().startsWith("SAPISID=") }) {
-                                            attemptedAutoConnect = true; confirmAccount()
-                                        }
-                                    }
-                                    override fun onReceivedSslError(view: WebView?, handler: android.webkit.SslErrorHandler, error: android.net.http.SslError?) {
-                                        handler.cancel(); message = "The sign-in page failed its security check. Check the device clock and network."
-                                    }
-                                }
-                                // A fresh, app-owned login. No external browser cookies are read.
-                                CookieManager.getInstance().removeAllCookies {
-                                    val ticket = intent.getStringExtra(DEVICE_LOGIN_URL)?.takeIf(DeviceYouTubeSignIn::isLoginUrl)
-                                    intent.removeExtra(DEVICE_LOGIN_URL)
-                                    loadUrl(ticket ?: signInUrl(intent.getStringExtra(LOGIN_HINT)))
-                                }
-                            }
-                        })
+                        if (busy || loading) LinearProgressIndicator(Modifier.fillMaxWidth())
+                        AndroidView(modifier = Modifier.weight(1f).fillMaxWidth(), factory = { context -> createBrowser(context, restored) })
                     }
                 }
                 BackHandler {
@@ -106,14 +90,83 @@ class YouTubeLoginActivity : ComponentActivity() {
         }
     }
 
+    @SuppressLint("SetJavaScriptEnabled")
+    private fun createBrowser(context: android.content.Context, restored: Boolean) = WebView(context).apply {
+        browser = this
+        settings.javaScriptEnabled = true
+        settings.domStorageEnabled = true
+        settings.allowFileAccess = false; settings.allowContentAccess = false
+        settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW
+        settings.setSupportMultipleWindows(false); settings.javaScriptCanOpenWindowsAutomatically = false
+        CookieManager.getInstance().setAcceptCookie(true)
+        CookieManager.getInstance().setAcceptThirdPartyCookies(this, false)
+        webViewClient = object : WebViewClient() {
+            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                // Google's own pages may use frames (passkeys, 2SV prompts); only top-level navigation is confined.
+                if (!request.isForMainFrame) return request.url.scheme != "https"
+                if (WebSession.isSignInNavigation(request.url.toString())) return false
+                show(WebSignInProblem.blocked(WebSignInProblem.hostOf(request.url)))
+                return true
+            }
+            override fun onPageStarted(view: WebView, url: String?, favicon: android.graphics.Bitmap?) {
+                if (view === browser) { pageUrl = url.orEmpty(); loading = true }
+            }
+            override fun onPageFinished(view: WebView, url: String) {
+                if (view !== browser) return
+                pageUrl = url; loading = false
+                if (GoogleSignInPages.refused(url)) { show(WebSignInProblem.GOOGLE_REFUSED); return }
+                val cookie = CookieManager.getInstance().getCookie("https://music.youtube.com").orEmpty()
+                if (!attemptedAutoConnect && !busy && WebSession.canConfirm(url) && cookie.split(';').any { it.trim().startsWith("SAPISID=") }) {
+                    attemptedAutoConnect = true; confirmAccount()
+                }
+            }
+            override fun onReceivedError(view: WebView, request: WebResourceRequest, error: android.webkit.WebResourceError) {
+                if (request.isForMainFrame && view === browser) { loading = false; show(WebSignInProblem.pageFailed(SITE)) }
+            }
+            override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, errorResponse: android.webkit.WebResourceResponse) {
+                if (!request.isForMainFrame || view !== browser) return
+                loading = false
+                show(if (GoogleSignInPages.refused(request.url.toString())) WebSignInProblem.GOOGLE_REFUSED else WebSignInProblem.pageFailed(SITE))
+            }
+            override fun onReceivedSslError(view: WebView?, handler: android.webkit.SslErrorHandler, error: android.net.http.SslError?) {
+                handler.cancel(); loading = false; show(WebSignInProblem.insecure(SITE))
+            }
+            override fun onRenderProcessGone(view: WebView, detail: android.webkit.RenderProcessGoneDetail?): Boolean {
+                // Unhandled, a crashed page renderer ends Music's whole process, and with it playback.
+                if (view === browser) browser = null
+                (view.parent as? android.view.ViewGroup)?.removeView(view)
+                view.destroy()
+                show(WebSignInProblem.stopped(SITE)); cancelLogin()
+                return true
+            }
+        }
+        if (restored) {
+            // Never reuse the one-time device ticket; it was spent by the first page.
+            loadUrl(signInUrl(intent.getStringExtra(LOGIN_HINT)))
+        } else {
+            // A fresh, app-owned login. No external browser cookies are read.
+            SignInWebData.erase {
+                val ticket = intent.getStringExtra(DEVICE_LOGIN_URL)?.takeIf(DeviceYouTubeSignIn::isLoginUrl)
+                intent.removeExtra(DEVICE_LOGIN_URL)
+                if (browser === this) loadUrl(ticket ?: signInUrl(intent.getStringExtra(LOGIN_HINT)))
+            }
+        }
+    }
+
+    private fun reload() {
+        val view = browser ?: return
+        problem = null; message = INSTRUCTIONS; attemptedAutoConnect = false
+        if (view.url.isNullOrBlank()) view.loadUrl(signInUrl(intent.getStringExtra(LOGIN_HINT))) else view.reload()
+    }
+
     private fun connectOrContinue() {
         val view = browser ?: return
-        if (WebSession.canConfirm(view.url.orEmpty())) confirmAccount()
-        else {
-            attemptedAutoConnect = false
-            message = "Opening YouTube Music…"
-            view.loadUrl("https://music.youtube.com/")
-        }
+        if (WebSession.canConfirm(view.url.orEmpty())) return confirmAccount()
+        // Leaving Google's form before it has signed in would throw away what was typed.
+        if (!GoogleSignInPages.signedIn(CookieManager.getInstance()::getCookie)) { message = FINISH_FIRST; return }
+        attemptedAutoConnect = false
+        message = "Opening YouTube Music…"
+        view.loadUrl("https://music.youtube.com/")
     }
 
     private fun confirmAccount() {
@@ -139,10 +192,10 @@ class YouTubeLoginActivity : ComponentActivity() {
                 setResult(RESULT_OK); finish()
             } catch (_: TimeoutCancellationException) {
                 busy = false; attemptedAutoConnect = false
-                message = "YouTube is still opening your account. Wait for the page, then tap Connect."
+                show(SLOW)
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
-                message = (e as? labs.rtensor.music.data.SourceException)?.message ?: "Could not confirm your YouTube session. Finish sign-in and retry."
+                show((e as? labs.rtensor.music.data.SourceException)?.message?.let { WebSignInProblem(it, it) } ?: NOT_VERIFIED)
                 busy = false
             }
         }
@@ -153,16 +206,23 @@ class YouTubeLoginActivity : ComponentActivity() {
         } }
         return JSONObject(JSONTokener(raw).nextValue() as String)
     }
-    private fun clearBrowserCookies() {
-        android.webkit.WebStorage.getInstance().deleteAllData()
-        CookieManager.getInstance().removeAllCookies { CookieManager.getInstance().flush() }
-    }
+    private fun clearBrowserCookies() = SignInWebData.erase()
     override fun onDestroy() {
         browser?.apply { stopLoading(); clearHistory(); clearCache(true); destroy() }; browser = null
         if (isFinishing) clearBrowserCookies()
         super.onDestroy()
     }
     companion object {
+        /** Result extra: a short, fixed reason when sign-in ends without a connection. */
+        const val PROBLEM = "labs.rtensor.music.youtube.PROBLEM"
+        private const val SITE = "Google"
+        internal const val INSTRUCTIONS = "Sign in to YouTube. When YouTube Music opens, your account connects automatically."
+        internal const val FINISH_FIRST = "Finish signing in on Google's page first; its own Next buttons are in the page. Tap Connect once Google has signed you in."
+        internal const val RESTARTED = "Music reopened the sign-in page. If Google already signed you in, it continues to YouTube Music; otherwise sign in again."
+        private val SLOW = WebSignInProblem("YouTube is still opening your account. Wait for the page, then tap Connect.",
+            "YouTube took too long to open your account")
+        private val NOT_VERIFIED = WebSignInProblem("Could not confirm your YouTube session. Finish sign-in and tap Connect.",
+            "Music couldn't confirm your YouTube session")
         const val DEVICE_LOGIN_URL = "device_youtube_login_url"
         const val LOGIN_HINT = "google_account_hint"
         fun signInUrl(email: String?): String = android.net.Uri.parse("https://accounts.google.com/ServiceLogin").buildUpon()
