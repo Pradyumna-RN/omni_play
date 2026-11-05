@@ -72,6 +72,8 @@ import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.foundation.gestures.detectTapGestures
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -3024,23 +3026,46 @@ private fun EmptyState(title: String, detail: String, image: ImageVector) {
 @Composable
 private fun ErrorBanner(message: String, onDismiss: () -> Unit, onRetry: () -> Unit, diagnostic: String = "", videoId: String = "") {
     val context = LocalContext.current
-    val accent = LocalAccent.current
-    val soft = LocalLook.current.soft
-    // Soft's banner is the pink container with raspberry actions; the others sit on the accent.
-    Surface(color = if (soft) MaterialTheme.colorScheme.secondaryContainer else accent.accent, shape = if (soft) RoundedCornerShape(14.dp) else LocalLook.current.card,
-        modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)) {
-        Column(Modifier.fillMaxWidth().padding(start = 14.dp, end = 8.dp, top = 12.dp)) {
-            Text(message, fontSize = 14.sp, lineHeight = 20.sp, color = if (soft) MaterialTheme.colorScheme.onBackground else accent.onAccent)
-            // The banner sits on the accent, so its actions use the on-accent colour in both themes.
-            val ink = ButtonDefaults.textButtonColors(contentColor = if (soft) MaterialTheme.colorScheme.primary else accent.onAccent)
-            FlowRow(Modifier.align(Alignment.End), horizontalArrangement = Arrangement.End) {
-                if (diagnostic.isNotBlank()) TextButton(onClick = {
-                    (context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("Playback details", "Music ${BuildConfig.VERSION_NAME} · $videoId\n$diagnostic"))
-                }, shape = ButtonShape, colors = ink) { Text("Copy details", fontSize = 13.sp) }
-                TextButton(onClick = onDismiss, shape = ButtonShape, colors = ink) { Text("Dismiss", fontSize = 13.sp) }
-                TextButton(onClick = onRetry, shape = ButtonShape, colors = ink) { Text("Retry", fontSize = 13.sp, fontWeight = FontWeight.SemiBold) }
+    val look = LocalLook.current
+    val scheme = MaterialTheme.colorScheme
+    // An error must not look like Play: a quiet panel (Soft keeps its pink container) with a
+    // warning icon in the accent, ordinary text, and TalkBack announces it when it appears.
+    val fill = if (look.soft) scheme.secondaryContainer else look.panel
+    val mark = markOn(LocalAccent.current.accent, fill, scheme.onSurface)
+    val headline = friendlyError(message)
+    Surface(color = fill, contentColor = scheme.onSurface, shape = if (look.soft) RoundedCornerShape(14.dp) else look.card,
+        modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp).semantics { liveRegion = LiveRegionMode.Polite }) {
+        Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 8.dp, top = 12.dp)) {
+            Icon(Icons.Outlined.Warning, "Error", Modifier.padding(top = 1.dp, end = 10.dp).size(20.dp), tint = mark)
+            Column(Modifier.weight(1f)) {
+                if (headline != null) Text(headline, fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold)
+                Text(message, fontSize = if (headline != null) 12.sp else 14.sp, lineHeight = if (headline != null) 17.sp else 20.sp,
+                    color = if (headline != null) scheme.onSurfaceVariant else scheme.onSurface)
+                val ink = ButtonDefaults.textButtonColors(contentColor = if (look.soft) scheme.primary else scheme.onSurface)
+                FlowRow(Modifier.align(Alignment.End), horizontalArrangement = Arrangement.End) {
+                    if (diagnostic.isNotBlank()) TextButton(onClick = {
+                        (context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("Playback details", "Music ${BuildConfig.VERSION_NAME} · $videoId\n$diagnostic"))
+                    }, shape = ButtonShape, colors = ink) { Text("Copy details", fontSize = 13.sp) }
+                    TextButton(onClick = onDismiss, shape = ButtonShape, colors = ink) { Text("Dismiss", fontSize = 13.sp) }
+                    TextButton(onClick = onRetry, shape = ButtonShape, colors = ink) { Text("Retry", fontSize = 13.sp, fontWeight = FontWeight.SemiBold) }
+                }
             }
         }
+    }
+}
+
+/**
+ * A plain-language first line for errors that only carry a status code. The original message
+ * stays underneath, so nothing is hidden and "Copy details" still has the specifics.
+ */
+internal fun friendlyError(message: String): String? {
+    val code = Regex("""HTTP (\d{3})""").find(message)?.groupValues?.get(1)?.toIntOrNull() ?: return null
+    return when (code) {
+        401, 403 -> "The music service wouldn't play this song"
+        404, 410 -> "This song isn't available any more"
+        429 -> "Too many requests for now; try again in a minute"
+        in 500..599 -> "The music service is having trouble"
+        else -> "This song couldn't be loaded"
     }
 }
 

@@ -113,4 +113,22 @@ class ReleasePolishUiTest {
         image.recycle()
         assertEquals(1, runs)
     }
+
+    @Test fun errorsLookLikeErrorsSayWhatHappenedAndAreAnnounced() {
+        for (look in LookChoice.entries) {
+            assertEquals("The music service wouldn't play this song", labs.rtensor.music.ui.friendlyError("YouTube rejected the audio stream (HTTP 403)."))
+            assertNull(labs.rtensor.music.ui.friendlyError("Nothing found"))
+        }
+        compose.setContent { MusicApp(MusicState(theme = "light", reducedMotion = true, current = track, error = "YouTube rejected the audio stream (HTTP 403).")) }
+        compose.onNodeWithText("The music service wouldn't play this song").assertIsDisplayed()
+        compose.onNodeWithText("YouTube rejected the audio stream (HTTP 403).").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Error").assertExists()
+        compose.onNode(SemanticsMatcher.expectValue(androidx.compose.ui.semantics.SemanticsProperties.LiveRegion, androidx.compose.ui.semantics.LiveRegionMode.Polite)).assertExists()
+        // Not the Play colour: the banner's fill is the quiet panel, not the accent.
+        val image = snapshot()
+        val banner = compose.onNodeWithText("The music service wouldn't play this song").fetchSemanticsNode().boundsInWindow
+        val fill = image.getPixel((banner.right + 30).toInt().coerceAtMost(image.width - 30), banner.top.toInt() - 4)
+        image.recycle()
+        assertNotEquals(labs.rtensor.music.ui.SignalAccent.toArgb(), fill)
+    }
 }
