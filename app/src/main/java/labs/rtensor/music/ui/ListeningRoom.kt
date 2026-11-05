@@ -215,7 +215,7 @@ private fun RoomSpeaker(p: SpeakerPosition, active: Boolean, live: Boolean, fram
 internal fun LevelMeter(report: DownmixReport?, frame: State<AudioLevelFrame?>?, live: Boolean, colour: Color, modifier: Modifier = Modifier) {
     val isLive by rememberUpdatedState(live)
     val order = remember(report) { report?.inputPositions.orEmpty() }
-    Canvas(modifier.fillMaxWidth().height(20.dp).clearAndSetSemantics {}) {
+    Canvas(modifier.fillMaxSize().clearAndSetSemantics {}) {
         val bars = 12
         val gap = 3.dp.toPx()
         val w = (size.width - gap * (bars - 1)) / bars

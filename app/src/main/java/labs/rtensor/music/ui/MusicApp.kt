@@ -159,8 +159,6 @@ private val Dark = darkColorScheme(
     outline = InkRule, secondaryContainer = SignalAccent, onSecondaryContainer = Ink,
     primaryContainer = SignalAccent, onPrimaryContainer = Ink,
 )
-/** The player's song title: bold Archivo, not the condensed display face. */
-private val PlayerTitleStyle = TextStyle(fontFamily = font, fontWeight = FontWeight.Bold, fontSize = 22.sp, lineHeight = 28.sp)
 /** Sentence-case labels and small headings. Monospace is kept for technical facts only. */
 internal val LabelStyle = TextStyle(fontFamily = font, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, letterSpacing = .01.em)
 /** The look's label style: DM Mono in Classic, sentence-case Archivo in the Listening room. */
@@ -1274,9 +1272,10 @@ private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () ->
     val look = LocalLook.current
     val saved = state.saved.any { it.libraryKey() == track.libraryKey() }
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        // The cover fills the width between the gutters; on a short screen it stops at 45% of the
-        // height. Classic keeps its smaller 0.3.32 cover.
-        val coverSize = if (look.classic) (maxHeight * .31f).coerceIn(150.dp, 250.dp) else minOf(maxWidth - 40.dp, maxHeight * .45f).coerceAtLeast(150.dp)
+        // The cover fills the width between the gutters, up to 37% of the height, which leaves
+        // the poster title, meter and controls with the next song still in view. Classic keeps its
+        // smaller 0.3.32 cover.
+        val coverSize = if (look.classic) (maxHeight * .31f).coerceIn(150.dp, 250.dp) else minOf(maxWidth - 40.dp, maxHeight * .37f).coerceAtLeast(150.dp)
         // The queue continues right under the controls, so scrolling down shows what plays next.
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 10.dp, bottom = 32.dp)) {
             item(key = "player") {
@@ -1308,12 +1307,25 @@ private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () ->
                         Spacer(Modifier.height(20.dp))
                         // The title rises into place from below while the old one lifts away: a different
                         // motion from the cover so the two never look like one sliding block.
+                        // A poster title (two lines at most, smaller when it needs to be), then the
+                        // artist with the codec badge.
+                        val badge = audioBadge(state.routeLabel)
                         NowTitle(track, reduced, saved, { onSave(track) }) { shown ->
-                            ScrollingMetadata(shown.title, PlayerTitleStyle.copy(color = scheme.onBackground), Modifier.semantics { heading() })
-                            ScrollingMetadata(shown.artist, TextStyle(fontFamily = font, fontSize = 16.sp, lineHeight = 22.sp, color = scheme.onSurfaceVariant), Modifier.padding(top = 2.dp))
+                            PosterTitle(shown.title)
+                            ArtistLine(shown.artist, badge)
                         }
-                        Spacer(Modifier.height(14.dp))
-                        PlaybackTimeline(playbackPosition, position, duration, playing, reduced, pending, audioBadge(state.routeLabel), onSeek)
+                        // The small level meter: it rests until live levels arrive and is empty
+                        // before any audio is decoded. Its line is always reserved, so nothing moves.
+                        val report = state.audioProcessing.report
+                        val meterLive = playing && !loading && !reduced && state.developerOptions && audioLevels != null
+                        if (state.developerOptions) LiveMetering("meter", meterLive, metering)
+                        val frame = audioLevels?.collectAsStateWithLifecycle()
+                        val bars = markOn(LocalAccent.current.accent, scheme.background, scheme.onBackground)
+                        Box(Modifier.fillMaxWidth().padding(top = 8.dp).height(16.dp)) {
+                            if (report != null) LevelMeter(report, frame, meterLive, bars)
+                        }
+                        Spacer(Modifier.height(10.dp))
+                        PlaybackTimeline(playbackPosition, position, duration, playing, reduced, pending, null, onSeek)
                         LoadingNote(state, loading, reduced, top = 4.dp)
                         Spacer(Modifier.height(6.dp))
                         // Symmetric transport keeps Play/Pause on the screen centre.
@@ -1455,30 +1467,33 @@ private fun AudioComparison(state: MusicState, onProcessing: (Boolean) -> Unit) 
     val scheme = MaterialTheme.colorScheme
     val accent = LocalAccent.current
     Column(Modifier.fillMaxWidth().padding(top = 14.dp)) {
-        // One large switch: on is Processed, off is the Original. Disabled (with the reason below)
-        // whenever the comparison is not available, exactly like the old two-part control.
-        val shape = RoundedCornerShape(18.dp)
+        // One pill with two options, Original and Processed. It is a single switch (on is
+        // Processed), so a tap anywhere changes sides, exactly like the earlier switch; it is
+        // disabled, with the reason below, whenever the comparison is not available.
+        val pill = RoundedCornerShape(percent = 50)
         val layout = report?.let(::layoutName)
+        val chosen = accent.accent.copy(alpha = .24f).compositeOver(scheme.surfaceVariant)
+        val edge = markOn(accent.accent, scheme.surfaceVariant, scheme.onSurface)
         Row(
-            Modifier.fillMaxWidth().heightIn(min = 68.dp).clip(shape).background(scheme.surfaceVariant)
-                .border(1.dp, if (ready) scheme.outline else scheme.outline.copy(alpha = .5f), shape)
+            Modifier.fillMaxWidth().height(52.dp).clip(pill).background(scheme.surfaceVariant)
                 .toggleable(value = processed, enabled = ready, role = Role.Switch, onValueChange = onProcessing)
                 .semantics { contentDescription = "Processed audio" }
-                .padding(horizontal = 14.dp, vertical = 10.dp),
+                .padding(4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            SpeakerLights(report, processed, Modifier.size(40.dp))
-            Spacer(Modifier.width(14.dp))
-            Column(Modifier.weight(1f)) {
-                Text(if (processed) listOfNotNull("Processed", layout).joinToString(" · ") else "Original",
-                    fontSize = 16.sp, lineHeight = 21.sp, fontWeight = FontWeight.SemiBold, color = if (ready) scheme.onSurface else scheme.onSurfaceVariant)
-                Text(when { !ready -> "Not available right now"; processed -> "Tap for the original"; else -> "Tap for processed audio" },
-                    fontSize = 12.sp, lineHeight = 17.sp, color = scheme.onSurfaceVariant)
+            for (side in listOf(false, true)) {
+                val on = side == processed
+                Row(
+                    Modifier.weight(1f).fillMaxHeight().clip(pill)
+                        .then(if (on) Modifier.background(if (ready) chosen else chosen.copy(alpha = .5f)).border(1.5.dp, if (ready) edge else edge.copy(alpha = .4f), pill) else Modifier),
+                    horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (side) { SpeakerLights(report, processed, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)) }
+                    Text(if (side) listOfNotNull("Processed", layout).joinToString(" · ") else "Original", fontSize = 14.sp, lineHeight = 18.sp, maxLines = 1,
+                        fontWeight = if (on) FontWeight.SemiBold else FontWeight.Medium,
+                        color = if (on && ready) scheme.onSurface else scheme.onSurfaceVariant)
+                }
             }
-            Spacer(Modifier.width(8.dp))
-            Switch(checked = processed, onCheckedChange = null, enabled = ready, modifier = Modifier.clearAndSetSemantics {},
-                colors = SwitchDefaults.colors(checkedTrackColor = accent.accent, checkedThumbColor = accent.onAccent,
-                    checkedBorderColor = accent.accent, disabledCheckedTrackColor = accent.accent.copy(alpha = .4f)))
         }
         val detail = comparisonDetail(state)
         Text(detail, fontSize = 12.sp, lineHeight = 17.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp))
@@ -1585,6 +1600,39 @@ internal fun audioBadge(route: String): String? {
     return listOfNotNull(codec, rate).joinToString(" · ").ifBlank { null }
 }
 
+/**
+ * The Listening room's player title: the condensed face in capitals, two lines at most, stepping
+ * down in size until it fits. Its height is always two lines, so the controls never move.
+ */
+@Composable
+private fun PosterTitle(text: String) {
+    val colour = MaterialTheme.colorScheme.onBackground
+    val shown = remember(text) { text.replace('\n', ' ').uppercase(Locale.getDefault()) }
+    val height = with(LocalDensity.current) { (38.sp * .95f * 2).toDp() } + 4.dp
+    Box(Modifier.fillMaxWidth().height(height), contentAlignment = Alignment.BottomStart) {
+        androidx.compose.foundation.text.BasicText(shown,
+            Modifier.fillMaxWidth().clearAndSetSemantics { this.text = AnnotatedString(text); heading() },
+            style = PosterStyle.copy(fontSize = 38.sp, lineHeight = .95.em, color = colour), maxLines = 2, overflow = TextOverflow.Ellipsis,
+            autoSize = androidx.compose.foundation.text.TextAutoSize.StepBased(minFontSize = 20.sp, maxFontSize = 38.sp, stepSize = 2.sp))
+    }
+}
+
+/** "Artist · AAC · 48 kHz": the artist, then the format badge taken from the route label. */
+@Composable
+private fun ArtistLine(artist: String, badge: String?) {
+    val scheme = MaterialTheme.colorScheme
+    Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        if (artist.isNotBlank()) Text(artist, Modifier.weight(1f, fill = false), fontFamily = font, fontSize = 15.sp, lineHeight = 20.sp,
+            color = scheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        if (badge != null) {
+            if (artist.isNotBlank()) Text(" · ", fontSize = 15.sp, color = scheme.onSurfaceVariant)
+            Text(badge, style = MonoSmall, fontSize = 11.sp, lineHeight = 14.sp, color = scheme.onSurfaceVariant, maxLines = 1,
+                modifier = Modifier.border(1.dp, scheme.outline, RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 2.dp)
+                    .semantics { contentDescription = "Audio format $badge" })
+        }
+    }
+}
+
 /** Previous and Next: a bare glyph in a round 56dp target, no box. */
 @Composable
 private fun TransportButton(label: String, image: ImageVector, onClick: () -> Unit, enabled: Boolean) {
@@ -1602,7 +1650,8 @@ private fun PlayButton(mode: Int, enabled: Boolean, reduced: Boolean, onClick: (
     val accent = LocalAccent.current
     val label = when (mode) { 0 -> "Loading"; 1 -> "Pause"; else -> "Play" }
     Box(
-        Modifier.size(58.dp).clip(CircleShape).background(if (enabled) accent.accent else accent.accent.copy(alpha = .55f))
+        Modifier.size(64.dp).glow(accent.accent, spread = 1.45f, strength = if (enabled) .45f else .2f)
+            .clip(CircleShape).background(if (enabled) accent.accent else accent.accent.copy(alpha = .55f))
             .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
             .semantics { contentDescription = label },
         contentAlignment = Alignment.Center,
