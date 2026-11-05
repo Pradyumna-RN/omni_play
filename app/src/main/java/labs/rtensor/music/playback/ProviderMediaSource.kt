@@ -40,7 +40,7 @@ class ProviderMediaSourceFactory(private val fallback: MediaSource.Factory, priv
 }
 
 @UnstableApi
-private class ProviderMediaSource(private val item: MediaItem, private val track: Track,
+private class ProviderMediaSource(private var item: MediaItem, private val track: Track,
     private val fallback: MediaSource.Factory, private val remote: MediaSource.Factory,
     private val sources: PlaybackSources, private val resolveCatalogue: suspend (Track) -> Track) : CompositeMediaSource<Unit>() {
     private var scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -67,13 +67,14 @@ private class ProviderMediaSource(private val item: MediaItem, private val track
                 // Provider/local matches do not need a YouTube search. Otherwise resolve just
                 // the requested Spotify recording, not the rest of its playlist.
                 val matched = if (selected == null && local == null && labs.rtensor.music.spotify.SpotifyTrackMatcher.pending(track)) resolveCatalogue(track) else track
-                val baseItem = if (matched !== track) {
-                    val extras = Bundle(item.mediaMetadata.extras ?: Bundle()).apply { putString("catalogue_track", matched.json().toString()) }
-                    item.buildUpon().setUri(matched.url).setMediaMetadata(item.mediaMetadata.buildUpon().setExtras(extras).build()).build()
-                } else item
                 handler.post {
                     if (released || generation != activeGeneration) return@post
                     try {
+                        // Read the item now: its metadata may have been updated while resolving.
+                        val baseItem = if (matched !== track) {
+                            val extras = Bundle(item.mediaMetadata.extras ?: Bundle()).apply { putString("catalogue_track", matched.json().toString()) }
+                            item.buildUpon().setUri(matched.url).setMediaMetadata(item.mediaMetadata.buildUpon().setExtras(extras).build()).build()
+                        } else item
                         sources.selected(key, selected, fallbackLabel)
                         val label = selected?.requestedLabel ?: fallbackLabel
                         val extras = Bundle(baseItem.mediaMetadata.extras ?: Bundle()).apply { putString("route", label) }
@@ -92,6 +93,23 @@ private class ProviderMediaSource(private val item: MediaItem, private val track
             catch (error: Exception) { handler.post { if (!released && generation == activeGeneration) failure = IOException(
                 if (error is labs.rtensor.music.data.SourceException) error.message else "The connected sources could not be resolved.", error) } }
         }
+    }
+
+    /** A metadata-only edit (an artist found later) must not rebuild the playing source:
+     * that restarts the song from zero and resolves its audio again. A changed URI, cache
+     * key, local file or source attempt still recreates the child, as recovery relies on. */
+    override fun canUpdateMediaItem(mediaItem: MediaItem): Boolean {
+        val config = mediaItem.localConfiguration ?: return false
+        val attempt = { m: MediaItem -> m.mediaMetadata.extras?.getInt("source_attempt") ?: 0 }
+        val master = { m: MediaItem -> m.mediaMetadata.extras?.getString("local_master") }
+        return (config == item.localConfiguration || config == displayItem.localConfiguration) &&
+            attempt(mediaItem) == attempt(item) && master(mediaItem) == master(item)
+    }
+
+    override fun updateMediaItem(mediaItem: MediaItem) {
+        // Keep the physical request; only what the session shows changes.
+        if (mediaItem.localConfiguration == item.localConfiguration) item = mediaItem
+        displayItem = mediaItem
     }
 
     override fun onChildSourceInfoRefreshed(id: Unit, mediaSource: MediaSource, timeline: Timeline) {

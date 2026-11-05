@@ -48,16 +48,21 @@ import labs.rtensor.music.data.FeedEntry
 import labs.rtensor.music.data.FeedSection
 import labs.rtensor.music.updates.GitHubUpdater
 import labs.rtensor.music.updates.UpdateState
+import labs.rtensor.music.updates.checked
+import labs.rtensor.music.updates.updateFailureMessage
 import labs.rtensor.music.playback.MusicPlaybackService
 import labs.rtensor.music.playback.AudioPipeline
 import labs.rtensor.music.playback.AudioProcessingState
 import labs.rtensor.music.playback.CatalogueTrackCache
 import labs.rtensor.music.playback.LibraryQueueEdits
+import labs.rtensor.music.playback.PlayerTransport
 import labs.rtensor.music.playback.RadioQueue
 import labs.rtensor.music.sources.*
 import labs.rtensor.music.recommendations.RecommendationEngine
 import labs.rtensor.music.spotify.SpotifyRecommendations
 import labs.rtensor.music.spotify.SpotifyTrackMatcher
+
+object ErrorOrigin { const val PLAYBACK = "playback"; const val SEARCH = "search"; const val COLLECTION = "collection" }
 
 data class MusicState(
     val importMessage: String? = null,
@@ -84,6 +89,8 @@ data class MusicState(
     val spotifyAccount: AccountState = AccountState(),
     val error: String? = null,
     val errorDiagnostic: String = "",
+    /** What produced [error], so Retry repeats that: [ErrorOrigin.SEARCH], [ErrorOrigin.COLLECTION] or [ErrorOrigin.PLAYBACK]. */
+    val errorOrigin: String = "",
     val account: AccountState = AccountState(),
     val googleProfile: GoogleProfile? = null,
     val googleBusy: Boolean = false,
@@ -135,6 +142,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val spotifyMatches = SpotifyTrackMatcher.get(application)
     private var recommendationRevision = 0L
     private var collectionOffset: Int? = null
+    /** The collection page most recently requested, so Retry repeats that page. */
+    private var collectionRequestOffset = 0
     private val routes = mutableMapOf<String, PlaybackRoute>()
     private fun route(track: Track) = routes.getOrPut(track.id) { PlaybackRoute.choose(track, masters.entries.filterNot { it.uri in library.removedLocalUris }) }
     private val mutable = MutableStateFlow(MusicState(
@@ -144,7 +153,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         recommendationEngine = library.recommendationEngine,
         spotifyAccount = spotify.state.value,
         autoplay = library.autoplay, trackHistory = library.trackHistory,
-        mastersSummary = summary(masters.entries, masters.folder != null),
+        mastersSummary = if (masters.accessLost) MASTERS_ACCESS_LOST else summary(masters.entries, masters.folder != null),
         playbackSources = sources.settings.connections.value.map { it.summary() },
     ))
     val state = mutable.asStateFlow()
@@ -175,9 +184,11 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     /** The listen in progress: which song, when it started, and how long it has actually played. */
     private var listen: Triple<Track, Long, Long>? = null
     private var lastTick = 0L
-    private val controllerFuture = MediaController.Builder(
-        application, SessionToken(application, ComponentName(application, MusicPlaybackService::class.java))
-    ).buildAsync()
+    private var controllerFuture: com.google.common.util.concurrent.ListenableFuture<MediaController>? = null
+    /** A song chosen before the player connected; it starts as soon as the controller is ready. */
+    private var pendingPlay: Pair<Track, List<Track>>? = null
+    private var reconnects = 0
+    private var cleared = false
 
     private val listener = object : Player.Listener {
         override fun onEvents(player: Player, events: Player.Events) { syncPlayer(includeQueue = true) }
@@ -202,7 +213,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             val audio = AudioPipeline.state.value.failure
             mutable.update { it.copy(error = sourceError?.message ?: provider?.message ?: audio?.message ?: playbackErrorMessage(error),
                 errorDiagnostic = sourceError?.diagnostic ?: provider?.let { p -> "${p.code}: ${p.diagnostic}" } ?: audio?.detail ?: error.errorCodeName,
-                resolving = false, buffering = false) }
+                resolving = false, buffering = false, errorOrigin = ErrorOrigin.PLAYBACK) }
         }
     }
 
@@ -222,23 +233,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 if (changed && mutable.value.recommendationEngine == RecommendationEngine.SPOTIFY) reloadRecommendations()
             }
         }
-        controllerFuture.addListener({
-            runCatching { controllerFuture.get() }.onSuccess { c ->
-                controller = c
-                radio = RadioQueue(c, viewModelScope, enabled = { mutable.value.autoplay }, fetch = ::providerRadio,
-                    mediaItem = ::mediaItem, status = { loading, error -> mutable.update { it.copy(radioLoading = loading, radioError = error) } },
-                    providerLabel = { mutable.value.recommendationEngine.label })
-                c.addListener(listener)
-                library.reconcileImports((0 until c.mediaItemCount).mapNotNull { index ->
-                    catalogueCache.read(c.getMediaItemAt(index).mediaMetadata.extras?.getString("catalogue_track"))
-                })
-                LibraryQueueEdits.reconcile(c, library::isRemoved, library.removedLocalUris, ::mediaItem)
-                syncPlayer(includeQueue = true)
-                mutable.update { it.copy(playerReady = true) }
-            }.onFailure {
-                mutable.update { it.copy(error = "The audio player could not start. Close and reopen the app.") }
-            }
-        }, ContextCompat.getMainExecutor(application))
+        connectController()
         viewModelScope.launch {
             while (isActive) {
                 controller?.let { c ->
@@ -288,6 +283,71 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         checkUpdates()
     }
 
+    /** Connect (or reconnect) to the playback service. A command must never be lost silently:
+     * a song chosen meanwhile is queued, and a lost connection is rebuilt. */
+    private fun connectController() {
+        if (cleared || controllerFuture != null) return
+        val app = getApplication<Application>()
+        val future = MediaController.Builder(app, SessionToken(app, ComponentName(app, MusicPlaybackService::class.java)))
+            .setListener(object : MediaController.Listener {
+                override fun onDisconnected(controller: MediaController) { controllerLost(controller) }
+            }).buildAsync()
+        controllerFuture = future
+        future.addListener({
+            if (controllerFuture !== future) return@addListener
+            runCatching { future.get() }.onSuccess { c ->
+                if (cleared) { c.release(); return@onSuccess }
+                attachController(c)
+            }.onFailure {
+                controllerFuture = null; pendingPlay = null
+                mutable.update { it.copy(playerReady = false, loadingTrack = null, error = "The audio player could not start. Close and reopen the app.", errorOrigin = ErrorOrigin.PLAYBACK) }
+            }
+        }, ContextCompat.getMainExecutor(app))
+    }
+
+    private fun attachController(c: MediaController) {
+        controller = c
+        radio = RadioQueue(c, viewModelScope, enabled = { mutable.value.autoplay }, fetch = ::providerRadio,
+            mediaItem = ::mediaItem, status = { loading, error -> mutable.update { it.copy(radioLoading = loading, radioError = error) } },
+            providerLabel = { mutable.value.recommendationEngine.label })
+        c.addListener(listener)
+        library.reconcileImports((0 until c.mediaItemCount).mapNotNull { index ->
+            catalogueCache.read(c.getMediaItemAt(index).mediaMetadata.extras?.getString("catalogue_track"))
+        })
+        // A song kept by a still-running service may point at a lossless file that is no longer
+        // indexed or readable; rebuild it on the normal source chain instead of failing.
+        val knownMasters = masters.entries.map { it.uri }.toSet()
+        val staleMasters = (0 until c.mediaItemCount).mapNotNull { index ->
+            val item = c.getMediaItemAt(index)
+            item.localConfiguration?.uri?.toString()?.takeIf { item.mediaMetadata.extras?.containsKey("local_master") == true && it !in knownMasters }
+        }.toSet()
+        LibraryQueueEdits.reconcile(c, library::isRemoved, library.removedLocalUris + staleMasters, ::mediaItem)
+        syncPlayer(includeQueue = true)
+        mutable.update { it.copy(playerReady = true, error = it.error?.takeUnless { e -> e == PLAYER_STARTING }) }
+        pendingPlay?.let { (track, queue) -> pendingPlay = null; play(track, queue) }
+    }
+
+    private fun controllerLost(c: MediaController) {
+        if (controller !== c) return
+        c.removeListener(listener)
+        radio?.reset(); radio = null
+        controller = null; controllerFuture = null
+        mutable.update { it.copy(playerReady = false, playing = false, buffering = false) }
+        // The service stopped or was killed; bind again so the controls keep working.
+        if (!cleared && reconnects++ < 3) connectController()
+    }
+
+    /** Run a transport command, or say why it cannot run yet. */
+    private inline fun withController(action: (MediaController) -> Unit) {
+        val c = controller
+        if (c == null) {
+            mutable.update { it.copy(error = PLAYER_STARTING, errorOrigin = ErrorOrigin.PLAYBACK) }
+            if (controllerFuture == null) { reconnects = 0; connectController() }
+            return
+        }
+        action(c)
+    }
+
     fun refreshFeed(more: Boolean = false) {
         if (more && (mutable.value.feedBusy || !mutable.value.feedHasMore)) return
         feedJob?.cancel()
@@ -302,7 +362,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                     feedPersonalized = engine == RecommendationEngine.SPOTIFY || !it.account.connected || feed.personalized) }
                 if (!more && mutable.value.forYou.isEmpty()) refreshForYou()
             } catch (e: CancellationException) { throw e }
-            catch (e: Exception) { if (revision == recommendationRevision) mutable.update { it.copy(feedBusy = false, feedError = sourceMessage(e)) } }
+            catch (e: Exception) { if (revision == recommendationRevision) mutable.update { it.copy(feedBusy = false, feedError = catalogueErrorMessage(e, CatalogueMessages.FEED)) } }
         }
     }
 
@@ -335,7 +395,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 if (revision == recommendationRevision) mutable.update { it.copy(explore = sections, exploreBusy = false) }
             }
             catch (e: CancellationException) { throw e }
-            catch (e: Exception) { if (revision == recommendationRevision) mutable.update { it.copy(exploreBusy = false, exploreError = sourceMessage(e)) } }
+            catch (e: Exception) { if (revision == recommendationRevision) mutable.update { it.copy(exploreBusy = false, exploreError = catalogueErrorMessage(e, CatalogueMessages.FEED)) } }
         }
     }
 
@@ -357,6 +417,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     fun moreCollection() { collectionOffset?.let { offset -> mutable.value.collectionEntry?.let { browsePage(it, offset) } } }
     private fun browsePage(entry: FeedEntry, offset: Int) {
         collectionJob?.cancel()
+        // A new entry never continues the previous entry's paging.
+        if (offset == 0) collectionOffset = null
+        collectionRequestOffset = offset
         collectionJob = viewModelScope.launch {
             mutable.update { it.copy(collectionEntry = entry, collection = if (offset == 0) emptyList() else it.collection,
                 collectionBusy = true, collectionHasMore = false, error = null) }
@@ -365,14 +428,19 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 val page = if (spotifyEntry) spotify.collection(entry, offset) else null
                 val tracks = if (page != null) spotify.tracks(page) else youtube.collection(entry)
                 collectionOffset = page?.optInt("nextOffset", -1)?.takeIf { it > offset }
-                mutable.update { it.copy(collection = (if (offset == 0) tracks else it.collection + tracks).distinctBy(Track::libraryKey),
-                    collectionBusy = false, collectionHasMore = collectionOffset != null) }
+                mutable.update { it.collectionPageLoaded(offset, tracks, collectionOffset != null) }
             }
-            catch (e: CancellationException) { throw e }
-            catch (e: Exception) { mutable.update { it.copy(collectionBusy = false, error = sourceMessage(e)) } }
+            catch (e: CancellationException) {
+                // A provider can abandon a stale request with CancellationException (Spotify does
+                // after an account change). Only a cancelled job may end without leaving a state.
+                if (!isActive) throw e
+                mutable.update { it.collectionPageFailed(offset, CatalogueMessages.COLLECTION) }
+            }
+            catch (e: Exception) { mutable.update { it.collectionPageFailed(offset, catalogueErrorMessage(e, CatalogueMessages.COLLECTION)) } }
         }
     }
-    fun retryCollection() { mutable.value.collectionEntry?.let(::browse) }
+    /** Retry the page that failed: a failed "Load more" keeps the songs already shown. */
+    fun retryCollection() { mutable.value.collectionEntry?.let { browsePage(it, collectionRequestOffset) } }
 
     fun recommendationEngine(engine: RecommendationEngine) {
         if (engine == RecommendationEngine.SPOTIFY && !spotify.state.value.connected) return
@@ -424,6 +492,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun connectAccount() { youtube.runtime.beginSignIn() }
     fun disconnectAccount() {
+        // Choosing or forgetting a Google profile also signs YouTube out. Without a YouTube
+        // account there is nothing to remove, so the current song and queue keep playing.
+        if (!youtubeSignOutNeeded(mutable.value.account, youtube.runtime.hasSession())) return
         radio?.reset()
         controller?.stop(); controller?.clearMediaItems()
         mutablePosition.value = 0
@@ -438,9 +509,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             mutable.update { it.copy(update = it.update.copy(checking = true, message = "Checking GitHub releases…")) }
             try {
                 val release = updater.check()
-                mutable.update { it.copy(update = UpdateState(release = release, message = if (release == null) "You’re up to date." else "Version ${release.version} is available.")) }
+                mutable.update { it.copy(update = it.update.checked(release)) }
             } catch (e: CancellationException) { throw e }
-            catch (e: Exception) { mutable.update { it.copy(update = it.update.copy(checking = false, message = e.message ?: "Could not check for updates.")) } }
+            catch (e: Exception) { mutable.update { it.copy(update = it.update.copy(checking = false, message = updateFailureMessage(e, "Could not check for updates. Try again later."))) } }
         }
     }
     fun downloadUpdate() {
@@ -453,7 +524,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 val file = updater.download(release) { progress -> mutable.update { it.copy(update = it.update.copy(progress = progress)) } }
                 mutable.update { it.copy(update = it.update.copy(downloading = false, apkPath = file.path, message = "Verified update. Ready to install.")) }
             } catch (e: CancellationException) { throw e }
-            catch (e: Exception) { mutable.update { it.copy(update = it.update.copy(downloading = false, message = e.message ?: "The update download failed.")) } }
+            catch (e: Exception) { mutable.update { it.copy(update = it.update.copy(downloading = false, message = updateFailureMessage(e, "The update download failed. Retry the download."))) } }
         }
     }
     fun updateMessage(message: String) { mutable.update { it.copy(update = it.update.copy(message = message)) } }
@@ -472,7 +543,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             queueIndex = c.currentMediaItemIndex,
             routeLabel = currentRoute(it.audioProcessing),
             playing = c.isPlaying,
-            buffering = c.playbackState == Player.STATE_BUFFERING,
+            // A paused song that is still loading is paused, not "Loading".
+            buffering = c.playbackState == Player.STATE_BUFFERING && c.playWhenReady,
             positionMs = mutablePosition.value,
             durationMs = if (restored == null || library.isRemoved(restored)) 0 else c.duration.takeIf { d -> d != C.TIME_UNSET && d > 0 } ?: 0,
         ) }
@@ -512,7 +584,18 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         mutable.update { it.copy(sourceMessage = "TIDAL sign-in could not start. Try again.") }; null
     }
     fun finishTidalSignIn(callback: String) { viewModelScope.launch { sources.tidal?.complete(callback) } }
-    fun disconnectTidal() { viewModelScope.launch(Dispatchers.IO) { sources.tidal?.disconnect() } }
+    fun disconnectTidal() {
+        // As for Apple Music: a song streaming from TIDAL must not keep using the revoked
+        // account's stream; re-prepare it so it falls back to the next available source.
+        val item = controller?.currentMediaItem
+        val key = item?.localConfiguration?.customCacheKey ?: item?.mediaId
+        val playingTidal = sources.state.value[key]?.stream?.provider == MusicProvider.TIDAL
+        if (playingTidal) controller?.stop()
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { sources.tidal?.disconnect() }
+            if (playingTidal) controller?.prepare()
+        }
+    }
     fun cancelTidalSignIn() { viewModelScope.launch(Dispatchers.IO) { sources.tidal?.cancel() } }
     fun beginAppleSignIn(): Long = sources.apple?.beginWeb() ?: -1
     fun finishAppleSignIn(ticket: Long, value: String?) { if (value == null) sources.apple?.cancelWeb(ticket) else sources.apple?.completeWeb(ticket, value) }
@@ -536,7 +619,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     fun setQuery(query: String) {
         if (query.isBlank()) {
             searchJob?.cancel()
-            mutable.update { it.copy(query = "", searched = false, searching = false, results = emptyList(), error = null, errorDiagnostic = "") }
+            // Clearing the search removes only a search failure; a playback or collection error and its Retry stay.
+            mutable.update { it.clearedSearch() }
         } else mutable.update { it.copy(query = query.take(400)) }
     }
 
@@ -551,23 +635,32 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 mutable.update { it.copy(results = results, searching = false) }
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
-                mutable.update { it.copy(searching = false, error = sourceMessage(e), errorDiagnostic = (e as? SourceException)?.diagnostic.orEmpty()) }
+                mutable.update { it.copy(searching = false, error = catalogueErrorMessage(e, CatalogueMessages.SEARCH), errorDiagnostic = (e as? SourceException)?.diagnostic.orEmpty(), errorOrigin = ErrorOrigin.SEARCH) }
             }
         }
     }
 
-    fun play(track: Track, queue: List<Track> = listOf(track)) {
+    fun play(track: Track, queue: List<Track> = listOf(track)) = start(track, queue, 0)
+
+    private fun start(track: Track, queue: List<Track>, startPositionMs: Long) {
         if (library.isRemoved(track)) return
-        val c = controller ?: run { mutable.update { it.copy(error = "The audio player is still starting. Try again in a moment.") }; return }
+        val c = controller ?: run {
+            // Keep the request instead of dropping it; it plays once the player has connected.
+            pendingPlay = track to queue
+            mutable.update { it.copy(loadingTrack = track, error = null, errorDiagnostic = "") }
+            if (controllerFuture == null) { reconnects = 0; connectController() }
+            return
+        }
+        reconnects = 0
         val ordered = queue.filterNot(library::isRemoved).take(100).let { if (it.any { t -> t.libraryKey() == track.libraryKey() }) it else listOf(track) + it }
         suppressedHistoryKey = null
         val selectedIndex = ordered.indexOfFirst { it === track }.takeIf { it >= 0 }
             ?: ordered.indexOfFirst { it.libraryKey() == track.libraryKey() }.coerceAtLeast(0)
         val items = ordered.map(::mediaItem)
-        mutablePosition.value = 0
-        mutable.update { it.copy(current = track, loadingTrack = null, error = null, errorDiagnostic = "", queue = ordered, queueIndex = selectedIndex, positionMs = 0, durationMs = 0) }
+        mutablePosition.value = startPositionMs
+        mutable.update { it.copy(current = track, loadingTrack = null, error = null, errorDiagnostic = "", queue = ordered, queueIndex = selectedIndex, positionMs = startPositionMs, durationMs = 0) }
         radio?.reset()
-        c.setMediaItems(items, selectedIndex, 0)
+        c.setMediaItems(items, selectedIndex, startPositionMs)
         c.prepare()
         c.play()
         // A single song starts radio from the selected recommendation provider.
@@ -650,36 +743,28 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun toggle() {
-        mutable.value.loadingTrack?.let { if (!mutable.value.resolving) play(it, mutable.value.queue); return }
-        val c = controller ?: return
-        if (c.isPlaying || c.playWhenReady) c.pause()
-        else if (c.playerError != null || c.playbackState == Player.STATE_ENDED) retry()
-        else c.play()
+        // A song still waiting for the player shows Play; tapping it keeps (or renews) that one request.
+        mutable.value.loadingTrack?.let { if (!mutable.value.resolving) play(it, pendingPlay?.second ?: mutable.value.queue); return }
+        withController { c -> PlayerTransport.toggle(c, ::retry); syncPlayer() }
     }
 
+    /** Rebuild the current song with a fresh audio link, from where it stopped. */
     fun retry() {
         val s = mutable.value
-        (s.queue.getOrNull(s.queueIndex) ?: s.current)?.let { play(it, s.queue) }
+        val track = s.queue.getOrNull(s.queueIndex) ?: s.current ?: return
+        val resumeAt = controller?.takeIf { it.playerError != null && it.currentMediaItemIndex == s.queueIndex }
+            ?.currentPosition?.coerceAtLeast(0) ?: 0
+        start(track, s.queue, resumeAt)
     }
 
     /** Jump to a song already in the queue without rebuilding it, so preloaded audio and radio stay. */
-    fun skipTo(index: Int) {
-        val c = controller ?: return
-        if (index !in 0 until c.mediaItemCount) return
-        c.seekToDefaultPosition(index)
-        c.play()
-    }
+    fun skipTo(index: Int) = withController { PlayerTransport.skipTo(it, index); syncPlayer() }
 
-    fun next() {
-        controller?.takeIf { it.hasNextMediaItem() }?.seekToNextMediaItem()
-    }
+    fun next() = withController { PlayerTransport.next(it); syncPlayer() }
 
-    fun previous() {
-        if ((controller?.currentPosition ?: mutablePosition.value) > 3000) { seek(0); return }
-        controller?.takeIf { it.hasPreviousMediaItem() }?.seekToPreviousMediaItem() ?: seek(0)
-    }
+    fun previous() = withController { PlayerTransport.previous(it, mutable.value.durationMs); syncPlayer() }
 
-    fun seek(position: Long) { controller?.seekTo(position.coerceIn(0, mutable.value.durationMs)); syncPlayer() }
+    fun seek(position: Long) = withController { PlayerTransport.seek(it, position, mutable.value.durationMs); syncPlayer() }
 
     fun save(track: Track) {
         val old = mutable.value.saved
@@ -725,7 +810,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 val saved = listOf(track) + mutable.value.saved.filterNot { it.libraryKey() == track.libraryKey() }
                 library.writeTracks("saved", saved)
-                mutable.update { it.copy(saved = saved, importMessage = "Added ${track.title} to Saved.") }
+                // Without a lasting grant the file only stays readable until Music restarts.
+                val lasting = withContext(Dispatchers.IO) { LocalMasters.hasReadGrant(getApplication(), uri.toString()) }
+                mutable.update { it.copy(saved = saved, importMessage = if (lasting) "Added ${track.title} to Saved."
+                    else "Added ${track.title} to Saved for now. The app that holds this file did not allow lasting access, so import it again after Music restarts.") }
             } catch (e: CancellationException) { throw e }
             catch (_: Exception) { mutable.update { it.copy(importMessage = "Could not import this file. Choose a readable audio file.") } }
         }
@@ -745,18 +833,26 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 routes.clear()
                 mutable.update { it.copy(mastersBusy = false, mastersSummary = summary(found, true)) }
             } catch (e: CancellationException) { throw e }
-            catch (_: Exception) { mutable.update { it.copy(mastersBusy = false, mastersSummary = "Could not read this folder. Choose it again.") } }
+            catch (_: Exception) {
+                // An unreadable choice must not keep a grant for a folder Music does not use.
+                if (masters.folder != tree.toString()) masters.releaseGrant(tree.toString())
+                mutable.update { it.copy(mastersBusy = false, mastersSummary = "Could not read this folder. Choose it again.") }
+            }
         }
     }
 
     fun clearMasters() {
         mastersJob?.cancel()
         val oldUris = masters.entries.map { it.uri }.toSet()
-        masters.folder?.let { folder -> runCatching { getApplication<Application>().contentResolver.releasePersistableUriPermission(Uri.parse(folder), android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) } }
+        masters.folder?.let(masters::releaseGrant)
         masters.clear(); routes.clear()
         mutable.update { it.copy(mastersBusy = false, mastersSummary = summary(emptyList(), false)) }
         controller?.let { LibraryQueueEdits.reconcile(it, library::isRemoved, oldUris, ::mediaItem) }
         syncPlayer(includeQueue = true)
+    }
+
+    private companion object {
+        const val MASTERS_ACCESS_LOST = "Music can no longer read the chosen folder, so its recordings are not used. Choose the folder again."
     }
 
     private fun summary(found: List<labs.rtensor.music.data.Master>, chosen: Boolean): String {
@@ -804,20 +900,21 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         c.addMediaItem(c.currentMediaItemIndex + 1, mediaItem(track)); syncPlayer(includeQueue = true)
     }
 
-    private fun sourceMessage(e: Exception): String =
-        if (e is SourceException || e is labs.rtensor.music.spotify.SpotifyCatalogueException) e.message.orEmpty() else "Could not load this recording. Check your connection and retry."
-
     override fun onCleared() {
         radio?.reset()
         spotify.close()
         finishListen(final = true)
         // Also commit a pending clear/remove if there was no active listen.
         persistHistory(final = true)
+        cleared = true; pendingPlay = null
         controller?.removeListener(listener)
-        MediaController.releaseFuture(controllerFuture)
+        controllerFuture?.let(MediaController::releaseFuture)
+        controller = null; controllerFuture = null
         super.onCleared()
     }
 }
+
+internal const val PLAYER_STARTING = "The audio player is still starting. Try again in a moment."
 
 /** Only network and source failures are worth a connection hint; decoding and
  * output failures need the format, not a retry. */

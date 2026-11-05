@@ -16,6 +16,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import android.net.Uri
@@ -68,12 +69,15 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         appleTicket = savedInstanceState?.getLong("appleTicket", -1) ?: -1
-        acceptShare(intent)
+        // A recreated activity (rotation, process restore) gets the same SEND intent back;
+        // the share was already searched, so only a fresh launch accepts it.
+        sharedQuery = sharedQuery(intent, restored = savedInstanceState != null)
         if (savedInstanceState == null) acceptTidalSignIn(intent)
         setContent {
             val state by model.state.collectAsStateWithLifecycle()
             val notifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
-            var asked by remember { mutableStateOf(false) }
+            // Saved across recreation, so rotating the phone never asks a second time.
+            var asked by rememberSaveable { mutableStateOf(false) }
             LaunchedEffect(state.current) {
                 if (state.current != null && !asked && Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                     asked = true
@@ -210,8 +214,18 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun acceptShare(intent: Intent?) {
-        if (intent?.action == Intent.ACTION_SEND && intent.type == "text/plain") {
-            sharedQuery = intent.getStringExtra(Intent.EXTRA_TEXT)?.take(400)
+        sharedQuery(intent, restored = false)?.let { sharedQuery = it }
+    }
+
+    companion object {
+        /**
+         * The text of a "Share to Music" intent, or null when there is none or it was already
+         * handled: a restored activity and a launch from Recents replay the original intent.
+         */
+        internal fun sharedQuery(intent: Intent?, restored: Boolean): String? {
+            if (restored || intent == null || intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0) return null
+            if (intent.action != Intent.ACTION_SEND || intent.type != "text/plain") return null
+            return intent.getStringExtra(Intent.EXTRA_TEXT)?.take(400)
         }
     }
 

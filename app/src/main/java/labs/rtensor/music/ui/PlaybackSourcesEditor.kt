@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -29,10 +30,11 @@ internal fun PlaybackSourcesEditor(state: MusicState, onDismiss: () -> Unit,
     onConnect: (MusicProvider, SourceProtocol, String, String) -> Unit, onRemove: (String) -> Unit,
     onConnectTidal: () -> Unit = {}, onDisconnectTidal: () -> Unit = {}, onCancelTidal: () -> Unit = {},
     onConnectApple: () -> Unit = {}, onNativeApple: () -> Unit = {}, onDisconnectApple: () -> Unit = {}, onCancelApple: () -> Unit = {}) {
-    var adding by remember { mutableStateOf(false) }
-    var provider by remember { mutableStateOf(MusicProvider.APPLE_MUSIC) }
-    var protocol by remember { mutableStateOf(SourceProtocol.GATEWAY) }
-    var url by remember { mutableStateOf("") }
+    // The form survives rotation; the access token deliberately stays in memory only.
+    var adding by rememberSaveable { mutableStateOf(false) }
+    var provider by rememberSaveable { mutableStateOf(MusicProvider.APPLE_MUSIC) }
+    var protocol by rememberSaveable { mutableStateOf(SourceProtocol.GATEWAY) }
+    var url by rememberSaveable { mutableStateOf("") }
     var token by remember { mutableStateOf("") }
     val count = state.playbackSources.size
     LaunchedEffect(count) { if (count > 0) { adding = false; url = ""; token = "" } }

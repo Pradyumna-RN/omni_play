@@ -46,6 +46,10 @@ internal class AppleAccount(private val context: Context, private val vault: Acc
         return ticket
     }
     fun completeWeb(ticket: Long, value: String) {
+        // Android can end the app process while Apple's sign-in page is open, then deliver its
+        // result to the restored screen. That ticket came from the previous process. If nothing
+        // has happened to the account in this process yet, it is the user's latest sign-in.
+        if (ticket > 0 && generation.get() == 0L && !mutable.value.connecting) return completeWeb(beginWeb(), value)
         if (ticket != generation.get()) return
         authJob = scope.launch {
             try {
