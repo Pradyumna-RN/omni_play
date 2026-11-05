@@ -2199,10 +2199,18 @@ private fun rememberSmoothPosition(position: Long, duration: Long, animate: Bool
         val base = shown.longValue
         val limit = if (duration > 0) duration else Long.MAX_VALUE
         val start = withFrameNanos { it }
-        while (true) withFrameNanos { now -> shown.longValue = (base + (now - start) / 1_000_000).coerceAtMost(limit) }
+        // Ten updates a second, not one per frame: the line moves well under a pixel per tick, and
+        // the window can idle between ticks instead of redrawing at 60–120 Hz.
+        while (true) {
+            withFrameNanos { now -> shown.longValue = (base + (now - start) / 1_000_000).coerceAtMost(limit) }
+            delay(ClockTickMs)
+        }
     }
     return shown
 }
+
+/** How often the playback clock moves the progress lines while a song plays. */
+internal const val ClockTickMs = 100L
 
 /**
  * A drawn seek line. The played part and the thumb are painted from the smooth position in

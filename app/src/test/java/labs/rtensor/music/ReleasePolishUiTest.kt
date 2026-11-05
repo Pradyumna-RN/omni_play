@@ -147,4 +147,20 @@ class ReleasePolishUiTest {
         compose.onNodeWithText("Square controls, monospace labels and Signal orange.").performScrollTo().assertExists()
         compose.onNodeWithText("0.3.32", substring = true).assertDoesNotExist()
     }
+
+    /** The clock moves the progress lines ten times a second, not on every frame. */
+    @Test fun thePlaybackClockTicksAboutTenTimesASecondNotEveryFrame() {
+        compose.mainClock.autoAdvance = false
+        val position = kotlinx.coroutines.flow.MutableStateFlow(72_000L)
+        compose.setContent { MusicApp(MusicState(theme = "dark", reducedMotion = false, current = track, playing = true, positionMs = 72_000, durationMs = 224_000),
+            initialPage = "now", playbackPosition = position) }
+        repeat(3) { compose.mainClock.advanceTimeByFrame() }; compose.waitForIdle()
+        val line = compose.onNodeWithContentDescription("Playback position")
+        fun fraction() = line.fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsProperties.ProgressBarRangeInfo].current
+        val seen = mutableSetOf<Float>()
+        // One second of 16ms frames: the shown time changes about ten times, not sixty.
+        repeat(62) { compose.mainClock.advanceTimeBy(16); compose.waitForIdle(); seen += fraction() }
+        assertTrue("updates in a second: ${seen.size}", seen.size in 5..12)
+        assertTrue("and it still moves", seen.max() > seen.min())
+    }
 }
