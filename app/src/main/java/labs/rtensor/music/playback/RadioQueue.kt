@@ -77,11 +77,16 @@ internal class RadioQueue(
                     tried.remove(key)
                     status(false, "${providerLabel()} has no more recommendations for this song.")
                 } else {
+                    // A slow answer can arrive after the last song finished. Media3 stays ended when
+                    // songs are appended then, so continue with the first recommendation ourselves.
+                    val finished = player.playbackState == Player.STATE_ENDED && player.currentMediaItemIndex == player.mediaItemCount - 1
+                    val firstAdded = player.mediaItemCount
                     player.addMediaItems(added.map { candidate ->
                         val item = mediaItem(candidate)
                         val extras = android.os.Bundle(item.mediaMetadata.extras ?: android.os.Bundle()).apply { putString(GENERATED, providerLabel()) }
                         item.buildUpon().setMediaMetadata(item.mediaMetadata.buildUpon().setExtras(extras).build()).build()
                     })
+                    if (finished && player.playWhenReady) player.seekToDefaultPosition(firstAdded)
                     status(false, null)
                 }
             } catch (e: CancellationException) {
