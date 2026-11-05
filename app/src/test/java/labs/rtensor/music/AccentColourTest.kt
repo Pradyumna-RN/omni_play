@@ -82,7 +82,11 @@ class AccentColourTest {
         val colours = CoverAccent.colours(art)!!
         assertEquals(CoverAccent.extract(art), colours.accent)
         assertTrue(contrastRatio(PaperMuted, colours.deep) >= MinTextContrast)
-        assertNull(CoverAccent.colours(solid(0xFF808080.toInt())))
+        // Greyscale art still gives the player a (neutral) tone from the cover, readable as ever.
+        val grey = CoverAccent.colours(solid(0xFF808080.toInt()))!!
+        assertTrue(CoverAccent.fitsBothThemes(grey.accent))
+        assertTrue(hsl(grey.accent)[1] < .05f && hsl(grey.deep)[1] < .05f)
+        assertTrue(contrastRatio(PaperMuted, grey.deep) >= MinTextContrast)
     }
 
     @Test fun signalIsUnchangedFromTheOriginalLook() {
@@ -121,7 +125,10 @@ class AccentColourTest {
     @Test fun coverWithoutColourFallsBackToSignal() {
         assertEquals(SignalAccent, accentColours(AccentChoice.COVER, false, null).accent)
         assertEquals(SignalAccent, accentColours(AccentChoice.COVER, true, Color.Unspecified).accent)
-        assertNull("greyscale art has no vivid colour", CoverAccent.extract(solid(0xFF808080.toInt())))
+        // Greyscale art has no hue, but it is not "no cover": it gives a neutral accent that reads on paper and ink.
+        val grey = CoverAccent.extract(solid(0xFF808080.toInt()))!!
+        assertTrue(CoverAccent.fitsBothThemes(grey))
+        assertTrue("greyscale art gives a neutral accent", hsl(grey)[1] < .05f)
         assertNull("blank art has no colour", CoverAccent.extract(Bitmap.createBitmap(32, 32, Bitmap.Config.ARGB_8888)))
         assertNull(fixedAccent(AccentChoice.COVER, false))
     }
