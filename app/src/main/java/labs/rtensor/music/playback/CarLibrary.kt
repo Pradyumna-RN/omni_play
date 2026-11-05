@@ -79,7 +79,7 @@ internal class CarLibrary(
         return LibraryResult.ofItem(folder(ROOT, "Music", MediaMetadata.MEDIA_TYPE_FOLDER_MIXED, null), LibraryParams.Builder().setExtras(extras).build())
     }
 
-    /** Tabs shown at the root, newest settings first: Recent only while history is kept. */
+    /** Tabs at the root, within the car's limit: Recent only while listening history is kept. */
     fun tabs(browser: String, params: LibraryParams? = null): List<Tab> {
         val limit = listOfNotNull(rootLimits[browser], params?.extras?.getInt(MediaConstants.EXTRAS_KEY_ROOT_CHILDREN_LIMIT, 0)?.takeIf { it > 0 }).minOrNull() ?: Int.MAX_VALUE
         return Tab.entries.filter { it != Tab.RECENT || LibraryStore(context).trackHistory }.take(limit.coerceAtLeast(1))
@@ -138,7 +138,7 @@ internal class CarLibrary(
                     if (found.tracks.isEmpty()) throw CarRequestException(SessionError.ERROR_IO, found.error ?: "No songs found for “${query.trim()}”.")
                     found.tracks to 0
                 }
-                else -> throw CarRequestException(SessionError.ERROR_BAD_VALUE, "This song is no longer available.")
+                else -> throw CarRequestException(SessionError.ERROR_NOT_SUPPORTED, "Choose a song to play.")
             }
             // Like the phone, a queue holds at most 100 songs; keep the chosen one inside it.
             val window = if (index < 100) tracks.take(100) else tracks.subList(index, minOf(tracks.size, index + 100))
@@ -273,6 +273,7 @@ internal class CarLibrary(
     }
 
     companion object {
+        private const val PREFIX = "car:"
         const val ROOT = "car:root"
         const val TAB = "car:tab:"
         const val SONG = "car:song:"
@@ -280,8 +281,9 @@ internal class CarLibrary(
         const val SEARCH = "search"
         private const val SEARCH_SUPPORTED = "android.media.browse.SEARCH_SUPPORTED"
 
-        /** A car request names a browse ID or a voice query; it never carries a URI to play. */
+        /** A car request names a browse ID (even a note or a list, which never plays) or a voice
+         * query; it never carries a URI to play, and a failed one leaves the queue alone. */
         fun isRequest(item: MediaItem): Boolean = item.localConfiguration == null &&
-            (item.mediaId.startsWith(SONG) || (item.mediaId.isEmpty() && item.requestMetadata.searchQuery != null))
+            (item.mediaId.startsWith(PREFIX) || (item.mediaId.isEmpty() && item.requestMetadata.searchQuery != null))
     }
 }

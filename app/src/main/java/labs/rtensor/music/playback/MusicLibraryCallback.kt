@@ -64,7 +64,7 @@ internal class MusicLibraryCallback(
         // Answer at once; the result count follows when the search finishes.
         scope.launch {
             val count = try { car.search(query) } catch (e: CancellationException) { throw e } catch (_: Exception) { 0 }
-            session.notifySearchResultChanged(browser, query, count, params)
+            runCatching { session.notifySearchResultChanged(browser, query, count, params) }
         }
         return Futures.immediateFuture(LibraryResult.ofVoid())
     }
