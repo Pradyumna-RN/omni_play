@@ -84,5 +84,23 @@ class RoomPlayerUiTest {
         compose.runOnIdle { state.value = state.value.copy(developerOptions = true) }
         compose.waitForIdle()
         assertFalse("reduced motion keeps the meter still: $requests", requests.any { it })
+        // A meter that cannot move is not drawn at all (it would look broken).
+        compose.onNodeWithTag("level-meter", useUnmergedTree = true).assertDoesNotExist()
+    }
+
+    @Test fun theMeterShowsOnlyWhileLiveLevelsMoveIt() {
+        val levels = kotlinx.coroutines.flow.MutableStateFlow<labs.rtensor.dsp.AudioLevelFrame?>(null)
+        val state = mutableStateOf(player(AudioProcessingState(available = true, report = DownmixReport(48000, surround))).copy(reducedMotion = false))
+        compose.mainClock.autoAdvance = false
+        compose.setContent { MusicApp(state.value, initialPage = "now", audioLevels = levels) }
+        fun frames() { repeat(5) { compose.mainClock.advanceTimeByFrame() }; compose.waitForIdle() }
+        frames()
+        compose.onNodeWithTag("level-meter", useUnmergedTree = true).assertDoesNotExist()
+        compose.runOnIdle { state.value = state.value.copy(developerOptions = true) }
+        frames()
+        compose.onNodeWithTag("level-meter", useUnmergedTree = true).assertExists()
+        compose.runOnIdle { state.value = state.value.copy(playing = false) }
+        frames()
+        compose.onNodeWithTag("level-meter", useUnmergedTree = true).assertDoesNotExist()
     }
 }

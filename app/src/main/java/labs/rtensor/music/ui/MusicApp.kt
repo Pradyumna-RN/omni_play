@@ -1588,15 +1588,16 @@ private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () ->
                             PosterTitle(shown.title)
                             ArtistLine(shown.artist, badge)
                         }
-                        // The small level meter: it rests until live levels arrive and is empty
-                        // before any audio is decoded. Its line is always reserved, so nothing moves.
+                        // The small level meter: shown only while live levels move it. Its line is always
+                        // reserved, so nothing moves when it appears.
                         val report = state.audioProcessing.report
                         val meterLive = playing && !loading && !reduced && state.developerOptions && audioLevels != null
                         if (state.developerOptions) LiveMetering("meter", meterLive, metering)
                         val frame = audioLevels?.collectAsStateWithLifecycle()
                         val bars = markOn(LocalAccent.current.accent, scheme.background, scheme.onBackground)
                         Box(Modifier.fillMaxWidth().padding(top = 8.dp).height(16.dp)) {
-                            if (report != null) LevelMeter(report, frame, meterLive, bars)
+                            // Drawn only while it moves; a still meter reads as broken. The line stays reserved.
+                            if (report != null && meterLive) LevelMeter(report, frame, meterLive, bars, Modifier.testTag("level-meter"))
                         }
                         Spacer(Modifier.height(10.dp))
                         PlaybackTimeline(playbackPosition, position, duration, playing, reduced, pending, null, onSeek)
