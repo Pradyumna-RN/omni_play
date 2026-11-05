@@ -436,7 +436,8 @@ fun MusicApp(
                                 onAutoplay, onTrackHistory, onConnectSource, onRemoveSource, onConnectTidal, onDisconnectTidal, onCancelTidal,
                                 onConnectApple, onNativeApple, onDisconnectApple, onCancelApple, onDeveloperOptions,
                                 onRecommendationEngine, onConnectSpotify, onDisconnectSpotify)
-                            else -> HomeScreen(state, ::focusSearch, ::play, onToggle, ::openEntry, { onRefreshFeed(); onRefreshForYou() }, onMoreFeed, onConnect)
+                            else -> HomeScreen(state, ::focusSearch, ::play, onToggle, ::openEntry, { onRefreshFeed(); onRefreshForYou() }, onMoreFeed, onConnect,
+                                onOpenPlayer = { navigate("now") }, audioLevels = audioLevels, metering = metering)
                         }
                     }
                 }
@@ -610,7 +611,8 @@ internal class MeteringClaims {
 
 @Composable
 private fun HomeScreen(state: MusicState, onSearch: () -> Unit, onPlay: (Track, List<Track>) -> Unit, onToggle: () -> Unit,
-    onEntry: (FeedEntry) -> Unit, onRefresh: () -> Unit, onMore: () -> Unit, onConnect: () -> Unit) {
+    onEntry: (FeedEntry) -> Unit, onRefresh: () -> Unit, onMore: () -> Unit, onConnect: () -> Unit,
+    onOpenPlayer: () -> Unit = {}, audioLevels: StateFlow<labs.rtensor.dsp.AudioLevelFrame?>? = null, metering: MeteringClaims? = null) {
     val recent = state.history.firstOrNull()
     val recentIsCurrent = recent != null && recent.libraryKey() == state.current?.libraryKey()
     val recentLoading = recentIsCurrent && (state.resolving || state.buffering)
@@ -635,8 +637,14 @@ private fun HomeScreen(state: MusicState, onSearch: () -> Unit, onPlay: (Track, 
     val unheard = recommendations.newToYou
     PrefetchArtwork(state.feed.flatMap { it.items.take(10).map(FeedEntry::artwork) } + state.forYou.take(12).map(Track::artwork), 156.dp)
     val look = LocalLook.current
+    // Rows of the song grid that already show stay as they are when "More from your feed" adds songs.
+    val batches = remember(state.feed) { GridBatches() }
     PullToRefresh(state.feedBusy, onRefresh) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 24.dp)) {
+        // The Listening room opens on your room: the speakers you are hearing, lit by what plays.
+        if (look.room) item(key = "room") {
+            ListeningRoom(state, audioLevels, metering, onOpenPlayer, Modifier.padding(top = 4.dp, bottom = 6.dp))
+        }
         item(key = "title") {
             Column(Modifier.padding(bottom = 4.dp)) {
                 PageTitle(if (recent != null) "Back to your music" else if (hasFeed) "For your ears" else "Room to listen")
@@ -718,26 +726,48 @@ private fun HomeScreen(state: MusicState, onSearch: () -> Unit, onPlay: (Track, 
                 if (recommendations.fromListening.isEmpty()) LoadingLine(true, state.reducedMotion)
                 else LazyRow(horizontalArrangement = Arrangement.spacedBy(if (look.classic) 12.dp else 10.dp)) {
                     itemsIndexed(recommendations.fromListening, key = { i, t -> "$i:${t.id}" }) { i, track ->
-                        SignalCard(track, "A-%02d".format(Locale.ROOT, i + 1)) { onPlay(track, listOf(track)) }
+                        if (look.classic) SignalCard(track, "A-%02d".format(Locale.ROOT, i + 1)) { onPlay(track, listOf(track)) }
+                        else RoomCard(track, Modifier.width(148.dp)) { onPlay(track, listOf(track)) }
                     }
                 }
             }
         }
         if (unheard.isNotEmpty()) item(key = "unheard") {
-            val accent = LocalAccent.current
-            val on = accent.onAccent
-            val scheme = MaterialTheme.colorScheme.copy(onSurface = on, onSurfaceVariant = on.copy(alpha = .8f),
-                onBackground = on, primary = on, outline = on.copy(alpha = .25f))
-            MaterialTheme(colorScheme = scheme, typography = MaterialTheme.typography, shapes = MaterialTheme.shapes) {
-                Column(motionModifier().padding(vertical = 20.dp).fillMaxWidth().clip(look.card).background(accent.accent).padding(16.dp)) {
-                    Text(look.label(if (state.trackHistory) "New here" else "Keep exploring"), style = LabelText, color = on)
-                    Text(if (state.trackHistory) "New to your ears" else "Discover more", style = DisplayStyle,
-                        fontSize = 32.sp, lineHeight = 36.sp, color = on, modifier = Modifier.padding(top = 8.dp).semantics { heading() })
+            if (look.classic) {
+                val accent = LocalAccent.current
+                val on = accent.onAccent
+                val scheme = MaterialTheme.colorScheme.copy(onSurface = on, onSurfaceVariant = on.copy(alpha = .8f),
+                    onBackground = on, primary = on, outline = on.copy(alpha = .25f))
+                MaterialTheme(colorScheme = scheme, typography = MaterialTheme.typography, shapes = MaterialTheme.shapes) {
+                    Column(motionModifier().padding(vertical = 20.dp).fillMaxWidth().background(accent.accent).padding(16.dp)) {
+                        Text(look.label(if (state.trackHistory) "New here" else "Keep exploring"), style = LabelText, color = on)
+                        Text(if (state.trackHistory) "New to your ears" else "Discover more", style = DisplayStyle,
+                            fontSize = 32.sp, lineHeight = 36.sp, color = on, modifier = Modifier.padding(top = 8.dp).semantics { heading() })
+                        Text(if (state.trackHistory) "Songs outside your recorded listening history."
+                            else "Individual recommendations from ${state.recommendationEngine.label}.",
+                            fontSize = 13.sp, lineHeight = 19.sp, color = on, modifier = Modifier.padding(top = 6.dp, bottom = 8.dp))
+                        unheard.forEach { track ->
+                            TrackRow(track, false, false, { onPlay(track, listOf(track)) }, null)
+                        }
+                    }
+                }
+            } else {
+                // The Listening room shows these songs as a two-column grid of cards.
+                Column(motionModifier().padding(vertical = 20.dp).fillMaxWidth()) {
+                    Text(if (state.trackHistory) "New here" else "Keep exploring", style = LabelText, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    PosterText(if (state.trackHistory) "New to your ears" else "Discover more", SectionStyle.copy(fontSize = 30.sp, lineHeight = 30.sp),
+                        Modifier.padding(top = 4.dp), heading = true)
                     Text(if (state.trackHistory) "Songs outside your recorded listening history."
                         else "Individual recommendations from ${state.recommendationEngine.label}.",
-                        fontSize = 13.sp, lineHeight = 19.sp, color = on, modifier = Modifier.padding(top = 6.dp, bottom = 8.dp))
-                    unheard.forEach { track ->
-                        TrackRow(track, false, false, { onPlay(track, listOf(track)) }, null)
+                        fontSize = 13.sp, lineHeight = 19.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp, bottom = 14.dp))
+                    batches.rows(unheard.map { it.libraryKey() }).forEach { row ->
+                        Row(Modifier.fillMaxWidth().padding(bottom = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            row.forEach { index ->
+                                val track = unheard[index]
+                                RoomCard(track, Modifier.weight(1f)) { onPlay(track, listOf(track)) }
+                            }
+                            if (row.size == 1) Spacer(Modifier.weight(1f))
+                        }
                     }
                 }
             }
@@ -750,6 +780,23 @@ private fun HomeScreen(state: MusicState, onSearch: () -> Unit, onPlay: (Track, 
                 color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.fillMaxWidth().padding(top = 20.dp))
         }
     }
+    }
+}
+
+/**
+ * Splits the grid into rows of two without moving cards already shown: songs appended after a
+ * list that was on screen start a new row, so "More from your feed" always adds below. Any other
+ * change (a refresh, a song moving to History) lays the grid out afresh.
+ */
+private class GridBatches {
+    private var last: List<String> = emptyList()
+    private val starts = mutableListOf<Int>()
+    fun rows(keys: List<String>): List<List<Int>> {
+        val appended = last.isNotEmpty() && keys.size > last.size && keys.subList(0, last.size) == last
+        if (appended) starts += last.size else if (keys != last) starts.clear()
+        last = keys
+        val bounds = (listOf(0) + starts.filter { it in 1 until keys.size } + keys.size).distinct().sorted()
+        return bounds.zipWithNext().flatMap { (from, to) -> (from until to).chunked(2) }
     }
 }
 
@@ -813,6 +860,20 @@ private fun SignalOutlineButton(label: String, modifier: Modifier = Modifier, en
         colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onBackground),
         contentPadding = PaddingValues(horizontal = 16.dp)) {
         Text(label, style = LabelText, maxLines = 1)
+    }
+}
+
+/** A Listening room song card: rounded panel, artwork on top, title and artist below. */
+@Composable
+private fun RoomCard(track: Track, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    val look = LocalLook.current
+    Column(modifier.clip(look.card).background(look.panel).pressable(onClick = onClick)) {
+        Artwork(track, Modifier.fillMaxWidth().aspectRatio(1.4f), size = 180.dp)
+        Column(Modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp, top = 8.dp, bottom = 10.dp)) {
+            ScrollingMetadata(track.title, TextStyle(fontFamily = font, fontSize = 14.sp, lineHeight = 18.sp, fontWeight = FontWeight.SemiBold, color = look.text))
+            // Keep the artist line even when it is empty, so cards in a row stay the same height.
+            ScrollingMetadata(track.artist, TextStyle(fontFamily = font, fontSize = 12.sp, lineHeight = 16.sp, color = look.muted), Modifier.padding(top = 2.dp))
+        }
     }
 }
 
