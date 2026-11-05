@@ -65,5 +65,7 @@ class SignInLookTest {
         assertEquals("Listening room dark is its near-black", RoomNight.toArgb(), ground(LookChoice.ROOM, "dark", "look-room-dark-sign-in-spotify"))
         ground(LookChoice.CLASSIC, "light", "look-classic-light-sign-in-spotify")
         ground(LookChoice.ROOM, "light", "look-room-light-sign-in-spotify")
+        assertEquals("Soft dark is its charcoal surface", 0xFF222125.toInt(), ground(LookChoice.SOFT, "dark", "look-soft-dark-sign-in-spotify"))
+        assertEquals("Soft light is its warm white surface", 0xFFFFFEFA.toInt(), ground(LookChoice.SOFT, "light", "look-soft-light-sign-in-spotify"))
     }
 }

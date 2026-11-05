@@ -271,6 +271,30 @@ class ControlInventoryTest {
         base().copy(googleProfile = profile, account = AccountState(connecting = true), spotifyAccount = AccountState(connecting = true),
             update = UpdateState(apkPath = "/x.apk", message = "Verified update. Ready to install.")), "settings"))
 
+    // Soft (the 0.3.31 design) keeps every control working.
+    @Test fun inventorySoftHomePlaying() = assertEveryControlWorks(inventory("16-soft-home-playing",
+        playing.copy(look = labs.rtensor.music.data.LookChoice.SOFT, forYou = listOf(third, other), feedHasMore = true, feedError = "Feed unavailable"), "home"))
+
+    @Test fun inventorySoftFirstLaunchHome() = assertEveryControlWorks(inventory("17-soft-first-launch-home",
+        base().copy(look = labs.rtensor.music.data.LookChoice.SOFT), "home"))
+
+    @Test fun inventorySoftNowPlaying() = assertEveryControlWorks(inventory("18-soft-now-playing",
+        playing.copy(look = labs.rtensor.music.data.LookChoice.SOFT, radioError = "Recommendations failed."), "now"))
+
+    @Test fun inventorySoftNowBuffering() = assertEveryControlWorks(inventory("19-soft-now-buffering",
+        playing.copy(look = labs.rtensor.music.data.LookChoice.SOFT, buffering = true), "now"))
+
+    @Test fun inventorySoftLibrary() = assertEveryControlWorks(inventory("20-soft-library",
+        base().copy(look = labs.rtensor.music.data.LookChoice.SOFT, saved = listOf(track, other), playEvents = events, history = listOf(track, other)), "library"))
+
+    @Test fun inventorySoftExplore() = assertEveryControlWorks(inventory("21-soft-explore",
+        base().copy(look = labs.rtensor.music.data.LookChoice.SOFT, explore = listOf(FeedSection("Fresh discoveries", listOf(album, song, artist)))), "explore"))
+
+    @Test fun inventorySoftSettings() = assertEveryControlWorks(inventory("22-soft-settings",
+        base(theme = "dark").copy(look = labs.rtensor.music.data.LookChoice.SOFT, googleProfile = profile, account = AccountState(connected = true, name = "Listener"),
+            update = UpdateState(release = AppRelease("9.9.9", "https://example.test/a.apk", "https://example.test/a.sha", "a.apk", 1), message = "Version 9.9.9 is available."),
+            playEvents = events, history = listOf(track, other), developerOptions = true), "settings"))
+
     // ---------------------------------------------------------------------------------
     // Targeted promises: each control fires the right callback with the right arguments
     // ---------------------------------------------------------------------------------

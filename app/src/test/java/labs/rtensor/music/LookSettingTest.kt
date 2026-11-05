@@ -36,6 +36,9 @@ class LookSettingTest {
         store.look = LookChoice.CLASSIC
         assertEquals("classic", prefs().getString("look", null))
         assertEquals(LookChoice.CLASSIC, LibraryStore(compose.activity).look)
+        LibraryStore(compose.activity).look = LookChoice.SOFT
+        assertEquals("soft", prefs().getString("look", null))
+        assertEquals(LookChoice.SOFT, LibraryStore(compose.activity).look)
         LibraryStore(compose.activity).look = LookChoice.ROOM
         assertEquals(LookChoice.ROOM, LibraryStore(compose.activity).look)
         // Theme and accent live in the same store and are untouched.
@@ -44,7 +47,7 @@ class LookSettingTest {
     }
 
     @Test fun unknownOrRetiredLooksMeanTheListeningRoom() {
-        for (value in listOf("signal-0.3.33", "liner", "", "ROOM", "Classic")) {
+        for (value in listOf("signal-0.3.33", "liner", "", "ROOM", "Classic", "SOFT", "0.3.31")) {
             prefs().edit().putString("look", value).commit()
             assertEquals("stored \"$value\"", LookChoice.ROOM, LibraryStore(compose.activity).look)
         }

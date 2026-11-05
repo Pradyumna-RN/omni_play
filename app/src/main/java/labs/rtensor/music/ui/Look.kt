@@ -48,9 +48,12 @@ internal data class Look(
     val stage: Color,
     val stageText: Color,
     val stageMuted: Color,
+    /** Raised surfaces (cards, the Soft dock). Only Soft separates it from the page. */
+    val surface: Color = background,
 ) {
     val classic: Boolean get() = choice == LookChoice.CLASSIC
     val room: Boolean get() = choice == LookChoice.ROOM
+    val soft: Boolean get() = choice == LookChoice.SOFT
 
     /** A small label: uppercase in Classic, sentence case in the Listening room. */
     fun label(text: String): String = if (classic) text.uppercase(Locale.ROOT) else text
@@ -58,9 +61,9 @@ internal data class Look(
     fun headline(text: String): String = if (classic) "$text." else text
 
     /** What a settings card is filled with: the page colour in Classic, the lifted panel otherwise. */
-    val cardFill: Color get() = if (classic) background else panel
-    /** A segmented selector's track, inside a card: set apart from the card in both looks. */
-    val selectorTrack: Color get() = if (classic) panel else background
+    val cardFill: Color get() = when (choice) { LookChoice.CLASSIC -> background; LookChoice.SOFT -> surface; LookChoice.ROOM -> panel }
+    /** A segmented selector's track, inside a card: set apart from the card in every look. */
+    val selectorTrack: Color get() = if (room) background else panel
     /** The selector's outline: the muted text colour, so its boundary stands out 3:1 from the card. */
     val selectorEdge: Color get() = muted
     /** The chosen option is filled with the text colour and labelled in the page colour. */
@@ -68,19 +71,19 @@ internal data class Look(
     val onSelectorThumb: Color get() = background
 
     /** Filled and outlined buttons: square in Classic, pills in the Listening room. */
-    val button: Shape get() = if (classic) RectangleShape else RoundedCornerShape(percent = 50)
+    val button: Shape get() = when (choice) { LookChoice.CLASSIC -> RectangleShape; LookChoice.SOFT -> RoundedCornerShape(12.dp); LookChoice.ROOM -> RoundedCornerShape(percent = 50) }
     /** Bordered square controls such as Save: square in Classic, softly rounded otherwise. */
     val control: Shape get() = if (classic) RectangleShape else RoundedCornerShape(14.dp)
     /** Cards, banners and settings groups. */
-    val card: Shape get() = if (classic) RectangleShape else RoundedCornerShape(16.dp)
+    val card: Shape get() = when (choice) { LookChoice.CLASSIC -> RectangleShape; LookChoice.SOFT -> RoundedCornerShape(20.dp); LookChoice.ROOM -> RoundedCornerShape(16.dp) }
     /** Artwork in rows and cards. */
-    val art: Shape get() = if (classic) RectangleShape else RoundedCornerShape(10.dp)
+    val art: Shape get() = when (choice) { LookChoice.CLASSIC -> RectangleShape; LookChoice.SOFT -> RoundedCornerShape(8.dp); LookChoice.ROOM -> RoundedCornerShape(10.dp) }
     /** The player's big cover. */
     val cover: Shape get() = if (classic) RectangleShape else RoundedCornerShape(18.dp)
     /** Small square tiles (setting icons, stats). */
     val tile: Shape get() = if (classic) RectangleShape else RoundedCornerShape(10.dp)
     /** The search field. */
-    val field: Shape get() = if (classic) RectangleShape else RoundedCornerShape(24.dp)
+    val field: Shape get() = when (choice) { LookChoice.CLASSIC -> RectangleShape; LookChoice.SOFT -> RoundedCornerShape(14.dp); LookChoice.ROOM -> RoundedCornerShape(24.dp) }
 }
 
 internal fun roomLook(dark: Boolean): Look = if (dark) Look(
@@ -104,7 +107,35 @@ internal fun classicLook(dark: Boolean): Look = if (dark) Look(
     stage = Ink, stageText = Paper, stageMuted = PaperMuted,
 )
 
-internal fun lookFor(choice: LookChoice, dark: Boolean): Look = if (choice == LookChoice.CLASSIC) classicLook(dark) else roomLook(dark)
+/**
+ * Soft keeps the 0.3.31 palette: warm off-white and ink, or charcoal, with raspberry. Two
+ * colours were moved in lightness only, just enough for 4.5:1 text: raspberry is
+ * [SoftRaspberry] (was #D72F62) in light and [SoftRaspberryNight] (was #F05B86) in dark.
+ */
+internal fun softLook(dark: Boolean): Look = if (dark) Look(
+    LookChoice.SOFT, dark = true,
+    background = Color(0xFF19191C), panel = Color(0xFF302C32), text = Color(0xFFF2F0E9), muted = Color(0xFFB4AFB6), line = Color(0xFF3A373D),
+    stage = Color(0xFF222125), stageText = Color(0xFFF2F0E9), stageMuted = Color(0xFFB4AFB6), surface = Color(0xFF222125),
+) else Look(
+    LookChoice.SOFT, dark = false,
+    background = Color(0xFFF9F8F2), panel = Color(0xFFF1EEE7), text = Color(0xFF161921), muted = Color(0xFF555860), line = Color(0xFFDFDDD6),
+    stage = Color(0xFFFFFEFA), stageText = Color(0xFF161921), stageMuted = Color(0xFF555860), surface = Color(0xFFFFFEFA),
+)
+
+/** Soft's raspberry, light theme: #D72F62 darkened just enough to read 4.5:1 on every Soft ground. */
+internal val SoftRaspberry = Color(0xFFC82658)
+/** Soft's raspberry, dark theme: #F05B86 lightened just enough for the same. */
+internal val SoftRaspberryNight = Color(0xFFF1688F)
+/** Text and icons on Soft's raspberry. */
+internal fun softOnPrimary(dark: Boolean): Color = if (dark) Color(0xFF240A13) else White
+/** Soft's pink container (selected chips, the dock pill, icon tiles, banners). */
+internal fun softContainer(dark: Boolean): Color = if (dark) Color(0xFF432733) else Color(0xFFF9E5EB)
+
+internal fun lookFor(choice: LookChoice, dark: Boolean): Look = when (choice) {
+    LookChoice.CLASSIC -> classicLook(dark)
+    LookChoice.SOFT -> softLook(dark)
+    LookChoice.ROOM -> roomLook(dark)
+}
 
 internal val LocalLook = staticCompositionLocalOf { roomLook(dark = false) }
 

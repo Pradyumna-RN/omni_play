@@ -13,7 +13,13 @@ import labs.rtensor.music.ui.contrastRatio
 import labs.rtensor.music.ui.lookFor
 import labs.rtensor.music.ui.markOn
 import labs.rtensor.music.ui.roomLook
+import labs.rtensor.music.ui.softLook
+import labs.rtensor.music.ui.SoftRaspberry
+import labs.rtensor.music.ui.SoftRaspberryNight
+import labs.rtensor.music.ui.softContainer
+import labs.rtensor.music.ui.softOnPrimary
 import labs.rtensor.music.ui.stageLight
+import androidx.compose.ui.graphics.toArgb
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -60,7 +66,7 @@ class LookTokensTest {
     }
 
     @Test fun selectorBoundaryAndChoiceStandOutInBothLooksAndThemes() {
-        for (look in listOf(roomLook(false), roomLook(true), classicLook(false), classicLook(true))) {
+        for (look in listOf(roomLook(false), roomLook(true), softLook(false), softLook(true), classicLook(false), classicLook(true))) {
             val label = "${look.choice} ${if (look.dark) "dark" else "light"}"
             assertTrue("$label outline against the card", contrastRatio(look.selectorEdge, look.cardFill) >= MinMarkContrast)
             assertTrue("$label chosen thumb against the track", contrastRatio(look.selectorThumb, look.selectorTrack) >= MinMarkContrast)
@@ -69,10 +75,31 @@ class LookTokensTest {
         }
     }
 
-    @Test fun classicKeepsTheSignalPaletteAndOnlyTwoLooksExist() {
+    /** Soft is 0.3.31's palette; only the raspberry moved, in lightness only, to reach 4.5:1 as text. */
+    @Test fun softTextAndMarksMeetContrastInBothThemes() {
+        for (dark in listOf(false, true)) {
+            val look = softLook(dark)
+            val theme = if (dark) "dark" else "light"
+            val primary = if (dark) SoftRaspberryNight else SoftRaspberry
+            val grounds = listOf("background" to look.background, "surface" to look.surface, "panel" to look.panel, "container" to softContainer(dark))
+            for ((name, ground) in grounds) {
+                assertTrue("$theme text on $name", contrastRatio(look.text, ground) >= MinTextContrast)
+                assertTrue("$theme muted on $name", contrastRatio(look.muted, ground) >= MinTextContrast)
+                assertTrue("$theme raspberry text on $name", contrastRatio(primary, ground) >= MinTextContrast)
+                assertTrue("$theme raspberry mark on $name", contrastRatio(primary, ground) >= MinMarkContrast)
+            }
+            assertTrue("$theme text on raspberry", contrastRatio(softOnPrimary(dark), primary) >= MinTextContrast)
+            assertTrue("$theme dock text", contrastRatio(look.stageText, look.stage) >= MinTextContrast)
+            assertTrue("$theme dock muted", contrastRatio(look.stageMuted, look.stage) >= MinTextContrast)
+        }
+        // The two moved colours stay close to the originals: same hue, lightness changed only a little.
+        assertEquals(0xFFC82658.toInt(), SoftRaspberry.toArgb()); assertEquals(0xFFF1688F.toInt(), SoftRaspberryNight.toArgb())
+    }
+
+    @Test fun classicKeepsTheSignalPaletteAndThreeLooksExist() {
         assertEquals(Paper, classicLook(false).background); assertEquals(Ink, classicLook(false).text)
         assertEquals(Ink, classicLook(true).background); assertEquals(Paper, classicLook(true).text)
-        assertEquals(listOf(LookChoice.ROOM, LookChoice.CLASSIC), LookChoice.entries)
+        assertEquals(listOf(LookChoice.ROOM, LookChoice.SOFT, LookChoice.CLASSIC), LookChoice.entries)
         assertTrue(lookFor(LookChoice.CLASSIC, false).classic)
         assertTrue(lookFor(LookChoice.ROOM, true).room)
         assertEquals("RETRY", classicLook(false).label("Retry")); assertEquals("Retry", roomLook(false).label("Retry"))

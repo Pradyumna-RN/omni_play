@@ -61,19 +61,22 @@ internal fun ChannelMonitor(
     // channels in the chosen accent (its dock form, so Ink and deep colours still light up on
     // black), faded ones in dark grey, text in paper.
     val light = LocalAccent.current.onDock
-    val panel = MaterialTheme.colorScheme.copy(
+    // Soft keeps 0.3.31's monitor: a rounded card in the page's own colours.
+    val soft = LocalLook.current.soft
+    val panel = if (soft) MaterialTheme.colorScheme else MaterialTheme.colorScheme.copy(
         primary = light, onPrimary = onAccentFor(light), surface = Ink, onSurface = Paper,
         onSurfaceVariant = PaperMuted, outline = PanelFaded, outlineVariant = InkRule,
     )
     MaterialTheme(colorScheme = panel, typography = MaterialTheme.typography, shapes = MaterialTheme.shapes) {
-        Surface(Modifier.fillMaxWidth().padding(top = 16.dp), color = LocalLook.current.stage, contentColor = Paper, shape = LocalLook.current.card) {
+        Surface(Modifier.fillMaxWidth().padding(top = 16.dp), color = if (soft) panel.surface else LocalLook.current.stage,
+            contentColor = if (soft) panel.onSurface else Paper, shape = LocalLook.current.card) {
             Column {
                 Row(Modifier.fillMaxWidth().clickable { expanded = !expanded }.heightIn(min = 48.dp).padding(horizontal = 16.dp, vertical = 12.dp)
                     .semantics { contentDescription = if (expanded) "Collapse channel monitor" else "Expand channel monitor" },
                     verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(width = 6.dp, height = 18.dp).background(light))
-                    Text("Channel monitor", Modifier.weight(1f).padding(start = 10.dp), style = LabelText, color = PaperMuted)
-                    Icon(if (expanded) Icons.Outlined.KeyboardArrowUp else Icons.Outlined.KeyboardArrowDown, null, tint = Paper)
+                    Box(Modifier.size(width = 6.dp, height = 18.dp).background(if (soft) panel.primary else light))
+                    Text("Channel monitor", Modifier.weight(1f).padding(start = 10.dp), style = LabelText, color = panel.onSurfaceVariant)
+                    Icon(if (expanded) Icons.Outlined.KeyboardArrowUp else Icons.Outlined.KeyboardArrowDown, null, tint = panel.onSurface)
                 }
                 if (expanded) MonitorReadings(report, playing, trackId, levels, onMetering)
             }

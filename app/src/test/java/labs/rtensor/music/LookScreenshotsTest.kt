@@ -101,6 +101,17 @@ class LookScreenshotsTest {
 
     @Test fun listeningRoomDark() = shoot("look-room-dark", LookChoice.ROOM, "dark")
     @Test fun listeningRoomLight() = shoot("look-room-light", LookChoice.ROOM, "light")
+    @Test fun softLight() = shoot("look-soft-light", LookChoice.SOFT, "light")
+    @Test fun softDark() = shoot("look-soft-dark", LookChoice.SOFT, "dark")
+    @Test fun softEmptyAndPaused() {
+        val state = mutableStateOf(MusicState(look = LookChoice.SOFT, theme = "light", reducedMotion = true))
+        compose.setContent { MusicApp(state.value) }
+        capture("look-soft-light-home-empty")
+        compose.runOnIdle { state.value = state.value.copy(theme = "dark") }
+        capture("look-soft-dark-home-empty")
+        compose.runOnIdle { state.value = fixture(LookChoice.SOFT, "light").copy(playing = false) }
+        capture("look-soft-light-mini-player-paused", cropBottom = 150)
+    }
     @Test fun classicLight() = shoot("look-classic-light", LookChoice.CLASSIC, "light")
     @Test fun classicDark() = shoot("look-classic-dark", LookChoice.CLASSIC, "dark")
 
