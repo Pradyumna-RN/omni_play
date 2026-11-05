@@ -72,6 +72,7 @@ class PlayerMotionTest {
         val state = mutableStateOf(initial()); var next = 0; var previous = 0
         compose.setContent { MusicApp(state.value, initialPage = "now", onNext = { next++; state.value = state.value.copy(current = two, queueIndex = 1) }, onPrevious = { previous++; state.value = state.value.copy(current = one, queueIndex = 0) }) }
         frame()
+        val settledX = x(cover())
         dragLeft(cover(), 220f)
         val dragged = x(cover())
         capture("cover-drag")
@@ -88,7 +89,7 @@ class PlayerMotionTest {
             if (compose.onAllNodesWithContentDescription("Cover for ${one.title}. Swipe left for next, right for previous.").fetchSemanticsNodes().isNotEmpty())
                 assertTrue(x(cover()) <= dragged + 1f)
             if (compose.onAllNodesWithContentDescription("Cover for ${two.title}. Swipe left for next, right for previous.").fetchSemanticsNodes().isNotEmpty())
-                assertEquals(24f, x(cover(two)), 1f)
+                assertEquals(settledX, x(cover(two)), 1f)
         }
         frame(300)
         assertEquals(1, next)

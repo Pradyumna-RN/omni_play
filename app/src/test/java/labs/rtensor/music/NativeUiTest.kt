@@ -168,9 +168,9 @@ class NativeUiTest {
     @Test fun providerFeedOpensItsAlbumAndPlaysTheOriginalTrackList() {
         val album = FeedEntry("MPREb_fixture", "Late Windows", "Serein", "", "album", "MPREb_fixture", "")
         val song = FeedEntry(track.id, track.title, track.artist, "", "song", "", "jNQXAC9IVRw")
-        val state = mutableStateOf(MusicState(account = AccountState(connected = true), feed = listOf(FeedSection("Your provider’s picks", listOf(album, song, song.copy()))), reducedMotion = true, theme = "light"))
+        val state = mutableStateOf(MusicState(account = AccountState(connected = true), explore = listOf(FeedSection("Your provider’s picks", listOf(album, song, song.copy()))), reducedMotion = true, theme = "light"))
         var playedOriginal = false
-        compose.setContent { MusicApp(state.value, onBrowse = { state.value = state.value.copy(collectionEntry = it, collection = listOf(track)) }, onPlay = { t, queue -> playedOriginal = t == track && queue == listOf(track) }) }
+        compose.setContent { MusicApp(state.value, initialPage = "explore", onBrowse = { state.value = state.value.copy(collectionEntry = it, collection = listOf(track)) }, onPlay = { t, queue -> playedOriginal = t == track && queue == listOf(track) }) }
         compose.onNodeWithText("Your provider’s picks").assertIsDisplayed()
         capture("provider-feed")
         compose.onNodeWithText("Late Windows").performScrollTo().performClick()

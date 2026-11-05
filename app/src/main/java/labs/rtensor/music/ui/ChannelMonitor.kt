@@ -1,6 +1,7 @@
 package labs.rtensor.music.ui
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -21,6 +22,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.semantics.contentDescription
@@ -44,6 +46,9 @@ import labs.rtensor.dsp.ListeningMode
 import labs.rtensor.dsp.SpeakerPosition
 import kotlin.math.roundToInt
 
+/** Faded meters and rules on the black Signal panel. */
+private val PanelFaded = Color(0xFF3A3A37)
+
 /** Own composition/flow: meter updates never recompose the surrounding player. */
 @Composable
 internal fun ChannelMonitor(
@@ -51,18 +56,24 @@ internal fun ChannelMonitor(
     levels: StateFlow<AudioLevelFrame?>?, onMetering: (Boolean) -> Unit,
 ) {
     var expanded by rememberSaveable { mutableStateOf(false) }
-    Surface(Modifier.fillMaxWidth().padding(top = 16.dp), shape = RoundedCornerShape(20.dp),
-        color = MaterialTheme.colorScheme.surface,
-        border = BorderStroke(.5.dp, MaterialTheme.colorScheme.outline)) {
-        Column {
-            Row(Modifier.fillMaxWidth().clickable { expanded = !expanded }.padding(16.dp)
-                .semantics { contentDescription = if (expanded) "Collapse channel monitor" else "Expand channel monitor" },
-                verticalAlignment = Alignment.CenterVertically) {
-                Icon(Glyph.ChannelMonitor, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
-                Text("Channel monitor", Modifier.weight(1f).padding(start = 10.dp), fontWeight = FontWeight.Medium, fontSize = 14.sp)
-                Icon(if (expanded) Icons.Outlined.KeyboardArrowUp else Icons.Outlined.KeyboardArrowDown, null)
+    // The monitor is always the black Signal panel, in light and dark themes alike: lit
+    // channels in the accent, faded ones in dark grey, text in paper.
+    val panel = MaterialTheme.colorScheme.copy(
+        primary = SignalAccent, onPrimary = Ink, surface = Ink, onSurface = Paper,
+        onSurfaceVariant = PaperMuted, outline = PanelFaded, outlineVariant = InkRule,
+    )
+    MaterialTheme(colorScheme = panel, typography = MaterialTheme.typography, shapes = MaterialTheme.shapes) {
+        Surface(Modifier.fillMaxWidth().padding(top = 16.dp), color = Ink, contentColor = Paper) {
+            Column {
+                Row(Modifier.fillMaxWidth().clickable { expanded = !expanded }.heightIn(min = 48.dp).padding(horizontal = 16.dp, vertical = 12.dp)
+                    .semantics { contentDescription = if (expanded) "Collapse channel monitor" else "Expand channel monitor" },
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(width = 6.dp, height = 18.dp).background(SignalAccent))
+                    Text("Channel monitor", Modifier.weight(1f).padding(start = 10.dp), style = MonoLabel, color = PaperMuted)
+                    Icon(if (expanded) Icons.Outlined.KeyboardArrowUp else Icons.Outlined.KeyboardArrowDown, null, tint = Paper)
+                }
+                if (expanded) MonitorReadings(report, playing, trackId, levels, onMetering)
             }
-            if (expanded) MonitorReadings(report, playing, trackId, levels, onMetering)
         }
     }
 }
@@ -108,7 +119,7 @@ private fun MonitorReadings(report: DownmixReport?, playing: Boolean, trackId: S
                 Text(if (frontOnly) "Faded: decoded but not played in Original" else "Light follows audio activity",
                     fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text("Dashed: height · Outline: not in source · Lrc/Rrc: rear centres",
-                    fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    style = MonoSmall, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else {
                 Text("Speaker positions unavailable", fontSize = 12.sp, modifier = Modifier.padding(top = 10.dp))
                 source.chunked(4).forEachIndexed { row, channels ->
@@ -219,7 +230,7 @@ private fun SpeakerNode(label: String, channel: ChannelLevel, modifier: Modifier
             val inset = 2.dp.toPx()
             val radius = size.minDimension / 2 - inset
             val box = Size(size.width - inset * 2, size.height - inset * 2)
-            val corner = CornerRadius(8.dp.toPx())
+            val corner = CornerRadius.Zero
             val line = Stroke(1.2.dp.toPx(), pathEffect = if (dashed) PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 3.dp.toPx())) else null)
             if (state != NodeState.ABSENT) {
                 val fill = color.copy(alpha = .025f + .5f * glow.value)

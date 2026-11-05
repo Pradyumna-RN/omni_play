@@ -48,10 +48,10 @@ class HomeLayoutTest {
     private fun stableSongRows(fontScale: Float) {
         val first = FeedSection("First row", (0..9).map(::entry))
         val following = FeedSection("Next row", listOf(entry(20)))
-        val state = mutableStateOf(MusicState(feed = listOf(first, following), reducedMotion = true))
+        val state = mutableStateOf(MusicState(explore = listOf(first, following), reducedMotion = true))
         compose.setContent {
             val density = LocalDensity.current
-            CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale)) { MusicApp(state.value) }
+            CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale)) { MusicApp(state.value, initialPage = "explore") }
         }
         val originalTop = top("Next row")
         for (index in listOf(8, 0, 8)) {
@@ -60,21 +60,23 @@ class HomeLayoutTest {
         }
         // Artist details can arrive later for the same song identities.
         compose.runOnIdle {
-            state.value = state.value.copy(feed = listOf(first.copy(items = first.items.map { it.copy(title = longTitle, subtitle = longArtist) }), following))
+            state.value = state.value.copy(explore = listOf(first.copy(items = first.items.map { it.copy(title = longTitle, subtitle = longArtist) }), following))
         }
         assertEquals("Late metadata must not push the next section down", originalTop, top("Next row"), .5f)
     }
 
     @Test fun lastPlayedTitleAndArtistWrappingDoesNotMoveItsPlayButtonOrTheNextSection() {
         val song = Track("local:hero", "Short song", "", "content://audio/hero", durationMs = 180_000)
-        val state = mutableStateOf(MusicState(history = listOf(song), reducedMotion = true))
+        // The section after Last played is the mix built from what you play.
+        val mix = Track("fixture:mix", "Mix song", "Mix artist", "https://music.youtube.com/watch?v=ccccccccccc")
+        val state = mutableStateOf(MusicState(history = listOf(song), forYou = listOf(mix, mix.copy(id = "fixture:fresh", title = "Fresh song")), reducedMotion = true))
         compose.setContent { MusicApp(state.value) }
         val playTop = top("Play")
-        val recentTop = top("Recently played")
+        val recentTop = top("Play mix")
         for (track in listOf(song.copy(title = longTitle, artist = longArtist), song, song.copy(artist = longArtist))) {
             compose.runOnIdle { state.value = state.value.copy(history = listOf(track)) }
             assertEquals("Home's Play control must stay put as metadata wraps", playTop, top("Play"), .5f)
-            assertEquals("The section below Last played must stay put", recentTop, top("Recently played"), .5f)
+            assertEquals("The section below Last played must stay put", recentTop, top("Play mix"), .5f)
         }
     }
 

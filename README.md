@@ -90,6 +90,12 @@ surround bed to DMR; this does not recover the full Atmos object scene. Discover
 metadata, a successful sign-in or an album badge does not prove the audio format.
 See [verification and current limits](VERIFICATION.md).
 
+The current UI work on `main` uses **Signal**: a paper/ink palette, orange accent,
+square controls and compact song recommendations. Home separates the last song,
+recommendations shaped by listening, and new-to-history songs. Collections stay
+in Explore. See the [UI review and verification scope](SIGNAL_UI_REVIEW.md).
+This work appears in the next app build.
+
 [Shareable layout review](https://music-layout-review.chalkybongo1.chatgpt.site):
 smaller Home covers and three player options. This is a design prototype; it
 does not play audio or change the Android app’s current player layout.
