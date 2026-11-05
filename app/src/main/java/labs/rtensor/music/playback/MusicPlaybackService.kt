@@ -29,9 +29,7 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.exoplayer.DecoderReuseEvaluation
 import labs.rtensor.music.sources.PlaybackSources
 import androidx.media3.session.MediaSession
-import androidx.media3.session.MediaSessionService
-import com.google.common.util.concurrent.Futures
-import com.google.common.util.concurrent.ListenableFuture
+import androidx.media3.session.MediaLibraryService
 import labs.rtensor.music.MainActivity
 import labs.rtensor.music.data.ResolvedAudio
 import labs.rtensor.music.data.Track
@@ -41,8 +39,10 @@ import kotlinx.coroutines.runBlocking
 import java.io.IOException
 
 @UnstableApi
-class MusicPlaybackService : MediaSessionService() {
-    private var session: MediaSession? = null
+class MusicPlaybackService : MediaLibraryService() {
+    private var session: MediaLibraryService.MediaLibrarySession? = null
+    /** Library requests from the car; cancelled with the service. */
+    private val mainScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var audioCache: SimpleCache? = null
     private val preloadScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var preloadJob: Job? = null
@@ -216,22 +216,15 @@ class MusicPlaybackService : MediaSessionService() {
             }
         })
         val intent = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-        session = MediaSession.Builder(this, player)
+        val car = CarLibrary(this, mainScope, catalogueSearch = youtube::search, liveHome = {
+            youtube.home().sections.flatMap { it.items }.filter { it.videoId.isNotBlank() }.map { it.asTrack() }
+        })
+        session = MediaLibraryService.MediaLibrarySession.Builder(this, player, MusicLibraryCallback(packageName, car, mainScope))
             .setSessionActivity(intent)
-            .setCallback(object : MediaSession.Callback {
-                override fun onConnect(session: MediaSession, controller: MediaSession.ControllerInfo): MediaSession.ConnectionResult {
-                    if (controller.packageName != packageName && !controller.isTrusted) return MediaSession.ConnectionResult.reject()
-                    return super.onConnect(session, controller)
-                }
-
-                override fun onAddMediaItems(session: MediaSession, controller: MediaSession.ControllerInfo, mediaItems: MutableList<MediaItem>): ListenableFuture<MutableList<MediaItem>> {
-                    if (controller.packageName != packageName) return Futures.immediateFuture(mutableListOf())
-                    return Futures.immediateFuture(mediaItems.filter(PlayableItems::permitted).toMutableList())
-                }
-            }).build()
+            .build()
     }
 
-    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session
+    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibraryService.MediaLibrarySession? = session
 
     companion object {
         internal fun spotifyCatalogueItem(item: MediaItem): Boolean = PlayableItems.spotifyCatalogueItem(item)
@@ -244,7 +237,7 @@ class MusicPlaybackService : MediaSessionService() {
     override fun onDestroy() {
         session?.run { player.release(); release() }
         session = null
-        preloadScope.cancel(); audioCache?.release(); audioCache = null
+        preloadScope.cancel(); mainScope.cancel(); audioCache?.release(); audioCache = null
         resolvedStreams.clear(); paths.clear()
         super.onDestroy()
     }

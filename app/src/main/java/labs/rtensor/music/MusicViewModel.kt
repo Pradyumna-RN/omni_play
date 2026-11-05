@@ -24,6 +24,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import labs.rtensor.dsp.ListeningMode
@@ -234,6 +236,12 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         }
         connectController()
         viewModelScope.launch {
+            // Keep the car's Home tab in step with the recommendations this phone loaded.
+            state.map(::carHomeTracks).distinctUntilChanged().collect { tracks ->
+                if (tracks.isNotEmpty()) withContext(Dispatchers.IO) { library.writeTracks(LibraryStore.HOME_RECOMMENDATIONS, tracks) }
+            }
+        }
+        viewModelScope.launch {
             while (isActive) {
                 controller?.let { c ->
                     trackListening(c)
@@ -248,7 +256,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 val changed = account.connected != mutable.value.account.connected || account.revision != mutable.value.account.revision
                 val refresh = changed && mutable.value.recommendationEngine == RecommendationEngine.YOUTUBE
                 mutable.update { it.copy(account = account, feed = if (refresh) emptyList() else it.feed, explore = if (refresh) emptyList() else it.explore) }
-                if (refresh) { refreshFeed(); refreshExplore() }
+                if (refresh) { clearCarHome(); refreshFeed(); refreshExplore() }
             }
         }
         viewModelScope.launch {
@@ -448,8 +456,11 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         mutable.update { it.copy(recommendationEngine = engine) }
         reloadRecommendations()
     }
+    /** Another account or provider: the car must not keep showing the old recommendations. */
+    private fun clearCarHome() { library.writeTracks(LibraryStore.HOME_RECOMMENDATIONS, emptyList()) }
     private fun reloadRecommendations() {
         recommendationRevision++
+        clearCarHome()
         feedJob?.cancel(); exploreJob?.cancel(); forYouJob?.cancel()
         mutable.update { it.copy(feed = emptyList(), explore = emptyList(), forYou = emptyList(), feedHasMore = false,
             feedError = null, exploreError = null, feedBusy = false, exploreBusy = false, forYouBusy = false) }
@@ -897,6 +908,13 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         controller = null; controllerFuture = null
         super.onCleared()
     }
+}
+
+/** Songs the phone recommends right now (Mixed for you, then Home's feed), as the car's Home tab lists them. */
+internal fun carHomeTracks(state: MusicState): List<Track> {
+    val feedSongs = state.feed.flatMap { it.items }.filter { it.videoId.isNotBlank() || it.kind == "spotify_track" }
+        .mapNotNull { runCatching { it.asTrack() }.getOrNull() }
+    return (state.forYou + feedSongs).filter { it.source != Source.LOCAL }.distinctBy { it.libraryKey() }.take(100)
 }
 
 internal const val PLAYER_STARTING = "The audio player is still starting. Try again in a moment."
