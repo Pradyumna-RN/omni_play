@@ -77,6 +77,7 @@ those features improve.
 | Local multichannel audio and DMR | Integrated. Host tests cover the real decoder/renderer path, stereo bypass and comparison switching. |
 | Apple Music and TIDAL account playback | Experimental. Live account access and delivered audio quality still need device validation. |
 | Qobuz and personal music libraries | Available through configured playback-source connections. |
+| Android Auto | Home, Saved and Recent (hidden while history is off), search and playback controls in the car, with automated regression coverage. Not yet checked on a car or the Desktop Head Unit. Songs chosen in the car are added to history and continue with radio only while Music is open on the phone. |
 | Consistent lossless/multichannel playback across providers | A goal being validated, dependent on available matching recordings and working provider access. |
 
 The player separates the **audio provider** from its format: Apple Music AAC,

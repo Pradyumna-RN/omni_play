@@ -70,4 +70,9 @@ class LibraryStore(context: Context) {
     var recommendationEngine: labs.rtensor.music.recommendations.RecommendationEngine
         get() = labs.rtensor.music.recommendations.RecommendationEngine.parse(prefs.getString("recommendation_engine", null))
         set(value) { prefs.edit().putString("recommendation_engine", value.wire).apply() }
+
+    companion object {
+        /** The phone's latest Home recommendations, so the car can show them without the UI. */
+        const val HOME_RECOMMENDATIONS = "home_recommendations"
+    }
 }
