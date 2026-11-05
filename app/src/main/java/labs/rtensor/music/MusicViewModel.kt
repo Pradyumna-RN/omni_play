@@ -61,6 +61,8 @@ import labs.rtensor.music.recommendations.RecommendationEngine
 import labs.rtensor.music.spotify.SpotifyRecommendations
 import labs.rtensor.music.spotify.SpotifyTrackMatcher
 
+object ErrorOrigin { const val PLAYBACK = "playback"; const val SEARCH = "search"; const val COLLECTION = "collection" }
+
 data class MusicState(
     val importMessage: String? = null,
     val current: Track? = null,
@@ -86,6 +88,8 @@ data class MusicState(
     val spotifyAccount: AccountState = AccountState(),
     val error: String? = null,
     val errorDiagnostic: String = "",
+    /** What produced [error], so Retry repeats that: [ErrorOrigin.SEARCH], [ErrorOrigin.COLLECTION] or [ErrorOrigin.PLAYBACK]. */
+    val errorOrigin: String = "",
     val account: AccountState = AccountState(),
     val googleProfile: GoogleProfile? = null,
     val googleBusy: Boolean = false,
@@ -206,7 +210,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             val audio = AudioPipeline.state.value.failure
             mutable.update { it.copy(error = sourceError?.message ?: provider?.message ?: audio?.message ?: playbackErrorMessage(error),
                 errorDiagnostic = sourceError?.diagnostic ?: provider?.let { p -> "${p.code}: ${p.diagnostic}" } ?: audio?.detail ?: error.errorCodeName,
-                resolving = false, buffering = false) }
+                resolving = false, buffering = false, errorOrigin = ErrorOrigin.PLAYBACK) }
         }
     }
 
@@ -240,7 +244,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 syncPlayer(includeQueue = true)
                 mutable.update { it.copy(playerReady = true) }
             }.onFailure {
-                mutable.update { it.copy(error = "The audio player could not start. Close and reopen the app.") }
+                mutable.update { it.copy(error = "The audio player could not start. Close and reopen the app.", errorOrigin = ErrorOrigin.PLAYBACK) }
             }
         }, ContextCompat.getMainExecutor(application))
         viewModelScope.launch {
@@ -551,7 +555,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     fun setQuery(query: String) {
         if (query.isBlank()) {
             searchJob?.cancel()
-            mutable.update { it.copy(query = "", searched = false, searching = false, results = emptyList(), error = null, errorDiagnostic = "") }
+            // Clearing the search removes only a search failure; a playback or collection error and its Retry stay.
+            mutable.update { it.clearedSearch() }
         } else mutable.update { it.copy(query = query.take(400)) }
     }
 
@@ -566,14 +571,14 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 mutable.update { it.copy(results = results, searching = false) }
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
-                mutable.update { it.copy(searching = false, error = catalogueErrorMessage(e, CatalogueMessages.SEARCH), errorDiagnostic = (e as? SourceException)?.diagnostic.orEmpty()) }
+                mutable.update { it.copy(searching = false, error = catalogueErrorMessage(e, CatalogueMessages.SEARCH), errorDiagnostic = (e as? SourceException)?.diagnostic.orEmpty(), errorOrigin = ErrorOrigin.SEARCH) }
             }
         }
     }
 
     fun play(track: Track, queue: List<Track> = listOf(track)) {
         if (library.isRemoved(track)) return
-        val c = controller ?: run { mutable.update { it.copy(error = "The audio player is still starting. Try again in a moment.") }; return }
+        val c = controller ?: run { mutable.update { it.copy(error = "The audio player is still starting. Try again in a moment.", errorOrigin = ErrorOrigin.PLAYBACK) }; return }
         val ordered = queue.filterNot(library::isRemoved).take(100).let { if (it.any { t -> t.libraryKey() == track.libraryKey() }) it else listOf(track) + it }
         suppressedHistoryKey = null
         val selectedIndex = ordered.indexOfFirst { it === track }.takeIf { it >= 0 }

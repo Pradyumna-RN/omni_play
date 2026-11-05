@@ -256,7 +256,9 @@ fun MusicApp(
     val reduced = state.reducedMotion
     fun focusSearch() { searchFocus.requestFocus(); keyboard?.show() }
     fun navigate(next: String) {
-        if (next in rootPages) { root = next; onQuery(""); keyboard?.hide() }
+        // Changing tabs closes an open search. Only clear when there is one: a blank query also
+        // clears the shared error, which would silently drop a playback error and its Retry.
+        if (next in rootPages) { root = next; if (state.query.isNotEmpty()) onQuery(""); keyboard?.hide() }
         if (page != "now" && next == "now") back = page
         page = next
     }
@@ -272,9 +274,17 @@ fun MusicApp(
         sharedQuery?.takeIf { it.isNotBlank() }?.let { onQuery(it); page = root; onSearch(); onShareConsumed() }
     }
     LaunchedEffect(page) { if (page == "explore" && state.explore.isEmpty() && !state.exploreBusy) onRefreshExplore() }
+    // One back for the header arrow and the system gesture, so both land on the same page.
+    // Leaving a tab for Home goes through navigate(), which also makes Home the root again.
+    fun goBack() {
+        when (page) {
+            "now" -> page = back
+            "settings", "collection" -> page = root
+            else -> navigate("home")
+        }
+    }
     BackHandler(page != "home" || state.query.isNotEmpty()) {
-        if (page in rootPages && state.query.isNotEmpty()) onQuery("")
-        else page = when (page) { "now" -> back; "settings", "collection" -> root; else -> "home" }
+        if (page in rootPages && state.query.isNotEmpty()) onQuery("") else goBack()
     }
     // Keep the last track while the mini player animates away.
     var lastTrack by remember { mutableStateOf(state.current) }
@@ -283,9 +293,7 @@ fun MusicApp(
         MusicTheme(state.theme, darkNavigationBar = page in rootPages + "collection") {
             Scaffold(
                 topBar = {
-                    AppHeader(page, onHome = { navigate("home") }, onSettings = { navigate("settings") }, onBack = {
-                        page = when (page) { "now" -> back; else -> root }
-                    }) { SearchBar(state, onQuery, onSearch, searchFocus, Modifier.weight(1f)) }
+                    AppHeader(page, onHome = { navigate("home") }, onSettings = { navigate("settings") }, onBack = ::goBack) { SearchBar(state, onQuery, onSearch, searchFocus, Modifier.weight(1f)) }
                 },
                 bottomBar = {
                     if (page in rootPages + "collection") {
@@ -313,9 +321,18 @@ fun MusicApp(
                         enter = if (reduced) EnterTransition.None else expandVertically(tween(EnterMs, easing = EmphasizedDecelerate)) + fadeIn(tween(EnterMs, 60)),
                         exit = if (reduced) ExitTransition.None else shrinkVertically(tween(ExitMs, easing = EmphasizedAccelerate)) + fadeOut(tween(120)),
                     ) {
-                        ErrorBanner(lastError.orEmpty(), onDismissError,
-                            if (state.searched && page in rootPages) onSearch else if (page == "collection") onRetryCollection else onRetry,
-                            state.errorDiagnostic, state.current?.id.orEmpty())
+                        // The error is shared, so Retry repeats what actually failed. The ViewModel
+                        // names the origin; without one, a search or collection that came back empty
+                        // is retried, otherwise the recording that is playing.
+                        val retry = when {
+                            state.errorOrigin == labs.rtensor.music.ErrorOrigin.SEARCH -> onSearch
+                            state.errorOrigin == labs.rtensor.music.ErrorOrigin.COLLECTION -> onRetryCollection
+                            state.errorOrigin == labs.rtensor.music.ErrorOrigin.PLAYBACK -> onRetry
+                            page in rootPages && state.searched && state.query.isNotBlank() && (state.results.isEmpty() || state.current == null) -> onSearch
+                            page == "collection" && (state.collection.isEmpty() || state.current == null) -> onRetryCollection
+                            else -> onRetry
+                        }
+                        ErrorBanner(lastError.orEmpty(), onDismissError, retry, state.errorDiagnostic, state.current?.id.orEmpty())
                     }
                     val showResults = page in rootPages && state.searched && state.query.isNotBlank()
                     AnimatedContent(
@@ -358,9 +375,10 @@ private fun AppHeader(page: String, onHome: () -> Unit, onSettings: () -> Unit, 
             }
             Spacer(Modifier.width(48.dp))
         } else {
-            // A small monogram stands in for the old wordmark so search can share the row.
-            Column(Modifier.clip(RectangleShape).clickable(onClick = onHome).padding(horizontal = 6.dp, vertical = 8.dp)
-                .semantics { contentDescription = "Music, go home" }, horizontalAlignment = Alignment.CenterHorizontally) {
+            // A small monogram stands in for the old wordmark so search can share the row. Like
+            // the Home tab, it reports itself as selected while Home is already showing.
+            Column(Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).clip(RectangleShape).clickable(onClick = onHome).padding(horizontal = 6.dp, vertical = 8.dp)
+                .semantics { contentDescription = "Music, go home"; selected = page == "home" }, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                 Text("M", style = DisplayStyle, fontSize = 24.sp, lineHeight = 22.sp)
                 Spacer(Modifier.height(3.dp))
                 Box(Modifier.width(14.dp).height(4.dp).background(SignalAccent))
@@ -523,7 +541,8 @@ private fun HomeScreen(state: MusicState, onSearch: () -> Unit, onPlay: (Track, 
                         }
                         Spacer(Modifier.width(12.dp))
                         SignalAction(if (recentLoading) "Loading" else if (recentPlaying) "Pause" else "Play",
-                            if (recentPlaying) Glyph.Pause else Icons.Outlined.PlayArrow, loading = recentLoading) {
+                            if (recentPlaying) Glyph.Pause else Icons.Outlined.PlayArrow, loading = recentLoading,
+                            enabled = !(recentIsCurrent && state.resolving)) {
                             if (recentIsCurrent) onToggle() else onPlay(recent, listOf(recent))
                         }
                     }
@@ -619,8 +638,8 @@ private fun LastPlayedRow(track: Track, time: String, onClick: () -> Unit) {
 
 /** A square accent action with ink text. Text stays a real Text node, so it reads and tests as the label. */
 @Composable
-private fun SignalAction(label: String, icon: ImageVector, loading: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    Row(modifier.heightIn(min = 48.dp).pressable(onClick = onClick).background(SignalAccent).padding(horizontal = 14.dp),
+private fun SignalAction(label: String, icon: ImageVector, loading: Boolean, modifier: Modifier = Modifier, enabled: Boolean = true, onClick: () -> Unit) {
+    Row(modifier.heightIn(min = 48.dp).pressable(enabled = enabled, onClick = onClick).background(SignalAccent).padding(horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(20.dp), contentAlignment = Alignment.Center) {
             if (loading) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = Ink)
@@ -793,7 +812,12 @@ private fun ProviderHome(state: MusicState, onEntry: (FeedEntry) -> Unit, onRefr
             }
         }
         feedSections(state.feed, onEntry)
-        if (state.feedError != null) item(key = "error") { Text(state.feedError, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        if (state.feedError != null) item(key = "error") {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(state.feedError, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                TextButton(onClick = onRefresh, enabled = !state.feedBusy, shape = RectangleShape) { Text("RETRY", style = MonoLabel) }
+            }
+        }
         if (state.feed.isEmpty() && !state.feedBusy && state.feedError == null) item(key = "empty") { EmptyState("More music awaits", "Pull down to load discoveries from ${state.recommendationEngine.label}.", Glyph.Compass) }
         if (state.feedHasMore) item(key = "more") { OutlinedButton(onClick = onMore, enabled = !state.feedBusy, modifier = Modifier.fillMaxWidth()) { Text("More from your feed") } }
     }
@@ -903,8 +927,9 @@ private fun SegmentedTabs(labels: List<String>, position: Float, onSelect: (Int)
             labels.forEachIndexed { index, label ->
                 val closeness = (1f - abs(position - index)).coerceIn(0f, 1f)
                 val color = androidx.compose.ui.graphics.lerp(scheme.onSurfaceVariant, scheme.primary, closeness)
-                Box(Modifier.weight(1f).fillMaxHeight().clip(RectangleShape).clickable { onSelect(index) }
-                    .semantics { contentDescription = "$label tab" }, contentAlignment = Alignment.Center) {
+                val chosen = abs(position - index) < .5f
+                Box(Modifier.weight(1f).fillMaxHeight().clip(RectangleShape).clickable(role = Role.Tab) { onSelect(index) }
+                    .semantics { contentDescription = "$label tab"; selected = chosen }, contentAlignment = Alignment.Center) {
                     Text(label, fontSize = 14.sp, fontWeight = if (closeness > .5f) FontWeight.SemiBold else FontWeight.Medium, color = color)
                 }
             }
@@ -926,7 +951,8 @@ private fun SavedList(state: MusicState, onPlay: (Track, List<Track>) -> Unit, o
             }
             Spacer(Modifier.height(10.dp))
             LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
-                items(state.saved, key = { it.id }) { track -> TrackRow(track, true, state.current?.id == track.id, { onPlay(track, listOf(track)) }, { onSave(track) }, motionModifier()) }
+                // Saved is unique by libraryKey; a Spotify-matched copy can share the YouTube id.
+                items(state.saved, key = { it.libraryKey() }) { track -> TrackRow(track, true, state.current?.libraryKey() == track.libraryKey(), { onPlay(track, listOf(track)) }, { onSave(track) }, motionModifier()) }
             }
         }
     }
@@ -957,7 +983,7 @@ private fun HistoryList(state: MusicState, onPlay: (Track, List<Track>) -> Unit,
                 Text(day.label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background).padding(top = 12.dp, bottom = 6.dp))
             }
-            items(day.events, key = { "play:${it.startedAt}" }) { event ->
+            items(day.events, key = { "play:${it.startedAt}:${it.track.libraryKey()}" }) { event ->
                 HistoryRow(event, timeFormat.format(java.util.Date(event.startedAt)), state.current?.id == event.track.id,
                     { onPlay(event.track, listOf(event.track)) }, { onRemove(event) }, motionModifier())
             }
@@ -1011,7 +1037,9 @@ private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () ->
     val position = if (pending) 0 else state.positionMs
     val queueIndex = state.queueIndex
     val hasNext = queueIndex >= 0 && queueIndex < state.queue.lastIndex
-    val canSkip = !pending && !loading
+    // Same rule as the mini player: buffering never locks the transport, so a stalled song can
+    // still be paused or skipped here. Only finding audio (resolving) holds Play/Pause back.
+    val canSkip = !pending
     val scheme = MaterialTheme.colorScheme
     val upcoming = if (queueIndex >= 0) state.queue.withIndex().drop(queueIndex + 1) else emptyList()
     BoxWithConstraints(Modifier.fillMaxSize().background(scheme.background)) {
@@ -1057,7 +1085,7 @@ private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () ->
                     // Symmetric transport controls keep Play/Pause on the screen centre.
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         LabelledControl("Previous", Glyph.Previous, onPrevious, enabled = canSkip)
-                        Button(onClick = onToggle, enabled = !loading, shape = RectangleShape, modifier = Modifier.weight(1f).height(72.dp),
+                        Button(onClick = onToggle, enabled = !state.resolving, shape = RectangleShape, modifier = Modifier.weight(1f).height(72.dp),
                             contentPadding = PaddingValues(horizontal = 10.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = SignalAccent, contentColor = Ink,
                                 disabledContainerColor = SignalAccent.copy(alpha = .55f), disabledContentColor = Ink)) {
@@ -1441,14 +1469,14 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onLocal
     onDeveloperOptions: (Boolean) -> Unit,
     onRecommendationEngine: (labs.rtensor.music.recommendations.RecommendationEngine) -> Unit,
     onConnectSpotify: () -> Unit, onDisconnectSpotify: () -> Unit) {
-    var confirmClear by remember { mutableStateOf(false) }
-    var showLicences by remember { mutableStateOf(false) }
-    var showSources by remember { mutableStateOf(false) }
+    var confirmClear by rememberSaveable { mutableStateOf(false) }
+    var showLicences by rememberSaveable { mutableStateOf(false) }
+    var showSources by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
     val notices = remember { context.resources.openRawResource(R.raw.third_party_notices).bufferedReader().use { it.readText() } }
     val scroll = rememberScrollState()
     val scheme = MaterialTheme.colorScheme
-    var showImport by remember { mutableStateOf(false) }
+    var showImport by rememberSaveable { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().verticalScroll(scroll).padding(horizontal = 20.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         PageTitle("Settings")
 
@@ -1491,7 +1519,7 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onLocal
             // A saved server is only a candidate; each song is checked before anything plays from it.
             SettingItem("Playback sources",
                 if (state.appleAccount.connected) "Apple Music signed in${if (state.tidalAccount.connected) " · TIDAL" else ""}"
-                else if (state.tidalAccount.connected) "TIDAL signed in${if (count > 0) " · $count saved servers" else ""}"
+                else if (state.tidalAccount.connected) "TIDAL signed in${if (count > 0) " · $count saved ${if (count == 1) "server" else "servers"}" else ""}"
                 else if (count == 0) "Sign in to Apple Music, TIDAL or connect a music source"
                 else "$count saved ${if (count == 1) "server" else "servers"} · checked per song before it plays",
                 Glyph.MusicNote, onClick = { showSources = !showSources }, expanded = showSources)

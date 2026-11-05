@@ -12,7 +12,7 @@ internal fun MusicState.collectionPageLoaded(offset: Int, tracks: List<Track>, h
 
 /** A collection page failed. Songs already shown stay, and a failed "Load more" can be tapped again. */
 internal fun MusicState.collectionPageFailed(offset: Int, message: String): MusicState =
-    copy(collectionBusy = false, collectionHasMore = offset > 0, error = message)
+    copy(collectionBusy = false, collectionHasMore = offset > 0, error = message, errorOrigin = ErrorOrigin.COLLECTION)
 
 /** Provider errors already explain themselves; anything else gets a message for the screen that failed. */
 internal fun catalogueErrorMessage(e: Exception, fallback: String): String =
@@ -31,3 +31,10 @@ internal object CatalogueMessages {
  */
 internal fun youtubeSignOutNeeded(account: AccountState, storedSession: Boolean): Boolean =
     account.connected || account.connecting || storedSession
+
+/** The search box was cleared. Only an error the search produced goes with it. */
+internal fun MusicState.clearedSearch(): MusicState {
+    val searchError = errorOrigin == ErrorOrigin.SEARCH
+    return copy(query = "", searched = false, searching = false, results = emptyList(),
+        error = if (searchError) null else error, errorDiagnostic = if (searchError) "" else errorDiagnostic)
+}

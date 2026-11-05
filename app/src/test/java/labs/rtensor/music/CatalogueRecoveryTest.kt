@@ -40,6 +40,15 @@ class CatalogueRecoveryTest {
         }
     }
 
+    @Test fun clearingTheSearchKeepsAPlaybackErrorButDropsASearchError() {
+        val playback = MusicState(query = "abc", searched = true, error = "Playback failed", errorDiagnostic = "d", errorOrigin = ErrorOrigin.PLAYBACK).clearedSearch()
+        assertEquals("", playback.query); assertFalse(playback.searched)
+        assertEquals("Playback failed", playback.error); assertEquals("d", playback.errorDiagnostic)
+        val search = MusicState(query = "abc", searched = true, error = CatalogueMessages.SEARCH, errorOrigin = ErrorOrigin.SEARCH).clearedSearch()
+        assertNull(search.error); assertEquals("", search.errorDiagnostic)
+        assertEquals(ErrorOrigin.COLLECTION, MusicState().collectionPageFailed(0, "x").errorOrigin)
+    }
+
     @Test fun aFailedLoadMoreKeepsLoadedSongsAndCanBeTappedAgain() {
         val loaded = MusicState(collection = listOf(song(1), song(2)), collectionBusy = true)
         val failed = loaded.collectionPageFailed(50, CatalogueMessages.COLLECTION)
