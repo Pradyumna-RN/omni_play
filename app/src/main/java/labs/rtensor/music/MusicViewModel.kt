@@ -528,6 +528,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch { youtube.runtime.disconnect() }
     }
     fun cancelAccountConnection() { youtube.runtime.cancelSignIn() }
+    /** Every way out of the YouTube sign-in page leaves a result in Settings: connected, or a reason. */
+    fun finishYouTubeSignIn(success: Boolean, problem: String? = null) {
+        if (success) youtube.runtime.cancelSignIn() else youtube.runtime.signInEnded(problem)
+    }
 
     fun checkUpdates() {
         if (mutable.value.update.checking || mutable.value.update.downloading) return
@@ -624,7 +628,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun cancelTidalSignIn() { viewModelScope.launch(Dispatchers.IO) { sources.tidal?.cancel() } }
     fun beginAppleSignIn(): Long = sources.apple?.beginWeb() ?: -1
-    fun finishAppleSignIn(ticket: Long, value: String?) { if (value == null) sources.apple?.cancelWeb(ticket) else sources.apple?.completeWeb(ticket, value) }
+    fun finishAppleSignIn(ticket: Long, value: String?, problem: String? = null) { if (value == null) sources.apple?.cancelWeb(ticket, problem) else sources.apple?.completeWeb(ticket, value) }
     fun disconnectApple() {
         val item = controller?.currentMediaItem
         val key = item?.localConfiguration?.customCacheKey ?: item?.mediaId

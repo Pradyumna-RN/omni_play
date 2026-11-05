@@ -17,6 +17,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.*
+import labs.rtensor.music.auth.SignInWebData
+import labs.rtensor.music.auth.WebSignInProblem
 import labs.rtensor.music.ui.SavedMusicTheme
 import org.json.JSONObject
 import org.json.JSONTokener
@@ -31,6 +33,10 @@ internal class AppleWebLoginActivity : ComponentActivity() {
     private var busy by mutableStateOf(false)
     private var confirmation: Job? = null
     private var polling: Job? = null
+    /** The last problem shown here. Leaving without connecting reports it in Settings. */
+    private var problem: WebSignInProblem? = null
+    internal val page: WebView? get() = browser
+    private fun show(next: WebSignInProblem) { problem = next; message = next.page }
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -65,8 +71,13 @@ internal class AppleWebLoginActivity : ComponentActivity() {
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(view, false)
         view.webViewClient = object : WebViewClient() {
-            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean =
-                if (request.isForMainFrame) !AppleOrigins.canNavigate(request.url.toString()) else request.url.scheme != "https"
+            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                if (!request.isForMainFrame) return request.url.scheme != "https"
+                if (AppleOrigins.canNavigate(request.url.toString())) return false
+                // A blocked page used to do nothing at all; say where it tried to go (host only).
+                show(WebSignInProblem.blocked(WebSignInProblem.hostOf(request.url)))
+                return true
+            }
             override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
                 if (AppleOrigins.isApi(request.url.toString())) {
                     val token = request.requestHeaders.entries.firstOrNull { it.key.equals("Authorization", true) }?.value?.removePrefix("Bearer ")
@@ -76,7 +87,18 @@ internal class AppleWebLoginActivity : ComponentActivity() {
             }
             override fun onPageFinished(view: WebView, url: String) { if (view === browser && AppleOrigins.canConfirm(url)) confirm(false) }
             override fun onReceivedSslError(view: WebView?, handler: SslErrorHandler, error: android.net.http.SslError?) {
-                handler.cancel(); message = "Apple sign-in failed its security check. Check the device clock and connection."
+                handler.cancel(); show(WebSignInProblem.insecure(SITE))
+            }
+            override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
+                if (request.isForMainFrame && view === browser) show(WebSignInProblem.pageFailed(SITE))
+            }
+            override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail?): Boolean {
+                // Unhandled, a crashed renderer ends this process and returns a bare cancel.
+                if (popups.contains(view)) { closePopup(view); return true }
+                if (view === browser) browser = null
+                (view.parent as? android.view.ViewGroup)?.removeView(view); view.destroy()
+                show(WebSignInProblem.stopped(SITE)); cancel()
+                return true
             }
         }
         view.webChromeClient = object : WebChromeClient() {
@@ -128,13 +150,23 @@ internal class AppleWebLoginActivity : ComponentActivity() {
             catch (_: Exception) { if (manual || busy) message = "Apple could not verify this account. Check the subscription and try again."; busy = false }
         }
     }
-    private fun cancel() { confirmation?.cancel(); setResult(RESULT_CANCELED, Intent().putExtra(TICKET, intent.getLongExtra(TICKET, -1))); finish() }
+    private fun cancel() {
+        confirmation?.cancel()
+        setResult(RESULT_CANCELED, Intent().putExtra(TICKET, intent.getLongExtra(TICKET, -1)).apply { problem?.let { putExtra(PROBLEM, it.summary) } })
+        finish()
+    }
     override fun onDestroy() {
         polling?.cancel(); confirmation?.cancel(); popups.toList().forEach(::closePopup)
         browser?.apply { stopLoading(); clearHistory(); clearCache(true); destroy() }; browser = null
         observedDeveloper = null
-        CookieManager.getInstance().removeAllCookies(null); WebStorage.getInstance().deleteAllData()
+        // Written to disk before this process can be ended, so Apple's token cookie does not outlive sign-in.
+        SignInWebData.erase()
         super.onDestroy()
     }
-    companion object { const val SESSION = "apple.session"; const val TICKET = "apple.ticket" }
+    companion object {
+        const val SESSION = "apple.session"; const val TICKET = "apple.ticket"
+        /** Result extra: a short, fixed reason when sign-in ends without a connection. */
+        const val PROBLEM = "apple.problem"
+        private const val SITE = "Apple"
+    }
 }

@@ -89,6 +89,17 @@ class AppleAccountTest {
         account.completeWeb(ticket, credentials.json().toString())
         shadowOf(Looper.getMainLooper()).idle(); assertNull(vault.load())
     }
+    @Test fun leavingApplesPageSaysWhyInSettingsButAnOldPageCannotOverwriteANewerSignIn() {
+        val account = AppleAccount(context, vault(), http(), Runtime())
+        val old = account.beginWeb(); val current = account.beginWeb()
+        account.cancelWeb(old, "sign-in tried to open support.apple.com, which can't open inside Music")
+        assertTrue(account.state.value.connecting); assertNull(account.state.value.error)
+        account.cancelWeb(current, "sign-in tried to open support.apple.com, which can't open inside Music")
+        assertFalse(account.state.value.connecting)
+        assertEquals("Apple Music sign-in didn't finish: sign-in tried to open support.apple.com, which can't open inside Music.", account.state.value.error)
+        account.cancelWeb(account.beginWeb())
+        assertEquals("Apple Music sign-in was cancelled before it finished.", account.state.value.error)
+    }
     @Test fun aSignInResultDeliveredAfterTheAppProcessRestartedStillConnects() {
         // The old process issued ticket 3, then Android ended it while Apple's page was open.
         val vault = vault(); val account = AppleAccount(context, vault, http(), Runtime())

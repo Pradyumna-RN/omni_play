@@ -79,6 +79,11 @@ class YouTubeRuntime private constructor(context: Context) {
 
     fun beginSignIn() { mutableAccount.value = mutableAccount.value.copy(connecting = true, error = null) }
     fun cancelSignIn() { mutableAccount.value = mutableAccount.value.copy(connecting = false) }
+    /** The sign-in page closed without a connection: say so, with the page's reason when it had one. */
+    fun signInEnded(problem: String?) {
+        mutableAccount.value = mutableAccount.value.copy(connecting = false,
+            error = labs.rtensor.music.auth.WebSignInProblem.endedMessage("YouTube", problem))
+    }
     suspend fun acceptWebSession(candidate: WebSession) = accountChange.withLock {
         loadSession()
         val previous = activeSession
@@ -93,7 +98,9 @@ class YouTubeRuntime private constructor(context: Context) {
             withContext(NonCancellable) {
                 reset(); activeSession = previous
                 if (previous != null) session.save(previous.json().toString()) else session.clear()
-                mutableAccount.value = previousAccount.copy(error = (error as? SourceException)?.message ?: "Could not verify your YouTube account. Retry sign-in.")
+                // Leaving the page while it checks is not a verification failure.
+                mutableAccount.value = previousAccount.copy(error = if (error is CancellationException) previousAccount.error
+                    else (error as? SourceException)?.message ?: "Could not verify your YouTube account. Retry sign-in.")
             }
             throw error
         }

@@ -64,7 +64,13 @@ internal class AppleAccount(private val context: Context, private val vault: Acc
             catch (_: Exception) { if (ticket == generation.get()) mutable.update { it.copy(connecting = false, error = "Apple sign-in could not be verified. Try again.") } }
         }
     }
-    fun cancelWeb(ticket: Long) { if (ticket == generation.get()) cancel() }
+    /** The sign-in page closed without a connection: say so, with the page's reason when it had one. */
+    fun cancelWeb(ticket: Long, problem: String? = null) {
+        val restarted = ticket > 0 && generation.get() == 0L && !mutable.value.connecting
+        if (ticket != generation.get() && !restarted) return
+        cancel()
+        mutable.update { it.copy(error = labs.rtensor.music.auth.WebSignInProblem.endedMessage("Apple Music", problem)) }
+    }
     suspend fun importRuntime(uri: Uri) {
         check(BuildConfig.APPLE_NATIVE_INCLUDED) { "This build does not include the native Apple adapter." }
         files.import(uri)

@@ -59,8 +59,8 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private val youtubeSignIn = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        model.cancelAccountConnection()
+    private val youtubeSignIn = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        model.finishYouTubeSignIn(result.resultCode == RESULT_OK, result.data?.getStringExtra(YouTubeLoginActivity.PROBLEM))
     }
     private var appleTicket = -1L
     private val spotifySignIn = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -70,7 +70,7 @@ class MainActivity : ComponentActivity() {
     private val appleSignIn = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val ticket = result.data?.getLongExtra(labs.rtensor.music.apple.AppleWebLoginActivity.TICKET, appleTicket) ?: appleTicket
         val session = if (result.resultCode == RESULT_OK) result.data?.getStringExtra(labs.rtensor.music.apple.AppleWebLoginActivity.SESSION) else null
-        model.finishAppleSignIn(ticket, session)
+        model.finishAppleSignIn(ticket, session, result.data?.getStringExtra(labs.rtensor.music.apple.AppleWebLoginActivity.PROBLEM))
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {

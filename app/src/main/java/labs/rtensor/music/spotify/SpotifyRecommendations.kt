@@ -51,7 +51,12 @@ internal class SpotifyRecommendations(context: Context,
         synchronized(cache) { cache.clear(); revision++ }
         prefs.edit().clear().apply()
         mutable.value = AccountState(revision = revision)
-        try { api.request("disconnect") } finally { api.close() }
+        // Spotify's session lives in the separate sign-in process. If it can't be reached, say so:
+        // otherwise its saved sign-in would quietly reconnect the old account next time.
+        try { api.request("disconnect") }
+        catch (e: CancellationException) { throw e }
+        catch (_: Exception) { mutable.update { it.copy(error = SIGN_OUT_UNFINISHED) } }
+        finally { api.close() }
     }
     private suspend fun fetch(operation: String, args: JSONObject = JSONObject()): JSONObject {
         if (!mutable.value.connected) throw SpotifyCatalogueException("AUTH_REQUIRED")
@@ -101,6 +106,7 @@ internal class SpotifyRecommendations(context: Context,
     fun close() { api.close() }
     companion object {
         private const val CACHE_MS = 10 * 60 * 1000L
+        internal const val SIGN_OUT_UNFINISHED = "Music couldn't remove Spotify's saved sign-in from this phone. Connect Spotify, then disconnect it again."
         internal fun cancelledMessage(problem: String?): String {
             val reason = problem?.trim()?.take(240)?.trimEnd('.')?.takeIf { it.isNotBlank() }
             return if (reason == null) "Spotify sign-in was cancelled before it finished. Tap Spotify to try again."

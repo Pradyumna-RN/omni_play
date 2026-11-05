@@ -18,11 +18,14 @@ class AccountSession(context: Context, prefsName: String = "youtube_account", pr
     private val prefs = context.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
     @Synchronized fun load(): String? {
         val stored = prefs.getString("credentials", null) ?: return null
+        // Android KeyStore can be briefly unavailable (just after boot or an update). That is not
+        // tampering: keep the sealed session and report nothing stored for now, never sign out.
+        val key = try { keyProvider() } catch (_: Exception) { return null }
         return try {
             val bytes = Base64.decode(stored, Base64.NO_WRAP)
             require(bytes.size > 29 && bytes[0] == 1.toByte())
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-            cipher.init(Cipher.DECRYPT_MODE, keyProvider(), GCMParameterSpec(128, bytes.copyOfRange(1, 13)))
+            cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, bytes.copyOfRange(1, 13)))
             String(cipher.doFinal(bytes.copyOfRange(13, bytes.size)), Charsets.UTF_8)
         } catch (_: Exception) { clear(); null }
     }
