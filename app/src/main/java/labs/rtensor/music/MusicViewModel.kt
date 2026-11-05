@@ -914,10 +914,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 }
 
-/** Only network and source failures are worth a connection hint; decoding and
- * output failures need the format, not a retry. */
 internal const val PLAYER_STARTING = "The audio player is still starting. Try again in a moment."
 
+/** Only network and source failures are worth a connection hint; decoding and
+ * output failures need the format, not a retry. */
 internal fun playbackErrorMessage(error: PlaybackException): String = when (error.errorCode / 1000) {
     3 -> "This file could not be read. It may be damaged or in an unsupported container."
     4 -> "This audio format could not be decoded on this device."
