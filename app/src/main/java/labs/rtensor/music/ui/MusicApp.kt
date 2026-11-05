@@ -739,7 +739,8 @@ private fun HomeScreen(state: MusicState, onSearch: () -> Unit, onPlay: (Track, 
         homeRecommendationGroups(state)
     }
     val unheard = recommendations.newToYou
-    PrefetchArtwork(state.feed.flatMap { it.items.take(10).map(FeedEntry::artwork) } + state.forYou.take(12).map(Track::artwork), 156.dp)
+    // Only the songs Home actually shows (collections stay in Explore), and only to disk.
+    PrefetchArtwork((recommendations.fromListening + recommendations.newToYou + state.history.take(12)).map(Track::artwork), 156.dp, diskOnly = true)
     val look = LocalLook.current
     // Rows of the song grid that already show stay as they are when "More from your feed" adds songs.
     val batches = remember(state.feed) { GridBatches() }
@@ -1172,13 +1173,15 @@ private fun NoticeBanner(title: String, detail: String, action: String, onAction
  * when they appear instead of loading one by one during a fast fling.
  */
 @Composable
-private fun PrefetchArtwork(urls: List<String>, size: Dp) {
+private fun PrefetchArtwork(urls: List<String>, size: Dp, diskOnly: Boolean = false) {
     val context = LocalContext.current
     val px = with(LocalDensity.current) { size.roundToPx() }
     LaunchedEffect(urls) {
         val loader = context.imageLoader
         urls.asSequence().filter { it.isNotBlank() }.distinct().take(80).forEach { url ->
-            loader.enqueue(ImageRequest.Builder(context).data(ArtworkUrl.sized(url, px)).size(px).build())
+            loader.enqueue(ImageRequest.Builder(context).data(ArtworkUrl.sized(url, px)).size(px)
+                // Warm the disk cache only; the image is decoded into memory when it is shown.
+                .apply { if (diskOnly) memoryCachePolicy(coil.request.CachePolicy.DISABLED) }.build())
         }
     }
 }
