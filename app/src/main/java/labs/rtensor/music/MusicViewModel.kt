@@ -48,6 +48,7 @@ import labs.rtensor.music.auth.GoogleProfileStore
 import labs.rtensor.music.data.AccountState
 import labs.rtensor.music.data.FeedEntry
 import labs.rtensor.music.data.FeedSection
+import labs.rtensor.music.data.HomeFeed
 import labs.rtensor.music.updates.GitHubUpdater
 import labs.rtensor.music.updates.UpdateState
 import labs.rtensor.music.updates.checked
@@ -365,11 +366,16 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         feedJob = viewModelScope.launch {
             mutable.update { it.copy(feedBusy = true, feedError = null) }
             try {
-                val feed = if (engine == RecommendationEngine.SPOTIFY) spotify.home() else youtube.home(more)
+                val fetch: suspend (Boolean) -> HomeFeed = { next -> if (engine == RecommendationEngine.SPOTIFY) spotify.home() else youtube.home(next) }
+                if (more) {
+                    val added = loadMoreHomeFeed(mutable.value) { fetch(true) }
+                    if (revision == recommendationRevision) mutable.update { it.withMoreHomeFeed(added).copy(feedBusy = false) }
+                    return@launch
+                }
+                val feed = fetch(false)
                 if (revision != recommendationRevision) return@launch
-                mutable.update { it.copy(feedBusy = false, feed = if (more) it.feed + feed.sections else feed.sections, feedHasMore = feed.hasMore,
-                    feedPersonalized = engine == RecommendationEngine.SPOTIFY || !it.account.connected || feed.personalized) }
-                if (!more && mutable.value.forYou.isEmpty()) refreshForYou()
+                mutable.update { it.withHomeFeed(feed, engine == RecommendationEngine.SPOTIFY || !it.account.connected || feed.personalized).copy(feedBusy = false) }
+                if (mutable.value.forYou.isEmpty()) refreshForYou()
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { if (revision == recommendationRevision) mutable.update { it.copy(feedBusy = false, feedError = catalogueErrorMessage(e, CatalogueMessages.FEED)) } }
         }
