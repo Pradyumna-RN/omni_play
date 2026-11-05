@@ -60,4 +60,38 @@ class ReleasePolishUiTest {
         val ratio = contrastRatio(androidx.compose.ui.graphics.Color(played), androidx.compose.ui.graphics.Color(paper))
         assertTrue("played line against the page: $ratio", ratio >= 3.0)
     }
+
+    @Test @Config(sdk = [35], qualifiers = "w360dp-h800dp-mdpi")
+    fun largeTextNeverClipsTheSelectorsOrThePill() {
+        compose.setContent {
+            val density = androidx.compose.ui.platform.LocalDensity.current
+            androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(density.density, 2f)) {
+                MusicApp(MusicState(theme = "dark", reducedMotion = true), initialPage = "settings")
+            }
+        }
+        for (name in listOf("Listening room look", "Soft look", "Classic look", "Device theme")) {
+            val option = compose.onNodeWithContentDescription(name).performScrollTo().fetchSemanticsNode().boundsInRoot
+            assertTrue("$name is at least 48dp tall", option.height >= 48f)
+        }
+        // The label sits wholly inside its option, even at twice the text size.
+        val option = compose.onNodeWithContentDescription("Listening room look").fetchSemanticsNode().boundsInRoot
+        val label = compose.onNodeWithText("Listening room", useUnmergedTree = true).fetchSemanticsNode()
+        val layouts = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
+        label.config[androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult].action?.invoke(layouts)
+        assertFalse("label is not cut off", layouts.single().hasVisualOverflow)
+        assertTrue(label.boundsInRoot.bottom <= option.bottom + .5f && label.boundsInRoot.top >= option.top - .5f)
+    }
+
+    @Test fun libraryTabsAreFullSizeAndReadOnce() {
+        compose.setContent { MusicApp(MusicState(theme = "light", reducedMotion = true), initialPage = "library") }
+        for (name in listOf("Saved", "History")) {
+            val tab = compose.onNodeWithContentDescription(name)
+            tab.assert(SemanticsMatcher.expectValue(androidx.compose.ui.semantics.SemanticsProperties.Role, androidx.compose.ui.semantics.Role.Tab))
+            // Read once: no "Saved tab, tab", and the label adds nothing.
+            tab.assert(SemanticsMatcher("no repeated text") { it.config.getOrElse(androidx.compose.ui.semantics.SemanticsProperties.Text) { emptyList() }.isEmpty() })
+            assertTrue("$name tab is 48dp tall", tab.fetchSemanticsNode().boundsInRoot.height >= 48f)
+        }
+        compose.onNodeWithContentDescription("Saved").assertIsSelected()
+        compose.onNodeWithContentDescription("History").performClick().assertIsSelected()
+    }
 }

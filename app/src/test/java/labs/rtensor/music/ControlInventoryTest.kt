@@ -234,7 +234,7 @@ class ControlInventoryTest {
 
     @Test fun inventoryLibraryHistory() = assertEveryControlWorks(inventory("06-library-history",
         base().copy(saved = listOf(track, other), playEvents = events, history = listOf(track, other)), "library") {
-        compose.onNodeWithContentDescription("History tab").performClick()
+        compose.onNodeWithContentDescription("History").performClick()
     })
 
     @Test fun inventoryExplore() = assertEveryControlWorks(inventory("07-explore",
@@ -493,19 +493,19 @@ class ControlInventoryTest {
         compose.runOnIdle { assertEquals(listOf("onPlay(${track.id}, [${track.id},${other.id}])"), calls) }
         headerBack(); assertEquals("library", screen())
         calls.clear()
-        compose.onNodeWithContentDescription("History tab").performClick()
+        compose.onNodeWithContentDescription("History").performClick()
         compose.onNodeWithContentDescription("Remove Soft Signals from history").assertIsDisplayed().performClick()
         compose.runOnIdle { assertEquals(listOf("onRemovePlay(${other.id})"), calls) }
-        compose.onNodeWithContentDescription("Saved tab").performClick()
+        compose.onNodeWithContentDescription("Saved").performClick()
         compose.onNodeWithText("2 SAVED").assertIsDisplayed()
     }
 
     /** D3 (accessibility). The Saved/History switch exposes neither a Tab role nor which one is selected. */
     @Test fun libraryTabsExposeTheirSelectedState() {
         host(base(), "library")
-        compose.onNodeWithContentDescription("Saved tab").assertIsSelected()
-        compose.onNodeWithContentDescription("History tab").assertIsNotSelected().performClick()
-        compose.onNodeWithContentDescription("History tab").assertIsSelected()
+        compose.onNodeWithContentDescription("Saved").assertIsSelected()
+        compose.onNodeWithContentDescription("History").assertIsNotSelected().performClick()
+        compose.onNodeWithContentDescription("History").assertIsSelected()
     }
 
     @Test fun exploreEntriesOpenCollectionsPlaySongsAndSearchArtists() {
@@ -648,7 +648,7 @@ class ControlInventoryTest {
     @Test fun libraryHistoryTabSurvivesRecreation() {
         val restore = StateRestorationTester(compose)
         restore.setContent { App(base().copy(saved = listOf(track), playEvents = events), "library") }
-        compose.onNodeWithContentDescription("History tab").performClick()
+        compose.onNodeWithContentDescription("History").performClick()
         compose.onNodeWithContentDescription("Remove Afterimage from history").assertIsDisplayed()
         restore.emulateSavedInstanceStateRestore()
         compose.onNodeWithContentDescription("Remove Afterimage from history").assertIsDisplayed()

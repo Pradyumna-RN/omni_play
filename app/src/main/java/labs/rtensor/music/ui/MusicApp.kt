@@ -1359,19 +1359,24 @@ private fun LibraryScreen(state: MusicState, onPlay: (Track, List<Track>) -> Uni
 private fun SegmentedTabs(labels: List<String>, position: Float, onSelect: (Int) -> Unit) {
     val scheme = MaterialTheme.colorScheme
     val pill = if (LocalLook.current.classic) RectangleShape else RoundedCornerShape(percent = 50)
-    BoxWithConstraints(Modifier.fillMaxWidth().height(44.dp).background(scheme.surfaceVariant, pill).padding(4.dp)) {
+    // 48dp tall targets; the chosen tab is a solid thumb in the text colour with its label in the
+    // page colour (the old raised thumb was 1.1:1 against the track).
+    val look = LocalLook.current
+    BoxWithConstraints(Modifier.fillMaxWidth().height(52.dp).background(look.selectorTrack, pill).border(1.dp, look.selectorEdge, pill).padding(2.dp).selectableGroup()) {
         val slot = maxWidth / labels.size
         Box(Modifier.offset(x = slot * position.coerceIn(0f, labels.lastIndex.toFloat())).width(slot).fillMaxHeight()
             .graphicsLayer { shadowElevation = 3.dp.toPx(); shape = pill; clip = true }
-            .background(scheme.surface, pill))
+            .background(look.selectorThumb, pill))
         Row(Modifier.fillMaxSize()) {
             labels.forEachIndexed { index, label ->
                 val closeness = (1f - abs(position - index)).coerceIn(0f, 1f)
-                val color = androidx.compose.ui.graphics.lerp(scheme.onSurfaceVariant, scheme.primary, closeness)
+                val color = androidx.compose.ui.graphics.lerp(look.muted, look.onSelectorThumb, closeness)
                 val chosen = abs(position - index) < .5f
                 Box(Modifier.weight(1f).fillMaxHeight().clip(pill).clickable(role = Role.Tab) { onSelect(index) }
-                    .semantics { contentDescription = "$label tab"; selected = chosen }, contentAlignment = Alignment.Center) {
-                    Text(label, fontSize = 14.sp, fontWeight = if (closeness > .5f) FontWeight.SemiBold else FontWeight.Medium, color = color)
+                    .semantics { contentDescription = label; selected = chosen }, contentAlignment = Alignment.Center) {
+                    // The tab's name is its description; the label is not read a second time.
+                    Text(label, fontSize = 14.sp, fontWeight = if (closeness > .5f) FontWeight.SemiBold else FontWeight.Medium, color = color,
+                        maxLines = 1, modifier = Modifier.clearAndSetSemantics {})
                 }
             }
         }
@@ -1780,7 +1785,7 @@ private fun AudioComparison(state: MusicState, onProcessing: (Boolean) -> Unit) 
         val chosen = accent.accent.copy(alpha = .24f).compositeOver(scheme.surfaceVariant)
         val edge = markOn(accent.accent, scheme.surfaceVariant, scheme.onSurface)
         Row(
-            Modifier.fillMaxWidth().height(52.dp).clip(pill).background(scheme.surfaceVariant)
+            Modifier.fillMaxWidth().heightIn(min = 52.dp).height(IntrinsicSize.Min).clip(pill).background(scheme.surfaceVariant)
                 .toggleable(value = processed, enabled = ready, role = Role.Switch, onValueChange = onProcessing)
                 .semantics { contentDescription = "Processed audio" }
                 .padding(4.dp),
@@ -1884,7 +1889,7 @@ private fun ClassicAudioComparison(state: MusicState, onProcessing: (Boolean) ->
     val processed = audio.selectedProcessed && (waiting || report?.comparisonAvailable == true)
     Column(Modifier.fillMaxWidth().padding(top = 14.dp)) {
         val edge = if (ready) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.outline
-        Row(Modifier.fillMaxWidth().height(52.dp).border(2.dp, edge, RectangleShape).padding(2.dp)) {
+        Row(Modifier.fillMaxWidth().heightIn(min = 52.dp).height(IntrinsicSize.Min).border(2.dp, edge, RectangleShape).padding(2.dp)) {
             ModeSegment("ORIGINAL", "Original audio", !processed, ready, Modifier.weight(1f)) { onProcessing(false) }
             ModeSegment("PROCESSED", "Processed audio", processed, ready, Modifier.weight(1f)) { onProcessing(true) }
         }
@@ -2615,7 +2620,8 @@ private fun SlidingSelector(options: List<Pair<String, String>>, chosen: String,
     // the chosen option is a solid thumb in the text colour, so the choice never relies on a tint.
     val thumb = look.selectorThumb
     Row(
-        Modifier.fillMaxWidth().height(44.dp).clip(shape).background(look.selectorTrack).border(1.dp, look.selectorEdge, shape).selectableGroup()
+        // At least 48dp, and taller when large text needs it, so labels never clip.
+        Modifier.fillMaxWidth().heightIn(min = 48.dp).height(IntrinsicSize.Min).clip(shape).background(look.selectorTrack).border(1.dp, look.selectorEdge, shape).selectableGroup()
             .drawBehind {
                 val pad = 4.dp.toPx()
                 val w = (size.width - pad * 2) / options.size
@@ -2632,7 +2638,8 @@ private fun SlidingSelector(options: List<Pair<String, String>>, chosen: String,
                 contentAlignment = Alignment.Center) {
                 // Three options (the looks) get a slightly smaller label so "Listening room" fits on a phone.
                 Text(name, fontSize = if (options.size > 2 && options.any { it.second.length > 10 }) 12.sp else 14.sp, color = fg,
-                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium, maxLines = 1, letterSpacing = 0.sp)
+                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium, letterSpacing = 0.sp, textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp))
             }
         }
     }

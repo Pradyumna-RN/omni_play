@@ -84,7 +84,7 @@ class NativeUiTest {
         capture("search")
         compose.onNodeWithContentDescription("Library").performClick()
         compose.onNodeWithText("Worth keeping.").assertIsDisplayed()
-        compose.onNodeWithContentDescription("History tab").performClick()
+        compose.onNodeWithContentDescription("History").performClick()
         compose.onNodeWithText("Your listening, day by day").assertIsDisplayed()
         capture("saved")
     }

@@ -148,13 +148,13 @@ class NavigationAndOverlayUiTest {
 
     @Test fun libraryTabsExposeTabRoleAndSelection() {
         compose.setContent { MusicApp(MusicState(reducedMotion = true), initialPage = "library") }
-        val saved = compose.onNodeWithContentDescription("Saved tab")
-        val history = compose.onNodeWithContentDescription("History tab")
+        val saved = compose.onNodeWithContentDescription("Saved")
+        val history = compose.onNodeWithContentDescription("History")
         history.assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Tab))
         saved.assertIsSelected(); history.assertIsNotSelected()
         history.performClick()
-        compose.onNodeWithContentDescription("History tab").assertIsSelected()
-        compose.onNodeWithContentDescription("Saved tab").assertIsNotSelected()
+        compose.onNodeWithContentDescription("History").assertIsSelected()
+        compose.onNodeWithContentDescription("Saved").assertIsNotSelected()
     }
 
     @Test fun homeMonogramHasAFullTouchTarget() {
