@@ -77,6 +77,7 @@ class ControlInventoryTest {
             onPrevious = { rec("onPrevious") }, onNext = { rec("onNext") }, onSkipTo = { rec("onSkipTo", it) },
             onSeek = { rec("onSeek", it) }, onSave = { rec("onSave", it) },
             onTheme = { rec("onTheme", it) },
+            onAccent = { rec("onAccent", it.wire) },
             onOpenLocal = { rec("onOpenLocal") }, onChooseMasters = { rec("onChooseMasters") }, onClearMasters = { rec("onClearMasters") },
             onConnectSource = { p, pr, u, t -> rec("onConnectSource", p, pr, u, t) }, onRemoveSource = { rec("onRemoveSource", it) },
             onConnectTidal = { rec("onConnectTidal") }, onDisconnectTidal = { rec("onDisconnectTidal") }, onCancelTidal = { rec("onCancelTidal") },
@@ -542,13 +543,14 @@ class ControlInventoryTest {
         compose.onNodeWithText("Autoplay radio").performClick()
         compose.onNodeWithContentDescription("Dark theme").performScrollTo().performClick()
         compose.onNodeWithContentDescription("Device theme").performClick()
+        compose.onNodeWithContentDescription("Moss accent colour").performScrollTo().performClick()
         compose.onNodeWithContentDescription("Keep listening history").performScrollTo().performClick()
         compose.onNodeWithText("Check updates").performScrollTo().performClick()
         compose.onNodeWithText("Download").performScrollTo().performClick()
         compose.onNodeWithContentDescription("Developer options").performScrollTo().performClick()
         compose.runOnIdle {
             assertEquals(listOf("onConnectSpotify()", "onRecommendationEngine(YOUTUBE)", "onAutoplay(false)", "onAutoplay(false)",
-                "onTheme(dark)", "onTheme(system)", "onTrackHistory(false)", "onCheckUpdates()", "onDownloadUpdate()", "onDeveloperOptions(true)"), calls)
+                "onTheme(dark)", "onTheme(system)", "onAccent(moss)", "onTrackHistory(false)", "onCheckUpdates()", "onDownloadUpdate()", "onDeveloperOptions(true)"), calls)
         }
     }
 

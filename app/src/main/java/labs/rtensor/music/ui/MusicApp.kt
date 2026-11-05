@@ -79,6 +79,10 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
@@ -107,6 +111,7 @@ import kotlinx.coroutines.launch
 import labs.rtensor.dsp.ListeningMode
 import labs.rtensor.music.MusicState
 import labs.rtensor.music.R
+import labs.rtensor.music.data.AccentChoice
 import labs.rtensor.music.data.ArtworkUrl
 import labs.rtensor.music.data.Track
 import labs.rtensor.music.data.FeedEntry
@@ -128,8 +133,6 @@ private val font = FontFamily(
 )
 private val Display = FontFamily(Font(R.font.archivo_condensed_extrabold, FontWeight.ExtraBold))
 internal val Mono = FontFamily(Font(R.font.dm_mono_regular), Font(R.font.dm_mono_medium, FontWeight.Medium))
-/** The one accent. It always sits behind ink text, never behind light text. */
-internal val SignalAccent = Color(0xFFFF5A1F)
 internal val Ink = Color(0xFF111111)
 internal val Paper = Color(0xFFEDEDEA)
 internal val PaperMuted = Color(0xFFB8B8B2)
@@ -169,9 +172,30 @@ private val IndicatorSpring = spring<Float>(dampingRatio = 1f, stiffness = 520f)
 /** The dock slides on a spring, so a quick open/close never snaps mid-flight. */
 private val DockSpring = spring<IntOffset>(dampingRatio = 1f, stiffness = 480f)
 
+/** Accent changes (a new choice, or the next cover) blend over this long. */
+private const val AccentMs = 240
+
+/**
+ * The Signal theme. [accent] picks the one strong colour; with [AccentChoice.COVER] the
+ * colour comes from [coverAccent], or Signal when there is none. Read it through [LocalAccent]:
+ * the accent fill, the text colour on it, and its form on the black dock.
+ */
 @Composable
-fun MusicTheme(theme: String = "light", darkNavigationBar: Boolean = false, content: @Composable () -> Unit) {
+fun MusicTheme(theme: String = "light", darkNavigationBar: Boolean = false, accent: AccentChoice = AccentChoice.SIGNAL,
+    coverAccent: Color? = null, content: @Composable () -> Unit) {
     val dark = theme == "dark" || (theme == "system" && isSystemInDarkTheme())
+    val target = remember(accent, dark, coverAccent) { accentColours(accent, dark, coverAccent) }
+    // Respect both the app's reduced-motion setting and the system animator duration scale.
+    val instant = LocalReducedMotion.current || !android.animation.ValueAnimator.areAnimatorsEnabled()
+    val blend = tween<Color>(if (instant) 0 else AccentMs, easing = Standard)
+    val fill by animateColorAsState(target.accent, blend, label = "accent")
+    val onFill by animateColorAsState(target.onAccent, blend, label = "on accent")
+    val onDock by animateColorAsState(target.onDock, blend, label = "dock accent")
+    // Material components that use the container roles (selected chips) follow the accent too.
+    val scheme = remember(dark, target) {
+        (if (dark) Dark else Light).copy(primaryContainer = target.accent, onPrimaryContainer = target.onAccent,
+            secondaryContainer = target.accent, onSecondaryContainer = target.onAccent)
+    }
     val view = LocalView.current
     SideEffect {
         (view.context as? Activity)?.let { activity ->
@@ -182,8 +206,8 @@ fun MusicTheme(theme: String = "light", darkNavigationBar: Boolean = false, cont
         }
     }
     val base = Typography()
-    MaterialTheme(
-        colorScheme = if (dark) Dark else Light,
+    CompositionLocalProvider(LocalAccent provides AccentColours(fill, onFill, onDock)) { MaterialTheme(
+        colorScheme = scheme,
         typography = Typography(
             bodyLarge = base.bodyLarge.copy(fontFamily = font),
             bodyMedium = base.bodyMedium.copy(fontFamily = font),
@@ -204,7 +228,7 @@ fun MusicTheme(theme: String = "light", darkNavigationBar: Boolean = false, cont
             large = RoundedCornerShape(0.dp), extraLarge = RoundedCornerShape(0.dp),
         ),
         content = content,
-    )
+    ) }
 }
 
 private val LocalReducedMotion = staticCompositionLocalOf { false }
@@ -222,6 +246,7 @@ fun MusicApp(
     onPrevious: () -> Unit = {}, onNext: () -> Unit = {}, onSkipTo: (Int) -> Unit = {},
     onSeek: (Long) -> Unit = {}, onSave: (Track) -> Unit = {},
     onTheme: (String) -> Unit = {},
+    onAccent: (AccentChoice) -> Unit = {},
     onOpenLocal: () -> Unit = {},
     onChooseMasters: () -> Unit = {},
     onClearMasters: () -> Unit = {},
@@ -289,8 +314,10 @@ fun MusicApp(
     // Keep the last track while the mini player animates away.
     var lastTrack by remember { mutableStateOf(state.current) }
     if (state.current != null) lastTrack = state.current
+    // Only "From the cover" reads the artwork; other choices never load it for colour.
+    val coverAccent = if (state.accent == AccentChoice.COVER) rememberCoverAccent(state.current?.artwork) else null
     CompositionLocalProvider(LocalReducedMotion provides reduced) {
-        MusicTheme(state.theme, darkNavigationBar = page in rootPages + "collection") {
+        MusicTheme(state.theme, darkNavigationBar = page in rootPages + "collection", accent = state.accent, coverAccent = coverAccent) {
             Scaffold(
                 topBar = {
                     AppHeader(page, onHome = { navigate("home") }, onSettings = { navigate("settings") }, onBack = ::goBack) { SearchBar(state, onQuery, onSearch, searchFocus, Modifier.weight(1f)) }
@@ -349,7 +376,7 @@ fun MusicApp(
                             "library" -> LibraryScreen(state, ::play, onSave, ::focusSearch, onRemovePlay)
                             "now" -> NowScreen(state, onToggle, onPrevious, onNext, onSeek, onSave, onSkipTo, onProcessing, playbackPosition, onRetryRadio, audioLevels, onMetering)
                             "collection" -> CollectionScreen(state, ::play, onSave, onMoreCollection)
-                            "settings" -> SettingsScreen(state, onTheme, onOpenLocal, onChooseMasters, onClearMasters, onClearHistory,
+                            "settings" -> SettingsScreen(state, onTheme, onAccent, onOpenLocal, onChooseMasters, onClearMasters, onClearHistory,
                                 onConnect, onWebSignIn, onDisconnect, onCancelConnect, onGoogleSignIn, onGoogleSignOut, onCancelGoogle, onCheckUpdates, onDownloadUpdate, onInstallUpdate,
                                 onAutoplay, onTrackHistory, onConnectSource, onRemoveSource, onConnectTidal, onDisconnectTidal, onCancelTidal,
                                 onConnectApple, onNativeApple, onDisconnectApple, onCancelApple, onDeveloperOptions,
@@ -381,7 +408,7 @@ private fun AppHeader(page: String, onHome: () -> Unit, onSettings: () -> Unit, 
                 .semantics { contentDescription = "Music, go home"; selected = page == "home" }, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                 Text("M", style = DisplayStyle, fontSize = 24.sp, lineHeight = 22.sp)
                 Spacer(Modifier.height(3.dp))
-                Box(Modifier.width(14.dp).height(4.dp).background(SignalAccent))
+                Box(Modifier.width(14.dp).height(4.dp).background(LocalAccent.current.accent))
             }
             Spacer(Modifier.width(6.dp))
             search()
@@ -443,12 +470,13 @@ private fun AppNavigation(page: String, reduced: Boolean, onSelect: (String) -> 
         delay(40)
         trail.animateTo(target, spring(dampingRatio = 1f, stiffness = 420f))
     }
+    val mark = LocalAccent.current.onDock
     Row(
         Modifier.fillMaxWidth().height(56.dp).background(Ink).drawBehind {
             val slot = size.width / navTabs.size
             val left = slot * minOf(lead.value, trail.value)
             val right = slot * (maxOf(lead.value, trail.value) + 1f)
-            drawRect(SignalAccent, Offset(left, 0f), Size(right - left, 3.dp.toPx()))
+            drawRect(mark, Offset(left, 0f), Size(right - left, 3.dp.toPx()))
         },
     ) {
         navTabs.forEachIndexed { index, tab ->
@@ -578,16 +606,18 @@ private fun HomeScreen(state: MusicState, onSearch: () -> Unit, onPlay: (Track, 
             }
         }
         if (unheard.isNotEmpty()) item(key = "unheard") {
-            val scheme = MaterialTheme.colorScheme.copy(onSurface = Ink, onSurfaceVariant = Ink.copy(alpha = .8f),
-                onBackground = Ink, primary = Ink, outline = Ink.copy(alpha = .25f))
+            val accent = LocalAccent.current
+            val on = accent.onAccent
+            val scheme = MaterialTheme.colorScheme.copy(onSurface = on, onSurfaceVariant = on.copy(alpha = .8f),
+                onBackground = on, primary = on, outline = on.copy(alpha = .25f))
             MaterialTheme(colorScheme = scheme, typography = MaterialTheme.typography, shapes = MaterialTheme.shapes) {
-                Column(motionModifier().padding(vertical = 20.dp).fillMaxWidth().background(SignalAccent).padding(16.dp)) {
-                    Text(if (state.trackHistory) "NEW HERE" else "KEEP EXPLORING", style = MonoLabel, color = Ink)
+                Column(motionModifier().padding(vertical = 20.dp).fillMaxWidth().background(accent.accent).padding(16.dp)) {
+                    Text(if (state.trackHistory) "NEW HERE" else "KEEP EXPLORING", style = MonoLabel, color = on)
                     Text(if (state.trackHistory) "New to your ears" else "Discover more", style = DisplayStyle,
-                        fontSize = 32.sp, lineHeight = 36.sp, color = Ink, modifier = Modifier.padding(top = 8.dp).semantics { heading() })
+                        fontSize = 32.sp, lineHeight = 36.sp, color = on, modifier = Modifier.padding(top = 8.dp).semantics { heading() })
                     Text(if (state.trackHistory) "Songs outside your recorded listening history."
                         else "Individual recommendations from ${state.recommendationEngine.label}.",
-                        fontSize = 13.sp, lineHeight = 19.sp, color = Ink, modifier = Modifier.padding(top = 6.dp, bottom = 8.dp))
+                        fontSize = 13.sp, lineHeight = 19.sp, color = on, modifier = Modifier.padding(top = 6.dp, bottom = 8.dp))
                     unheard.forEach { track ->
                         TrackRow(track, false, false, { onPlay(track, listOf(track)) }, null)
                     }
@@ -636,17 +666,18 @@ private fun LastPlayedRow(track: Track, time: String, onClick: () -> Unit) {
     }
 }
 
-/** A square accent action with ink text. Text stays a real Text node, so it reads and tests as the label. */
+/** A square accent action with on-accent text. Text stays a real Text node, so it reads and tests as the label. */
 @Composable
 private fun SignalAction(label: String, icon: ImageVector, loading: Boolean, modifier: Modifier = Modifier, enabled: Boolean = true, onClick: () -> Unit) {
-    Row(modifier.heightIn(min = 48.dp).pressable(enabled = enabled, onClick = onClick).background(SignalAccent).padding(horizontal = 14.dp),
+    val accent = LocalAccent.current
+    Row(modifier.heightIn(min = 48.dp).pressable(enabled = enabled, onClick = onClick).background(accent.accent).padding(horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(20.dp), contentAlignment = Alignment.Center) {
-            if (loading) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = Ink)
-            else Icon(icon, null, tint = Ink, modifier = Modifier.size(20.dp))
+            if (loading) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = accent.onAccent)
+            else Icon(icon, null, tint = accent.onAccent, modifier = Modifier.size(20.dp))
         }
         Spacer(Modifier.width(8.dp))
-        Text(label, style = DisplayStyle, fontSize = 17.sp, color = Ink, maxLines = 1)
+        Text(label, style = DisplayStyle, fontSize = 17.sp, color = accent.onAccent, maxLines = 1)
     }
 }
 
@@ -720,15 +751,17 @@ private fun SyncBanner(email: String, onConnect: () -> Unit, modifier: Modifier 
 
 @Composable
 private fun NoticeBanner(title: String, detail: String, action: String, onAction: () -> Unit, modifier: Modifier = Modifier) {
-    Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = RectangleShape, modifier = modifier.fillMaxWidth()) {
+    val accent = LocalAccent.current
+    Surface(color = accent.accent, shape = RectangleShape, modifier = modifier.fillMaxWidth()) {
         Row(Modifier.padding(start = 16.dp, end = 12.dp, top = 14.dp, bottom = 14.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text(title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Ink)
-                Text(detail, fontSize = 13.sp, lineHeight = 19.sp, color = Ink, modifier = Modifier.padding(top = 4.dp))
+                Text(title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = accent.onAccent)
+                Text(detail, fontSize = 13.sp, lineHeight = 19.sp, color = accent.onAccent, modifier = Modifier.padding(top = 4.dp))
             }
             Spacer(Modifier.width(12.dp))
+            // The button inverts the banner text: an ink button with paper text, or white with ink.
             Button(onClick = onAction, shape = RectangleShape, contentPadding = PaddingValues(horizontal = 16.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Ink, contentColor = Paper)) { Text(action, fontSize = 13.sp) }
+                colors = ButtonDefaults.buttonColors(containerColor = accent.onAccent, contentColor = if (accent.onAccent == Ink) Paper else Ink)) { Text(action, fontSize = 13.sp) }
         }
     }
 }
@@ -1085,14 +1118,15 @@ private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () ->
                     // Symmetric transport controls keep Play/Pause on the screen centre.
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         LabelledControl("Previous", Glyph.Previous, onPrevious, enabled = canSkip)
+                        val accent = LocalAccent.current
                         Button(onClick = onToggle, enabled = !state.resolving, shape = RectangleShape, modifier = Modifier.weight(1f).height(72.dp),
                             contentPadding = PaddingValues(horizontal = 10.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = SignalAccent, contentColor = Ink,
-                                disabledContainerColor = SignalAccent.copy(alpha = .55f), disabledContentColor = Ink)) {
+                            colors = ButtonDefaults.buttonColors(containerColor = accent.accent, contentColor = accent.onAccent,
+                                disabledContainerColor = accent.accent.copy(alpha = .55f), disabledContentColor = accent.onAccent)) {
                             Crossfade(if (loading) 0 else if (playing) 1 else 2, animationSpec = tween(if (reduced) 0 else QuickMs), label = "play button") { mode ->
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     when (mode) {
-                                        0 -> CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = Ink)
+                                        0 -> CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = accent.onAccent)
                                         1 -> Icon(Glyph.Pause, null, Modifier.size(22.dp))
                                         else -> Icon(Icons.Outlined.PlayArrow, null, Modifier.size(24.dp))
                                     }
@@ -1215,7 +1249,8 @@ private fun PlaybackTimeline(updates: StateFlow<Long>?, fallback: Long, duration
 private fun MiniPlaybackProgress(updates: StateFlow<Long>?, fallback: Long, duration: Long, playing: Boolean, modifier: Modifier) {
     val position = updates?.collectAsStateWithLifecycle()?.value ?: fallback
     val smooth = rememberSmoothPosition(position, duration, playing)
-    val accent = SignalAccent
+    // The hairline runs along the top of the black dock.
+    val accent = LocalAccent.current.onDock
     Canvas(modifier.graphicsLayer().semantics {
         contentDescription = "Mini player progress"
         progressBarRangeInfo = ProgressBarRangeInfo(if (duration > 0) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f, 0f..1f)
@@ -1457,7 +1492,7 @@ private val settingsSections = listOf(
 )
 
 @Composable
-private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onLocal: () -> Unit,
+private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onAccent: (AccentChoice) -> Unit, onLocal: () -> Unit,
     onChooseMasters: () -> Unit, onClearMasters: () -> Unit, onClearHistory: () -> Unit,
     onConnect: () -> Unit, onWebSignIn: () -> Unit, onDisconnect: () -> Unit, onCancelConnect: () -> Unit,
     onGoogleSignIn: () -> Unit, onGoogleSignOut: () -> Unit, onCancelGoogle: () -> Unit,
@@ -1536,6 +1571,12 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onLocal
                 Text("Theme", fontSize = 16.sp, fontWeight = FontWeight.Medium)
                 Spacer(Modifier.height(10.dp))
                 ThemeSelector(state.theme, state.reducedMotion, onTheme)
+                Spacer(Modifier.height(18.dp))
+                Text("Accent colour", fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                Text(if (state.accent == AccentChoice.COVER) "Taken from the artwork of the song that is playing. Signal is used when there is none."
+                    else "The one strong colour on Play, highlights and the dock.",
+                    fontSize = 12.sp, lineHeight = 17.sp, color = scheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp, bottom = 8.dp))
+                AccentSelector(state.accent, onAccent)
             }
         }
 
@@ -1748,6 +1789,49 @@ private fun ThemeSelector(theme: String, reduced: Boolean, onTheme: (String) -> 
     }
 }
 
+/**
+ * Labelled swatches, one radio target each (48dp wide or more). A ring and a check mark the
+ * chosen one, so the choice never depends on colour alone. The cover swatch shows the colour
+ * taken from the current artwork once it is in use, and the fixed hues before that.
+ */
+@Composable
+private fun AccentSelector(selected: AccentChoice, onAccent: (AccentChoice) -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    val dark = scheme.background.luminance() < .5f
+    val current = LocalAccent.current.accent
+    FlowRow(Modifier.fillMaxWidth().selectableGroup(), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        AccentChoice.entries.forEach { choice ->
+            val chosen = choice == selected
+            val colour = fixedAccent(choice, dark) ?: current.takeIf { chosen }
+            Column(
+                Modifier.width(48.dp).heightIn(min = 48.dp)
+                    .selectable(chosen, role = Role.RadioButton) { onAccent(choice) }
+                    .semantics { contentDescription = "${choice.label} accent colour" }
+                    .padding(vertical = 4.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Box(Modifier.size(44.dp).border(2.dp, if (chosen) scheme.onBackground else Color.Transparent).padding(5.dp), contentAlignment = Alignment.Center) {
+                    Box(Modifier.fillMaxSize().border(.5.dp, scheme.outline).drawBehind {
+                        if (colour != null) drawRect(colour)
+                        else {
+                            // Not chosen yet: the cover's colour is unknown, so show that it varies.
+                            val half = Size(size.width / 2, size.height / 2)
+                            drawRect(SignalAccent, Offset.Zero, half); drawRect(Cobalt, Offset(half.width, 0f), half)
+                            drawRect(Moss, Offset(0f, half.height), half); drawRect(Oxblood, Offset(half.width, half.height), half)
+                        }
+                    }, contentAlignment = Alignment.Center) {
+                        if (chosen) Icon(Icons.Outlined.Check, null, Modifier.size(18.dp), tint = onAccentFor(colour ?: SignalAccent))
+                    }
+                }
+                Text(choice.label, fontSize = 11.sp, lineHeight = 13.sp, textAlign = TextAlign.Center, maxLines = 2,
+                    fontWeight = if (chosen) FontWeight.SemiBold else FontWeight.Normal,
+                    color = if (chosen) scheme.onSurface else scheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp).clearAndSetSemantics {})
+            }
+        }
+    }
+}
+
 /** Sits close to its own card and far from the one above (proximity groups them). */
 @Composable
 private fun SettingsGroupHeader(section: SettingsSection, modifier: Modifier = Modifier) {
@@ -1794,8 +1878,9 @@ private fun SettingItem(title: String, detail: String? = null, icon: ImageVector
 
 @Composable
 private fun IconTile(icon: ImageVector) {
-    Box(Modifier.size(36.dp).background(MaterialTheme.colorScheme.secondaryContainer, RectangleShape), contentAlignment = Alignment.Center) {
-        Icon(icon, null, Modifier.size(19.dp), tint = Ink)
+    val accent = LocalAccent.current
+    Box(Modifier.size(36.dp).background(accent.accent, RectangleShape), contentAlignment = Alignment.Center) {
+        Icon(icon, null, Modifier.size(19.dp), tint = accent.onAccent)
     }
 }
 
@@ -1872,7 +1957,7 @@ private fun MiniPlayer(state: MusicState, onOpen: () -> Unit, onToggle: () -> Un
                 },
             ) { (shown, _) ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(width = 8.dp, height = 40.dp).background(SignalAccent))
+                    Box(Modifier.size(width = 8.dp, height = 40.dp).background(LocalAccent.current.onDock))
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
                         ScrollingMetadata(shown.title, DisplayStyle.copy(fontSize = 16.sp, lineHeight = 20.sp, color = Paper))
@@ -1985,8 +2070,9 @@ private fun Artwork(track: Track?, modifier: Modifier = Modifier, size: Dp = 56.
 private fun LabelledControl(label: String, image: ImageVector, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, highlighted: Boolean = false) {
     val scheme = MaterialTheme.colorScheme
     val reduced = LocalReducedMotion.current
-    val fill by animateColorAsState(if (highlighted) SignalAccent else Color.Transparent, tween(if (reduced) 0 else 180), label = "control fill")
-    val tint by animateColorAsState(if (highlighted) Ink else if (enabled) scheme.onBackground else scheme.onSurfaceVariant.copy(alpha = .4f),
+    val accent = LocalAccent.current
+    val fill by animateColorAsState(if (highlighted) accent.accent else Color.Transparent, tween(if (reduced) 0 else 180), label = "control fill")
+    val tint by animateColorAsState(if (highlighted) accent.onAccent else if (enabled) scheme.onBackground else scheme.onSurfaceVariant.copy(alpha = .4f),
         tween(if (reduced) 0 else 180), label = "control tint")
     Box(
         modifier.size(64.dp, 72.dp).pressable(enabled = enabled, onClick = onClick).background(fill)
@@ -2021,11 +2107,12 @@ private fun EmptyState(title: String, detail: String, image: ImageVector) {
 @Composable
 private fun ErrorBanner(message: String, onDismiss: () -> Unit, onRetry: () -> Unit, diagnostic: String = "", videoId: String = "") {
     val context = LocalContext.current
-    Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = RectangleShape, modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)) {
+    val accent = LocalAccent.current
+    Surface(color = accent.accent, shape = RectangleShape, modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)) {
         Column(Modifier.fillMaxWidth().padding(start = 14.dp, end = 8.dp, top = 12.dp)) {
-            Text(message, fontSize = 14.sp, lineHeight = 20.sp, color = Ink)
-            // The banner sits on the accent, so its actions stay ink in both themes.
-            val ink = ButtonDefaults.textButtonColors(contentColor = Ink)
+            Text(message, fontSize = 14.sp, lineHeight = 20.sp, color = accent.onAccent)
+            // The banner sits on the accent, so its actions use the on-accent colour in both themes.
+            val ink = ButtonDefaults.textButtonColors(contentColor = accent.onAccent)
             FlowRow(Modifier.align(Alignment.End), horizontalArrangement = Arrangement.End) {
                 if (diagnostic.isNotBlank()) TextButton(onClick = {
                     (context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("Playback details", "Music ${BuildConfig.VERSION_NAME} · $videoId\n$diagnostic"))

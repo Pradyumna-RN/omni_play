@@ -57,9 +57,11 @@ internal fun ChannelMonitor(
 ) {
     var expanded by rememberSaveable { mutableStateOf(false) }
     // The monitor is always the black Signal panel, in light and dark themes alike: lit
-    // channels in the accent, faded ones in dark grey, text in paper.
+    // channels in the chosen accent (its dock form, so Ink and deep colours still light up on
+    // black), faded ones in dark grey, text in paper.
+    val light = LocalAccent.current.onDock
     val panel = MaterialTheme.colorScheme.copy(
-        primary = SignalAccent, onPrimary = Ink, surface = Ink, onSurface = Paper,
+        primary = light, onPrimary = onAccentFor(light), surface = Ink, onSurface = Paper,
         onSurfaceVariant = PaperMuted, outline = PanelFaded, outlineVariant = InkRule,
     )
     MaterialTheme(colorScheme = panel, typography = MaterialTheme.typography, shapes = MaterialTheme.shapes) {
@@ -68,7 +70,7 @@ internal fun ChannelMonitor(
                 Row(Modifier.fillMaxWidth().clickable { expanded = !expanded }.heightIn(min = 48.dp).padding(horizontal = 16.dp, vertical = 12.dp)
                     .semantics { contentDescription = if (expanded) "Collapse channel monitor" else "Expand channel monitor" },
                     verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(width = 6.dp, height = 18.dp).background(SignalAccent))
+                    Box(Modifier.size(width = 6.dp, height = 18.dp).background(light))
                     Text("Channel monitor", Modifier.weight(1f).padding(start = 10.dp), style = MonoLabel, color = PaperMuted)
                     Icon(if (expanded) Icons.Outlined.KeyboardArrowUp else Icons.Outlined.KeyboardArrowDown, null, tint = Paper)
                 }

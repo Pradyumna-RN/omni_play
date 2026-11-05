@@ -50,6 +50,9 @@ class LibraryStore(context: Context) {
     var theme: String
         get() = prefs.getString("theme", "system") ?: "system"
         set(value) { prefs.edit().putString("theme", value).apply() }
+    var accent: AccentChoice
+        get() = AccentChoice.parse(prefs.getString("accent", null))
+        set(value) { prefs.edit().putString("accent", value.wire).apply() }
     var reducedMotion: Boolean
         get() = prefs.getBoolean("reduced_motion", false)
         set(value) { prefs.edit().putBoolean("reduced_motion", value).apply() }
