@@ -321,9 +321,14 @@ fun MusicApp(
                         enter = if (reduced) EnterTransition.None else expandVertically(tween(EnterMs, easing = EmphasizedDecelerate)) + fadeIn(tween(EnterMs, 60)),
                         exit = if (reduced) ExitTransition.None else shrinkVertically(tween(ExitMs, easing = EmphasizedAccelerate)) + fadeOut(tween(120)),
                     ) {
-                        ErrorBanner(lastError.orEmpty(), onDismissError,
-                            if (state.searched && page in rootPages) onSearch else if (page == "collection") onRetryCollection else onRetry,
-                            state.errorDiagnostic, state.current?.id.orEmpty())
+                        // The error is shared, so Retry repeats what actually failed: a search or a
+                        // collection that came back empty, otherwise the recording that is playing.
+                        val retry = when {
+                            page in rootPages && state.searched && state.query.isNotBlank() && (state.results.isEmpty() || state.current == null) -> onSearch
+                            page == "collection" && (state.collection.isEmpty() || state.current == null) -> onRetryCollection
+                            else -> onRetry
+                        }
+                        ErrorBanner(lastError.orEmpty(), onDismissError, retry, state.errorDiagnostic, state.current?.id.orEmpty())
                     }
                     val showResults = page in rootPages && state.searched && state.query.isNotBlank()
                     AnimatedContent(

@@ -50,6 +50,50 @@ class NavigationAndOverlayUiTest {
         compose.onNodeWithContentDescription("Home").assertIsSelected()
     }
 
+    @Test fun retryOnAPlaybackErrorOverSearchResultsRetriesPlaybackNotTheSearch() {
+        var searches = 0; var retries = 0
+        compose.setContent {
+            MusicApp(MusicState(query = "Serein", searched = true, results = listOf(track, other), current = track, queue = listOf(track), queueIndex = 0,
+                error = "YouTube rejected the audio stream (HTTP 403).", reducedMotion = true),
+                onSearch = { searches++ }, onRetry = { retries++ })
+        }
+        compose.onNodeWithText("Retry").performClick()
+        compose.runOnIdle { assertEquals(1, retries); assertEquals(0, searches) }
+    }
+
+    @Test fun retryAfterAFailedSearchRunsTheSearchAgain() {
+        var searches = 0; var retries = 0
+        compose.setContent {
+            MusicApp(MusicState(query = "Serein", searched = true, error = "Search could not reach YouTube.", reducedMotion = true),
+                onSearch = { searches++ }, onRetry = { retries++ })
+        }
+        compose.onNodeWithText("Retry").performClick()
+        compose.runOnIdle { assertEquals(1, searches); assertEquals(0, retries) }
+    }
+
+    @Test fun retryOnAPlaybackErrorInALoadedCollectionRetriesPlaybackNotTheCollection() {
+        var reloads = 0; var retries = 0
+        val entry = FeedEntry("album", "An album", "Serein", "", "album", "album-browse", "")
+        compose.setContent {
+            MusicApp(MusicState(collectionEntry = entry, collection = listOf(track, other), current = track, queue = listOf(track, other), queueIndex = 0,
+                error = "YouTube rejected the audio stream (HTTP 403).", reducedMotion = true),
+                initialPage = "collection", onRetryCollection = { reloads++ }, onRetry = { retries++ })
+        }
+        compose.onNodeWithText("Retry").performClick()
+        compose.runOnIdle { assertEquals(1, retries); assertEquals(0, reloads) }
+    }
+
+    @Test fun retryOnAFailedCollectionReloadsIt() {
+        var reloads = 0; var retries = 0
+        val entry = FeedEntry("album", "An album", "Serein", "", "album", "album-browse", "")
+        compose.setContent {
+            MusicApp(MusicState(collectionEntry = entry, error = "Could not open this album.", reducedMotion = true),
+                initialPage = "collection", onRetryCollection = { reloads++ }, onRetry = { retries++ })
+        }
+        compose.onNodeWithText("Retry").performClick()
+        compose.runOnIdle { assertEquals(1, reloads); assertEquals(0, retries) }
+    }
+
     @Test fun switchingTabsKeepsAPlaybackErrorWhenThereIsNoSearchToClear() {
         val queries = mutableListOf<String>()
         val error = "YouTube rejected the audio stream (HTTP 403)."
