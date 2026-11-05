@@ -512,7 +512,8 @@ private fun AppHeader(page: String, onHome: () -> Unit, onSettings: () -> Unit, 
             Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                 val caption = when (page) { "now" -> "Now playing"; "collection" -> "Collection"; else -> "Settings" }
                 if (look.classic || look.soft) Caption(caption.uppercase(Locale.ROOT))
-                else Text(caption, fontFamily = font, fontSize = 14.sp,
+                // In the Listening room the caption is the page's name (Settings has no second title).
+                else Text(caption, Modifier.semantics { heading() }, fontFamily = font, fontSize = 14.sp,
                     lineHeight = 18.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Spacer(Modifier.width(48.dp))
@@ -808,7 +809,7 @@ private fun HomeScreen(state: MusicState, onSearch: () -> Unit, onPlay: (Track, 
                             color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 14.dp, bottom = 4.dp))
                         state.history.drop(1).take(4).forEach { track ->
                             val playing = track.libraryKey() == state.current?.libraryKey()
-                            LastPlayedRow(track, if (playing) "NOW" else lastPlayedAt[track.libraryKey()]?.let { whenLabel(it, now) }.orEmpty()) {
+                            LastPlayedRow(track, if (playing) look.whenNow() else lastPlayedAt[track.libraryKey()]?.let { whenLabel(it, now, look.classic) }.orEmpty()) {
                                 onPlay(track, listOf(track))
                             }
                         }
@@ -995,8 +996,18 @@ private fun startOfToday(now: Long): Long = java.util.Calendar.getInstance().app
 }.timeInMillis
 
 /** A short mono timestamp: 5M, 2H, YDAY, 3D. */
-private fun whenLabel(at: Long, now: Long): String {
+private fun Look.whenNow() = if (classic) "NOW" else "Playing"
+
+/** When a song was last played: Classic's mono shorthand (5M, 2H, YDAY, 3D), or plain words. */
+internal fun whenLabel(at: Long, now: Long, classic: Boolean = true): String {
     val minutes = ((now - at).coerceAtLeast(0)) / 60_000
+    if (!classic) return when {
+        minutes < 1 -> "Just now"
+        minutes < 60 -> "$minutes min ago"
+        at >= startOfToday(now) -> "${minutes / 60} h ago"
+        at >= startOfToday(now) - ListeningHistory.DAY -> "Yesterday"
+        else -> "${((startOfToday(now) - at) / ListeningHistory.DAY) + 1} days ago"
+    }
     return when {
         minutes < 1 -> "NOW"
         minutes < 60 -> "${minutes}M"
@@ -1314,7 +1325,7 @@ private fun SearchResults(state: MusicState, onPlay: (Track, List<Track>) -> Uni
                 Text("Looking on YouTube…", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 16.dp))
             }
             state.results.isNotEmpty() -> {
-                Caption("${state.results.size} RESULTS")
+                Caption(LocalLook.current.let { if (it.room) "${state.results.size} ${if (state.results.size == 1) "result" else "results"}" else "${state.results.size} RESULTS" })
                 Spacer(Modifier.height(10.dp))
                 LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 24.dp)) {
                     itemsIndexed(state.results, key = { index, track -> "$index:${track.id}" }) { _, track ->
@@ -1371,9 +1382,7 @@ private fun SegmentedTabs(labels: List<String>, position: Float, onSelect: (Int)
                 val chosen = abs(position - index) < .5f
                 Box(Modifier.weight(1f).fillMaxHeight().clip(pill).clickable(role = Role.Tab) { onSelect(index) }
                     .semantics { contentDescription = label; selected = chosen }, contentAlignment = Alignment.Center) {
-                    // The tab's name is its description; the label is not read a second time.
-                    Text(label, fontSize = 14.sp, fontWeight = if (closeness > .5f) FontWeight.SemiBold else FontWeight.Medium, color = color,
-                        maxLines = 1, modifier = Modifier.clearAndSetSemantics {})
+                    Text(label, fontSize = 14.sp, fontWeight = if (closeness > .5f) FontWeight.SemiBold else FontWeight.Medium, color = color, maxLines = 1)
                 }
             }
         }
@@ -1383,13 +1392,14 @@ private fun SegmentedTabs(labels: List<String>, position: Float, onSelect: (Int)
 @Composable
 private fun SavedList(state: MusicState, onPlay: (Track, List<Track>) -> Unit, onSave: (Track) -> Unit, onSearch: () -> Unit) {
     Column(Modifier.fillMaxSize()) {
-        Text("Worth keeping.", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 12.dp))
+        // Classic's and Soft's line; the Listening room goes straight to the songs.
+        if (!LocalLook.current.room) Text("Worth keeping.", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 12.dp))
         if (state.saved.isEmpty()) {
             EmptyState("Keep a good thing close", "Tap the heart on a recording to save it here.", Icons.Outlined.FavoriteBorder)
             TextButton(onClick = onSearch, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Find music") }
         } else {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                Caption("${state.saved.size} SAVED")
+                Caption(if (LocalLook.current.room) "${state.saved.size} saved" else "${state.saved.size} SAVED")
                 Button(onClick = { onPlay(state.saved.first(), state.saved) }, shape = ButtonShape) { Icon(Icons.Outlined.PlayArrow, null, Modifier.size(18.dp)); Spacer(Modifier.width(7.dp)); Text("Play all", fontSize = 12.sp) }
             }
             Spacer(Modifier.height(10.dp))
@@ -2332,7 +2342,8 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onAccen
     val scheme = MaterialTheme.colorScheme
     var showImport by rememberSaveable { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().verticalScroll(scroll).padding(horizontal = 20.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        PageTitle("Settings")
+        // The Listening room names the page once, in the header; Classic and Soft keep their headline.
+        if (!LocalLook.current.room) PageTitle("Settings")
 
         SettingsGroupHeader(settingsSections[0])
         AccountCard(state, onGoogleSignIn, onGoogleSignOut, onCancelGoogle, onConnect, onWebSignIn, onDisconnect, onCancelConnect)
@@ -2389,7 +2400,7 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onAccen
             Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
                 Text("Look", fontSize = 16.sp, fontWeight = FontWeight.Medium)
                 Text(when (state.look) {
-                    LookChoice.CLASSIC -> "The 0.3.32 Signal look: square controls, monospace labels and Signal orange."
+                    LookChoice.CLASSIC -> "Square controls, monospace labels and Signal orange."
                     LookChoice.SOFT -> "The original rounded design: DM Sans, raspberry, and a soft wash of the cover behind the player."
                     LookChoice.ROOM -> "Dark first, with your speakers lit in the colour of what is playing."
                 },
@@ -2452,7 +2463,7 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onAccen
             CardDivider()
             SettingItem("Open-source licences", "Libraries and fonts used by Music", Icons.Outlined.Info, onClick = { showLicences = true })
             CardDivider()
-            SettingItem("Developer options", "Show the channel monitor in the player", Glyph.ChannelMonitor,
+            SettingItem("Developer options", "Channel monitor, and live speaker levels on Home and in the player", Glyph.ChannelMonitor,
                 onClick = { onDeveloperOptions(!state.developerOptions) }) {
                 Switch(checked = state.developerOptions, onCheckedChange = onDeveloperOptions,
                     modifier = Modifier.semantics { contentDescription = "Developer options" })

@@ -88,8 +88,8 @@ class ReleasePolishUiTest {
         for (name in listOf("Saved", "History")) {
             val tab = compose.onNodeWithContentDescription(name)
             tab.assert(SemanticsMatcher.expectValue(androidx.compose.ui.semantics.SemanticsProperties.Role, androidx.compose.ui.semantics.Role.Tab))
-            // Read once: no "Saved tab, tab", and the label adds nothing.
-            tab.assert(SemanticsMatcher("no repeated text") { it.config.getOrElse(androidx.compose.ui.semantics.SemanticsProperties.Text) { emptyList() }.isEmpty() })
+            // Named once: the name is the label itself, with no "tab" word added (TalkBack adds the role).
+            tab.assert(SemanticsMatcher("named $name") { it.config[androidx.compose.ui.semantics.SemanticsProperties.ContentDescription] == listOf(name) })
             assertTrue("$name tab is 48dp tall", tab.fetchSemanticsNode().boundsInRoot.height >= 48f)
         }
         compose.onNodeWithContentDescription("Saved").assertIsSelected()
@@ -130,5 +130,21 @@ class ReleasePolishUiTest {
         val fill = image.getPixel((banner.right + 30).toInt().coerceAtMost(image.width - 30), banner.top.toInt() - 4)
         image.recycle()
         assertNotEquals(labs.rtensor.music.ui.SignalAccent.toArgb(), fill)
+    }
+
+    @Test fun listeningRoomWordingIsPlainAndClassicKeepsItsOwn() {
+        val now = System.currentTimeMillis()
+        assertEquals("5 min ago", labs.rtensor.music.ui.whenLabel(now - 5 * 60_000L, now, classic = false))
+        assertEquals("Just now", labs.rtensor.music.ui.whenLabel(now, now, classic = false))
+        assertEquals("NOW", labs.rtensor.music.ui.whenLabel(now, now, classic = true))
+        val state = androidx.compose.runtime.mutableStateOf(MusicState(theme = "dark", reducedMotion = true))
+        compose.setContent { MusicApp(state.value, initialPage = "settings") }
+        // Settings is named once, by the header, and that name is the page heading.
+        compose.onAllNodesWithText("Settings").assertCountEquals(1)
+        compose.onNode(hasText("Settings") and isHeading()).assertExists()
+        compose.onNodeWithText("Channel monitor, and live speaker levels on Home and in the player").performScrollTo().assertExists()
+        compose.runOnIdle { state.value = state.value.copy(look = LookChoice.CLASSIC) }
+        compose.onNodeWithText("Square controls, monospace labels and Signal orange.").performScrollTo().assertExists()
+        compose.onNodeWithText("0.3.32", substring = true).assertDoesNotExist()
     }
 }

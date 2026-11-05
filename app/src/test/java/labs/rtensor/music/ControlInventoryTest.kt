@@ -387,7 +387,7 @@ class ControlInventoryTest {
 
     @Test fun systemBackClearsAnActiveSearchBeforeLeavingTheTab() {
         val state = host(base().copy(query = "Serein", searched = true, results = listOf(track)))
-        compose.onNodeWithText("1 RESULTS").assertIsDisplayed()
+        compose.onNodeWithText("1 result").assertIsDisplayed()
         systemBack()
         compose.runOnIdle { assertEquals(listOf("onQuery()"), calls); assertEquals("", state.value.query) }
         assertEquals("home", screen())
@@ -456,7 +456,7 @@ class ControlInventoryTest {
         compose.runOnIdle { assertEquals(listOf("onSave(${track.id})", "onSave(${other.id})", "onPlay(${other.id}, [${other.id}])"), calls) }
         assertEquals("now", screen())
         headerBack()
-        compose.onNodeWithText("2 RESULTS").assertIsDisplayed()
+        compose.onNodeWithText("2 results").assertIsDisplayed()
         calls.clear()
         compose.onNodeWithContentDescription("Clear search").performClick()
         compose.runOnIdle { assertEquals(listOf("onQuery()"), calls); assertEquals("", state.value.query) }
@@ -497,7 +497,7 @@ class ControlInventoryTest {
         compose.onNodeWithContentDescription("Remove Soft Signals from history").assertIsDisplayed().performClick()
         compose.runOnIdle { assertEquals(listOf("onRemovePlay(${other.id})"), calls) }
         compose.onNodeWithContentDescription("Saved").performClick()
-        compose.onNodeWithText("2 SAVED").assertIsDisplayed()
+        compose.onNodeWithText("2 saved").assertIsDisplayed()
     }
 
     /** D3 (accessibility). The Saved/History switch exposes neither a Tab role nor which one is selected. */
