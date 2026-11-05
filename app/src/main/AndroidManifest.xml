@@ -47,6 +47,11 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="tidal" android:host="login" android:path="/auth" />
             </intent-filter>
+            <!-- "Play … on Music": voice search from the Assistant or Android Auto. -->
+            <intent-filter>
+                <action android:name="android.media.action.MEDIA_PLAY_FROM_SEARCH" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
         </activity>
         <service
             android:name=".playback.MusicPlaybackService"

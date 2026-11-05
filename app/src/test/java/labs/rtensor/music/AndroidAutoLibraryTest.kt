@@ -130,6 +130,8 @@ class AndroidAutoLibraryTest {
         }
         assertEquals("media", uses)
         assertNotEquals(0, meta.getInt("com.google.android.gms.car.notification.SmallIcon"))
+        val voice = pm.queryIntentActivities(android.content.Intent(android.provider.MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH).setPackage(context.packageName), 0)
+        assertEquals(listOf("labs.rtensor.music.MainActivity"), voice.map { it.activityInfo.name })
     }
 
     @Test fun rootOffersBrowsableTabsWithCarContentStylesAndSearch() {

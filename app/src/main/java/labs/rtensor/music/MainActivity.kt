@@ -36,12 +36,19 @@ import labs.rtensor.music.auth.DeviceYouTubeSignIn
 import labs.rtensor.music.auth.GoogleAccountSignIn
 import androidx.media3.common.util.UnstableApi
 import labs.rtensor.music.ui.MusicApp
+import android.content.ComponentName
+import androidx.media3.common.MediaItem
+import androidx.media3.session.MediaController
+import androidx.media3.session.SessionToken
+import com.google.common.util.concurrent.ListenableFuture
+import labs.rtensor.music.playback.MusicPlaybackService
 
 @UnstableApi
 class MainActivity : ComponentActivity() {
     private val model: MusicViewModel by viewModels()
     private var sharedQuery by mutableStateOf<String?>(null)
     private var pendingInstall: String? = null
+    private var voiceController: ListenableFuture<MediaController>? = null
     private val googleSignIn by lazy { GoogleAccountSignIn(applicationContext) }
     private var googleJob: Job? = null
     private val installPermission = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
@@ -73,6 +80,7 @@ class MainActivity : ComponentActivity() {
         // the share was already searched, so only a fresh launch accepts it.
         sharedQuery = sharedQuery(intent, restored = savedInstanceState != null)
         if (savedInstanceState == null) acceptTidalSignIn(intent)
+        acceptVoiceSearch(intent, restored = savedInstanceState != null)
         setContent {
             val state by model.state.collectAsStateWithLifecycle()
             val notifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
@@ -196,7 +204,8 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); acceptShare(intent); acceptTidalSignIn(intent) }
+    override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); acceptShare(intent); acceptTidalSignIn(intent); acceptVoiceSearch(intent, restored = false) }
+    override fun onDestroy() { voiceController?.let(MediaController::releaseFuture); voiceController = null; super.onDestroy() }
     override fun onSaveInstanceState(outState: Bundle) { outState.putLong("appleTicket", appleTicket); super.onSaveInstanceState(outState) }
 
     private fun connectTidal() {
@@ -213,11 +222,33 @@ class MainActivity : ComponentActivity() {
         model.finishTidalSignIn(uri)
     }
 
+    /** "Play … on Music": the playback service searches and plays, as it does for the car;
+     * the search also opens on screen so the driver or listener can choose another result. */
+    private fun acceptVoiceSearch(intent: Intent?, restored: Boolean) {
+        val query = voiceQuery(intent, restored) ?: return
+        if (query.isNotBlank()) sharedQuery = query
+        voiceController?.let(MediaController::releaseFuture)
+        val future = MediaController.Builder(this, SessionToken(this, ComponentName(this, MusicPlaybackService::class.java))).buildAsync()
+        voiceController = future
+        future.addListener({
+            val controller = runCatching { future.get() }.getOrNull() ?: return@addListener
+            controller.setMediaItem(MediaItem.Builder().setRequestMetadata(MediaItem.RequestMetadata.Builder().setSearchQuery(query).build()).build())
+            controller.prepare(); controller.play()
+        }, ContextCompat.getMainExecutor(this))
+    }
+
     private fun acceptShare(intent: Intent?) {
         sharedQuery(intent, restored = false)?.let { sharedQuery = it }
     }
 
     companion object {
+        /** The query of a fresh "play from search" request ("" means play anything), or null. */
+        internal fun voiceQuery(intent: Intent?, restored: Boolean): String? {
+            if (restored || intent == null || intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0) return null
+            if (intent.action != android.provider.MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH) return null
+            return intent.getStringExtra(android.app.SearchManager.QUERY).orEmpty().trim().take(400)
+        }
+
         /**
          * The text of a "Share to Music" intent, or null when there is none or it was already
          * handled: a restored activity and a launch from Recents replay the original intent.
