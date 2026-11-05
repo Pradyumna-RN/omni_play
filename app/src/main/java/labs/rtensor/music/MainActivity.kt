@@ -110,7 +110,7 @@ class MainActivity : ComponentActivity() {
                 onPlay = model::play, onToggle = model::toggle,
                 onPrevious = model::previous, onNext = model::next, onSkipTo = model::skipTo,
                 onSeek = model::seek, onSave = model::save,
-                onTheme = model::theme,
+                onTheme = model::theme, onAccent = model::accent,
                 onOpenLocal = { local.launch(labs.rtensor.music.data.LocalAudioImporter.PICKER_TYPES) },
                 onChooseMasters = { mastersFolder.launch(null) }, onClearMasters = model::clearMasters,
                 onConnectSource = model::connectSource, onRemoveSource = model::removeSource,

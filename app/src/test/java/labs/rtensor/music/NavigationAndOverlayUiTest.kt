@@ -33,20 +33,20 @@ class NavigationAndOverlayUiTest {
     @Test fun systemBackFromATabMakesHomeTheRootForLaterPages() {
         compose.setContent { MusicApp(MusicState(reducedMotion = true)) }
         compose.onNodeWithContentDescription("Explore").performClick()
-        compose.onNodeWithText("Explore.").assertIsDisplayed()
+        compose.onNodeWithText("Explore").assertIsDisplayed()
         systemBack()
-        compose.onNodeWithText("Explore.").assertDoesNotExist()
+        compose.onNodeWithText("Explore").assertDoesNotExist()
         compose.onNodeWithContentDescription("Home").assertIsSelected()
         // Settings opened from Home must return to Home, not to the tab left a moment ago.
         compose.onNodeWithContentDescription("Open settings").performClick()
-        compose.onNodeWithText("Settings.").assertIsDisplayed()
+        compose.onNode(hasText("Settings") and isHeading()).assertIsDisplayed()
         compose.onNodeWithContentDescription("Back").performClick()
-        compose.onNodeWithText("Explore.").assertDoesNotExist()
+        compose.onNodeWithText("Explore").assertDoesNotExist()
         compose.onNodeWithContentDescription("Home").assertIsSelected()
         // System back from Settings resolves to the same page as the header's back.
         compose.onNodeWithContentDescription("Open settings").performClick()
         systemBack()
-        compose.onNodeWithText("Explore.").assertDoesNotExist()
+        compose.onNodeWithText("Explore").assertDoesNotExist()
         compose.onNodeWithContentDescription("Home").assertIsSelected()
     }
 
@@ -142,7 +142,7 @@ class NavigationAndOverlayUiTest {
         }
         compose.onNodeWithText("YouTube Music did not answer.").assertIsDisplayed()
         val before = compose.runOnIdle { refreshes }
-        compose.onNodeWithText("RETRY").performClick()
+        compose.onNodeWithText("Retry").performClick()
         compose.runOnIdle { assertEquals(before + 1, refreshes) }
     }
 
@@ -167,13 +167,13 @@ class NavigationAndOverlayUiTest {
         val state = mutableStateOf(MusicState(current = track, queue = listOf(track, other), queueIndex = 0, playing = true, buffering = true,
             durationMs = 200_000, reducedMotion = true))
         compose.setContent { MusicApp(state.value, initialPage = "now", onToggle = { toggles++ }, onNext = { nexts++ }, onPrevious = { previous++ }) }
-        compose.onNode(hasClickAction() and hasText("Loading")).assertIsEnabled().performClick()
+        compose.onNode(hasClickAction() and hasContentDescription("Loading")).assertIsEnabled().performClick()
         compose.onNodeWithContentDescription("Next").assertIsEnabled().performClick()
         compose.onNodeWithContentDescription("Previous").assertIsEnabled().performClick()
         compose.runOnIdle { assertEquals(listOf(1, 1, 1), listOf(toggles, nexts, previous)) }
         // While the audio is still being found there is nothing to pause yet, in either player.
         compose.runOnIdle { state.value = state.value.copy(buffering = false, resolving = true) }
-        compose.onNode(hasClickAction() and hasText("Loading")).assertIsNotEnabled()
+        compose.onNode(hasClickAction() and hasContentDescription("Loading")).assertIsNotEnabled()
         compose.onNodeWithContentDescription("Next").assertIsEnabled()
     }
 

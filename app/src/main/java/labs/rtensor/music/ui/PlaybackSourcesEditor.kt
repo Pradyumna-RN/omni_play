@@ -54,8 +54,8 @@ internal fun PlaybackSourcesEditor(state: MusicState, onDismiss: () -> Unit,
                 }, fontSize = 12.sp, lineHeight = 17.sp, color = scheme.onSurfaceVariant)
                 if (state.appleAccount.connecting || state.appleAccount.needsCode) TextButton(onClick = onCancelApple) { Text("Cancel Apple sign-in") }
                 else {
-                    OutlinedButton(onClick = onConnectApple, shape = RectangleShape) { Text("Sign in · AAC stereo") }
-                    if (labs.rtensor.music.BuildConfig.APPLE_NATIVE_INCLUDED) OutlinedButton(onClick = onNativeApple, shape = RectangleShape) { Text("Set up lossless & multichannel") }
+                    OutlinedButton(onClick = onConnectApple, shape = ButtonShape) { Text("Sign in · AAC stereo") }
+                    if (labs.rtensor.music.BuildConfig.APPLE_NATIVE_INCLUDED) OutlinedButton(onClick = onNativeApple, shape = ButtonShape) { Text("Set up lossless & multichannel") }
                 }
                 if (state.appleAccount.connected) TextButton(onClick = onDisconnectApple) { Text("Disconnect Apple Music") }
                 state.appleAccount.error?.let { Text(it, fontSize = 12.sp, lineHeight = 17.sp, color = scheme.onSurface) }
@@ -68,7 +68,7 @@ internal fun PlaybackSourcesEditor(state: MusicState, onDismiss: () -> Unit,
                     else "Sign in with your subscription. No music server needed.", fontSize = 12.sp, lineHeight = 17.sp, color = scheme.onSurfaceVariant)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (state.tidalAccount.connecting) TextButton(onClick = onCancelTidal) { Text("Cancel TIDAL sign-in") }
-                    else OutlinedButton(onClick = onConnectTidal, shape = RectangleShape) {
+                    else OutlinedButton(onClick = onConnectTidal, shape = ButtonShape) {
                         Text(if (state.tidalAccount.connected) "Reconnect TIDAL" else "Sign in to TIDAL")
                     }
                     if (state.tidalAccount.connected) TextButton(onClick = onDisconnectTidal) { Text("Disconnect TIDAL") }
@@ -90,7 +90,7 @@ internal fun PlaybackSourcesEditor(state: MusicState, onDismiss: () -> Unit,
             }
         }
         if (!adding) {
-            OutlinedButton(onClick = { adding = true }, enabled = count < 4, shape = RectangleShape) { Text("Add a source") }
+            OutlinedButton(onClick = { adding = true }, enabled = count < 4, shape = ButtonShape) { Text("Add a source") }
         } else {
             FieldLabel("Connection type")
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -127,7 +127,7 @@ internal fun PlaybackSourcesEditor(state: MusicState, onDismiss: () -> Unit,
             TextButton(onClick = onDismiss) { Text("Done") }
             if (adding) {
                 Spacer(Modifier.width(8.dp))
-                Button(onClick = { onConnect(provider, protocol, url, token) }, enabled = url.isNotBlank() && !busy, shape = RectangleShape) {
+                Button(onClick = { onConnect(provider, protocol, url, token) }, enabled = url.isNotBlank() && !busy, shape = ButtonShape) {
                     Text(if (busy) "Checking…" else "Check and save")
                 }
             }

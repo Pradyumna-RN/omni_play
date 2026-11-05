@@ -45,12 +45,12 @@ class NativeUiTest {
 
     @Test fun homeAndNavigation() {
         compose.setContent { MusicApp(MusicState(theme = "light", reducedMotion = true)) }
-        compose.onNodeWithText("Room to listen.").assertIsDisplayed()
+        compose.onNodeWithText("Room to listen").assertIsDisplayed()
         compose.onNodeWithText("Already yours").assertDoesNotExist()
         capture("home")
         compose.onNodeWithContentDescription("Search music").assertIsDisplayed()
         compose.onNodeWithContentDescription("Explore").performClick()
-        compose.onNodeWithText("Explore.").assertIsDisplayed()
+        compose.onNodeWithText("Explore").assertIsDisplayed()
         compose.onNodeWithContentDescription("Search").assertDoesNotExist()
         capture("explore")
         compose.onNodeWithContentDescription("Open settings").performClick()
@@ -72,8 +72,8 @@ class NativeUiTest {
         compose.onAllNodesWithContentDescription("Save").assertCountEquals(1)
         compose.onNodeWithContentDescription("Save").performScrollTo().performClick()
         compose.onNodeWithContentDescription("Saved").assertExists()
-        compose.onNodeWithText("Pause").performScrollTo().performClick()
-        compose.onNodeWithText("Play").assertExists()
+        compose.onNodeWithContentDescription("Pause").performScrollTo().performClick()
+        compose.onNodeWithContentDescription("Play").assertExists()
         capture("player")
     }
 
@@ -103,7 +103,7 @@ class NativeUiTest {
     @Test @Config(sdk = [35], qualifiers = "w320dp-h740dp-mdpi")
     fun compactPlayerKeepsTransportReachable() {
         compose.setContent { MusicApp(MusicState(current = track, durationMs = 224000, reducedMotion = true, theme = "light"), initialPage = "now") }
-        compose.onNodeWithText("Play").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithContentDescription("Play").performScrollTo().assertIsDisplayed()
         compose.onNodeWithContentDescription("Save").assertIsDisplayed()
         capture("player-320")
     }
@@ -129,9 +129,9 @@ class NativeUiTest {
         org.junit.Assert.assertTrue(submitted)
         compose.onNodeWithText("1 RESULTS").assertIsDisplayed()
         compose.onNodeWithText("Afterimage").assertIsDisplayed()
-        compose.onNodeWithText("Explore.").assertDoesNotExist()
+        compose.onNodeWithText("Explore").assertDoesNotExist()
         compose.onNodeWithContentDescription("Clear search").performClick()
-        compose.onNodeWithText("Explore.").assertIsDisplayed()
+        compose.onNodeWithText("Explore").assertIsDisplayed()
     }
     @Test fun playerErrorProvidesCopyableDiagnostics() {
         compose.setContent { MusicApp(MusicState(current = track, error = "YouTube rejected the audio stream (HTTP 403).", errorDiagnostic = "YTMUSIC: media probe HTTP 403", reducedMotion = true, theme = "light"), initialPage = "now") }

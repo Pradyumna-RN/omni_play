@@ -120,7 +120,7 @@ class PlayerMotionTest {
         compose.mainClock.autoAdvance = false
         val state = mutableStateOf(initial())
         compose.setContent { MusicApp(state.value, initialPage = "now") }
-        frame(); val play = compose.onNodeWithText("Play").fetchSemanticsNode().boundsInRoot
+        frame(); val play = compose.onNodeWithContentDescription("Play").fetchSemanticsNode().boundsInRoot
         capture("track-before")
         compose.runOnIdle { state.value = state.value.copy(current = two, queueIndex = 1, buffering = true) }
         capture("track-sequence-000")
@@ -129,11 +129,11 @@ class PlayerMotionTest {
         capture("track-crossfade-80ms")
         repeat(15) { index -> frame(16); capture("track-sequence-${(index + 6).toString().padStart(3, '0')}") }
         compose.onNodeWithText(one.title).assertDoesNotExist(); compose.onNodeWithText(two.title).assertIsDisplayed()
-        val loading = compose.onNodeWithText("Loading").fetchSemanticsNode().boundsInRoot
+        val loading = compose.onNodeWithContentDescription("Loading").fetchSemanticsNode().boundsInRoot
         assertEquals(play.center.y, loading.center.y, 1f)
         compose.runOnIdle { state.value = state.value.copy(buffering = false) }
         frame(300)
-        assertEquals(play.center.y, compose.onNodeWithText("Play").fetchSemanticsNode().boundsInRoot.center.y, 1f)
+        assertEquals(play.center.y, compose.onNodeWithContentDescription("Play").fetchSemanticsNode().boundsInRoot.center.y, 1f)
         capture("track-after")
     }
 
@@ -142,13 +142,13 @@ class PlayerMotionTest {
         val state = mutableStateOf(initial().copy(playing = true, positionMs = 72000))
         compose.setContent { MusicApp(state.value, initialPage = "now") }
         fun fraction() = compose.onNodeWithContentDescription("Playback position").fetchSemanticsNode().config[SemanticsProperties.ProgressBarRangeInfo].current
-        frame(); compose.onNodeWithText("Pause").assertIsDisplayed(); val before = fraction()
+        frame(); compose.onNodeWithContentDescription("Pause").assertIsDisplayed(); val before = fraction()
         frame(1000); val after = fraction()
         assertTrue(after > before); assertEquals(1000f / one.durationMs, after - before, .001f)
         compose.runOnIdle { state.value = state.value.copy(playing = false, positionMs = 73000) }
         frame(); val paused = fraction(); frame(4000)
         assertEquals(paused, fraction(), .00001f)
-        compose.onNodeWithText("Pause").assertDoesNotExist(); compose.onNodeWithText("Play").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Pause").assertDoesNotExist(); compose.onNodeWithContentDescription("Play").assertIsDisplayed()
         compose.runOnIdle { state.value = state.value.copy(loadingTrack = two) }
         frame(32)
         compose.onNodeWithContentDescription("Playback position").assertIsNotEnabled()
@@ -206,7 +206,7 @@ class PlayerMotionTest {
         frame(500); cover().assertIsDisplayed()
         compose.onNodeWithContentDescription("Back").performClick()
         frame(500); capture("mini-player-returned")
-        compose.onNodeWithText("Room to listen.").assertIsDisplayed()
+        compose.onNodeWithText("Room to listen").assertIsDisplayed()
         compose.onNodeWithText(one.title).assertIsDisplayed()
     }
 
@@ -233,10 +233,10 @@ class PlayerMotionTest {
             compose.onNode(hasScrollAction() and hasAnyDescendant(hasText(title))).performTouchInput { swipeDown(durationMillis = 600) }
             frame(600)
         }
-        pull("For your ears."); assertEquals(1, home)
-        pull("For your ears."); assertEquals(1, home)
+        pull("For your ears"); assertEquals(1, home)
+        pull("For your ears"); assertEquals(1, home)
         compose.onNodeWithContentDescription("Explore").performClick(); frame(600)
-        pull("Explore."); assertEquals(1, explore)
+        pull("Explore"); assertEquals(1, explore)
     }
 
     @Test @Config(sdk = [35], qualifiers = "w320dp-h740dp-mdpi")
@@ -244,7 +244,7 @@ class PlayerMotionTest {
         compose.setContent { CompositionLocalProvider(LocalDensity provides Density(1f, 1.5f)) {
             MusicApp(initial().copy(current = one.copy(title = "An unusually long recording title that needs several lines"), reducedMotion = true), initialPage = "now")
         } }
-        compose.onNodeWithText("Play").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithContentDescription("Play").performScrollTo().assertIsDisplayed()
         compose.onNodeWithContentDescription("Save").assertIsDisplayed()
         compose.onNode(hasScrollAction()).performScrollToNode(hasText(three.title))
         compose.onNodeWithText(three.title).assertIsDisplayed()

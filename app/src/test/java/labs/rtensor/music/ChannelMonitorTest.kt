@@ -94,7 +94,7 @@ class ChannelMonitorTest {
         assertEquals(before, roots)
         compose.onNodeWithText("Measured activity · before device volume").performScrollTo()
         capture("channel-monitor-dark-stereo")
-        compose.onNodeWithText("Pause").performScrollTo().performClick()
+        compose.onNodeWithContentDescription("Pause").performScrollTo().performClick()
         compose.runOnIdle { assertEquals(1, toggles) }
     }
     @Test fun unknownLayoutUsesNumberedChannelsInsteadOfInventingSpeakerPositions() {

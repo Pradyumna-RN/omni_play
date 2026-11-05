@@ -109,6 +109,8 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer-hls:1.6.1")
     implementation("androidx.media3:media3-session:1.6.1")
     implementation("io.coil-kt:coil-compose:2.7.0")
+    // Apache-2.0. Picks the "From the cover" accent from the current song's artwork.
+    implementation("androidx.palette:palette:1.0.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     testImplementation("junit:junit:4.13.2")

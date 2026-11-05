@@ -77,6 +77,7 @@ class ControlInventoryTest {
             onPrevious = { rec("onPrevious") }, onNext = { rec("onNext") }, onSkipTo = { rec("onSkipTo", it) },
             onSeek = { rec("onSeek", it) }, onSave = { rec("onSave", it) },
             onTheme = { rec("onTheme", it) },
+            onAccent = { rec("onAccent", it.wire) },
             onOpenLocal = { rec("onOpenLocal") }, onChooseMasters = { rec("onChooseMasters") }, onClearMasters = { rec("onClearMasters") },
             onConnectSource = { p, pr, u, t -> rec("onConnectSource", p, pr, u, t) }, onRemoveSource = { rec("onRemoveSource", it) },
             onConnectTidal = { rec("onConnectTidal") }, onDisconnectTidal = { rec("onDisconnectTidal") }, onCancelTidal = { rec("onCancelTidal") },
@@ -301,8 +302,8 @@ class ControlInventoryTest {
 
     /** Which screen is on top, read from its title or header caption. */
     private fun screen(): String {
-        val titles = mapOf("Room to listen." to "home", "Back to your music." to "home", "For your ears." to "home",
-            "Explore." to "explore", "Library." to "library", "Settings." to "settings", "NOW PLAYING" to "now", "COLLECTION" to "collection")
+        val titles = mapOf("Room to listen" to "home", "Back to your music" to "home", "For your ears" to "home",
+            "Explore" to "explore", "Library" to "library", "Settings" to "settings", "Now playing" to "now", "Collection" to "collection")
         val shown = titles.filterKeys { compose.onAllNodesWithText(it).fetchSemanticsNodes().isNotEmpty() }.values.toSet()
         assertEquals("Exactly one screen should be shown, saw $shown", 1, shown.size)
         return shown.single()
@@ -387,9 +388,11 @@ class ControlInventoryTest {
     @Test fun nowScreenTransportQueueAndSaveFireTheRightCallbacks() {
         host(playing.copy(radioError = "Recommendations failed."), "now")
         compose.onNodeWithContentDescription("Previous").performClick()
-        compose.onNodeWithText("Pause").performClick()
+        compose.onNodeWithContentDescription("Pause").performClick()
         compose.onNodeWithContentDescription("Next").performClick()
         compose.onNodeWithContentDescription("Save").performClick()
+        // The full-width cover pushes the queue below the fold, so scroll the list to it first.
+        compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasText("Low Tide"))
         compose.onNodeWithText("Low Tide").performScrollTo().performClick()
         compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasText("Retry recommendations"))
         compose.onNodeWithText("Retry recommendations").performClick()
@@ -415,7 +418,7 @@ class ControlInventoryTest {
         compose.onNodeWithContentDescription("Next recording").assertIsEnabled()
         openMiniPlayer()
         assertEquals("now", screen())
-        compose.onNode(hasClickAction() and hasText("Loading")).assertIsEnabled()
+        compose.onNode(hasClickAction() and hasContentDescription("Loading")).assertIsEnabled()
         compose.onNodeWithContentDescription("Next").assertIsEnabled()
         compose.onNodeWithContentDescription("Previous").assertIsEnabled()
     }
@@ -451,7 +454,7 @@ class ControlInventoryTest {
 
     @Test fun homeHeroAndRecommendationControls() {
         host(playing.copy(current = other, queue = listOf(other), queueIndex = 0, forYou = listOf(third, other), feedHasMore = true, feedError = "Feed unavailable"))
-        compose.onNodeWithText("RETRY").performClick()
+        compose.onNodeWithText("Retry").performClick()
         compose.runOnIdle { assertEquals(listOf("onRefreshFeed()", "onRefreshForYou()"), calls) }
         calls.clear()
         compose.onNodeWithText("Play mix").performScrollTo().performClick()
@@ -542,13 +545,14 @@ class ControlInventoryTest {
         compose.onNodeWithText("Autoplay radio").performClick()
         compose.onNodeWithContentDescription("Dark theme").performScrollTo().performClick()
         compose.onNodeWithContentDescription("Device theme").performClick()
+        compose.onNodeWithContentDescription("Moss accent colour").performScrollTo().performClick()
         compose.onNodeWithContentDescription("Keep listening history").performScrollTo().performClick()
         compose.onNodeWithText("Check updates").performScrollTo().performClick()
         compose.onNodeWithText("Download").performScrollTo().performClick()
         compose.onNodeWithContentDescription("Developer options").performScrollTo().performClick()
         compose.runOnIdle {
             assertEquals(listOf("onConnectSpotify()", "onRecommendationEngine(YOUTUBE)", "onAutoplay(false)", "onAutoplay(false)",
-                "onTheme(dark)", "onTheme(system)", "onTrackHistory(false)", "onCheckUpdates()", "onDownloadUpdate()", "onDeveloperOptions(true)"), calls)
+                "onTheme(dark)", "onTheme(system)", "onAccent(moss)", "onTrackHistory(false)", "onCheckUpdates()", "onDownloadUpdate()", "onDeveloperOptions(true)"), calls)
         }
     }
 
