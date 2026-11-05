@@ -1,3 +1,34 @@
+# Music 0.3.34 / feed, cover colours and Spotify sign-in
+
+This release fixes three problems reported on 0.3.33:
+
+- **More from your feed** reshuffled Home instead of adding songs. Home's
+  "New to your ears" group took the last six unheard songs of the whole feed, so
+  each new page replaced what was on screen. Added pages now append only songs not
+  already loaded or played, keep existing rows in place, and fetch up to three
+  pages when a page brings nothing new.
+- **From the cover** cached any failed artwork load as "no colour" for the whole
+  session, gave up on dark, muted and black-and-white covers, and counted YouTube
+  side panels and letterbox bars. Failed loads now retry, bars are cropped, and the
+  colour that fills most of the cover is used. Measured locally on 24 real covers:
+  colours appeared for 18 before and 24 after (the images are not in the repository;
+  tests use generated covers).
+- **Spotify sign-in** could cancel silently, trap users with a second "Continue"
+  button, and block Google, Facebook and Apple hand-off pages. Every exit now shows
+  a reason in Settings, the page's button is "Connect", and the hand-off hosts are
+  allowed during interactive sign-in only.
+
+The release target is **0.3.34 / versionCode 37**, Android 11+, ARM64/x86-64 and
+the existing signing identity. The full app run passed **481 checks with no
+failures or errors (2 skipped)** on the release source; release packaging, the
+OTA/DSP, decoder, Apple adapter, surround-bed and optimization guards run on the
+final APK. Native decoder, DSP and Apple adapter/runtime bytes are unchanged from
+0.3.33 and were taken from the 0.3.33 release APK; their hashes match the 0.3.33
+`decoder-validation.json`. No physical phone, car or signed-in Spotify session was
+used for this release.
+
+## Previous release baseline
+
 # Music 0.3.33 / player, accents and Android Auto
 
 This release reviews Claude's merged player/accent redesign, playback and account
