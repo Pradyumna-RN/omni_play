@@ -1,3 +1,30 @@
+# Music 0.3.35 / looks, Home shelves, player and sign-in fixes
+
+- **Three looks** (Settings › Appearance › Look): Listening room (new default; dark first,
+  poster titles, a room panel on Home with the real speaker layout lit in the cover's
+  colour), Soft (the 0.3.31 rounded raspberry design with the blurred cover wash) and
+  Classic (the 0.3.32 Signal design). All behaviour is shared; sign-in pages follow the look.
+- **Home shelves**: "Next up for you" (paged four-row song grid), "Play it again" (hidden
+  when listening history is off) and "Your mixes", then "New to your ears". "More from your
+  feed" again swaps in the next set of songs, as in 0.3.32.
+- **Player and notification**: Next/Previous from the notification, lock screen, headset or
+  car work after a failed song; the notification clock and Play/Pause stay correct during a
+  call; Play during a call no longer pauses; radio that arrives after the queue ended starts
+  playing; the playing song is marked in lists; the playback clock ticks ten times a second
+  instead of every frame.
+- **Sign-in**: a temporary Android KeyStore error no longer signs you out of everything;
+  Spotify sign-out sticks; YouTube and Apple sign-in pages say why they stopped, survive
+  theme/keyboard changes, and a crashed sign-in page no longer ends playback.
+- **Accessibility and copy**: 48dp targets, no clipping at large text, readable contrast in
+  every look, announced error banners with plain wording.
+
+Recommendation ranking is unchanged: Music shows the chosen provider's (YouTube Music or
+Spotify) recommendations. The release target is **0.3.35 / versionCode 38**, Android 11+,
+ARM64/x86-64 and the existing signing identity. Native decoder, DSP and Apple adapter/runtime
+bytes are unchanged from 0.3.33/0.3.34. No physical phone, car or signed-in account was used.
+
+## Previous release baseline
+
 # Music 0.3.34 / feed, cover colours and Spotify sign-in
 
 This release fixes three problems reported on 0.3.33:

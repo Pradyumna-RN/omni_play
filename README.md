@@ -49,7 +49,7 @@ those features improve.
 
 ## Quick guide
 
-1. **Install or update.** Get the [current preview release](https://github.com/RTensorLabs/music-app/releases/tag/v0.3.34).
+1. **Install or update.** Get the [current preview release](https://github.com/RTensorLabs/music-app/releases/tag/v0.3.35).
    Existing installations can use **Settings → About → Check updates**.
 2. **Choose recommendations.** Open **Settings → Playback → Recommendation source**.
    YouTube Music is the default. Selecting Spotify starts its sign-in; the choice
@@ -290,11 +290,10 @@ code. The Android installer asks the user to confirm installation.
 
 ## Current release
 
-[Music 0.3.34](https://github.com/RTensorLabs/music-app/releases/tag/v0.3.34)
-fixes "More from your feed" (it now adds new songs instead of reshuffling Home),
-makes "From the cover" colours work for real artwork, and makes Spotify sign-in
-say why it stopped instead of failing silently. The optimized release targets
-Android 11+, ARM64 and x86-64, and stays below 100 MB.
+[Music 0.3.35](https://github.com/RTensorLabs/music-app/releases/tag/v0.3.35)
+adds a choice of three looks (Listening room, the new default; Soft, the original
+rounded design; and Classic), recommendation shelves on Home, the 0.3.32-style
+"More from your feed", player and notification fixes, and clearer sign-in errors.
 
 Automated app checks cover the player, navigation, account recovery, car browsing
 and queue selection. Existing DSP and browser results remain baseline evidence;
