@@ -59,6 +59,7 @@ class MusicPlaybackService : MediaSessionService() {
         super.onCreate()
         setMediaNotificationProvider(PlayerNotification(this))
         val youtube = YouTubeSource(this)
+        val spotifyMatches = labs.rtensor.music.spotify.SpotifyTrackMatcher.get(this)
         val http = PlaybackDataSource.httpFactory()
         val resolving = ResolvingDataSource.Factory(DefaultDataSource.Factory(this, DataSource.Factory { GoogleVideoDataSource(http.createDataSource()) })) { spec ->
             val catalogueUrl = YouTubeLink.normalize(spec.uri.toString())
@@ -121,7 +122,7 @@ class MusicPlaybackService : MediaSessionService() {
                     .build()
         }
         val player = ExoPlayer.Builder(this, renderers)
-            .setMediaSourceFactory(ProviderMediaSourceFactory(DefaultMediaSourceFactory(cachedData), remoteFactory, sources))
+            .setMediaSourceFactory(ProviderMediaSourceFactory(DefaultMediaSourceFactory(cachedData), remoteFactory, sources, spotifyMatches::resolve))
             // A deeper forward buffer (as in open-source YouTube Music players) rides out
             // slow media-server ranges; 50 s of audio is well under 1 MB.
             .setLoadControl(DefaultLoadControl.Builder().setBufferDurationsMs(50_000, 50_000, 750, 2_000)
@@ -191,8 +192,11 @@ class MusicPlaybackService : MediaSessionService() {
                 val nextItem = player.getMediaItemAt(player.nextMediaItemIndex)
                 val next = nextItem.localConfiguration ?: return
                 val nextExtras = nextItem.mediaMetadata.extras
-                val url = YouTubeLink.normalize(next.uri.toString()) ?: return
-                val key = next.customCacheKey ?: url
+                if (nextExtras?.containsKey("local_master") == true) return
+                val url = YouTubeLink.normalize(next.uri.toString())
+                val catalogueTrack = nextExtras?.getString("catalogue_track")?.let { runCatching { Track.fromJson(org.json.JSONObject(it)) }.getOrNull() }
+                if (url == null && catalogueTrack?.let(labs.rtensor.music.spotify.SpotifyTrackMatcher::pending) != true) return
+                val key = next.customCacheKey ?: next.uri.toString()
                 if (preloadKey == key) return
                 preloadKey = key; preloadJob?.cancel()
                 // Start only after current audio plays; never hold the next song's bytes or proof open.
@@ -204,7 +208,8 @@ class MusicPlaybackService : MediaSessionService() {
                             val local = extras?.getString("local_master")?.let { labs.rtensor.music.data.Master.fromJson(org.json.JSONObject(it)) }
                             if (track != null && sources.choose(track, key, local) != null) return@launch
                         }
-                        val audio = youtube.resolve(Track(url, "", "", url), background = true)
+                        val playbackUrl = url ?: spotifyMatches.resolve(checkNotNull(catalogueTrack)).url
+                        val audio = youtube.resolve(Track(playbackUrl, "", "", playbackUrl), background = true)
                         if (audio.playbackPath !in paths.rejected(key)) resolvedStreams[key] = CachedAudio(audio, android.os.SystemClock.elapsedRealtime())
                     } catch (e: CancellationException) { throw e } catch (_: Exception) { /* Resolve normally on selection. */ }
                 }
@@ -223,7 +228,8 @@ class MusicPlaybackService : MediaSessionService() {
                     if (controller.packageName != packageName) return Futures.immediateFuture(mutableListOf())
                     val permitted = mediaItems.filter {
                         val uri = it.localConfiguration?.uri
-                        uri?.scheme == "content" || (uri?.scheme == "https" && YouTubeLink.normalize(uri.toString())?.contains("/watch?v=") == true)
+                        uri?.scheme == "content" || (uri?.scheme == "https" && YouTubeLink.normalize(uri.toString())?.contains("/watch?v=") == true) ||
+                            spotifyCatalogueItem(it)
                     }
                     return Futures.immediateFuture(permitted.toMutableList())
                 }
@@ -231,6 +237,15 @@ class MusicPlaybackService : MediaSessionService() {
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session
+
+    companion object {
+        internal fun spotifyCatalogueItem(item: MediaItem): Boolean = runCatching {
+            val track = Track.fromJson(org.json.JSONObject(item.mediaMetadata.extras?.getString("catalogue_track") ?: return@runCatching false))
+            labs.rtensor.music.spotify.SpotifyTrackMatcher.pending(track) &&
+                track.source == labs.rtensor.music.data.Source.YOUTUBE &&
+                item.localConfiguration?.uri.toString() == "https://open.spotify.com/track/${track.spotifyId}"
+        }.getOrDefault(false)
+    }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         if (session?.player?.playWhenReady != true) stopSelf()

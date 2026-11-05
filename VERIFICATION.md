@@ -1,4 +1,49 @@
-# Current verification: Music 0.3.29 / developer-only monitor and release build
+# Current verification: Music 0.3.30 / recommendation source choice
+
+**269 unique app checks, 86 DSP checks and nine browser-bridge checks pass**, with
+no failures, errors or skips. The full app run passes 268 checks; the final
+36-check affected run adds one MediaSession diagnostics regression. Debug lint
+passes. All four README architecture diagrams and the Spotify data-flow diagram
+render successfully.
+
+- Compose checks exercise the actual recommendation chips: YouTube defaults on,
+  disconnected Spotify opens sign-in without falsely selecting it, verified
+  accounts switch both ways, preferences persist and Disconnect invokes its action.
+- Engine checks cover stable discovery identity, strict artist/title/duration/
+  edition matching, seven-day match cache expiry and duplicate in-flight lookups,
+  ten-minute catalogue caching, provider radio order, local-file exclusion,
+  account expiry and stale feed/sign-in rejection.
+- Real MediaSource tests prove lazy matching with providers disabled, priority for
+  an already selected local lossless file, preserved queue/cache/discovery identity,
+  a clear match failure before requesting audio and canonical session-URI gating.
+  The final error check uses Media3 PlaybackException bundle serialization to
+  confirm why app-specific matching failures need in-process retention.
+- Queue checks preserve the current song/position/Play state and manually queued
+  tracks while replacing only generated future tracks. Late results from the old
+  provider cannot append after switching. Existing player, import, library,
+  provider, updater and DSP regressions remain covered by the full run.
+- Simulated page tests cover metadata privacy, anonymous-account rejection,
+  provider feed/radio and collection paging, origin/subframe and command guards,
+  sanitised errors, concurrent operation discovery and recovery from a temporary
+  asset failure. Current public Spotify desktop/search assets contain all five
+  required operation definitions; this is public-interface evidence only.
+
+Spotify is **experimental and metadata-only**. No real Spotify session, Android
+phone, personalised response or device smoothness was verified. Search remains
+YouTube search. Matching is metadata-based, not an audio fingerprint/ISRC proof.
+[Setup, architecture and limitations](SPOTIFY_RECOMMENDATIONS.md).
+
+Release packaging retains Android 11+, ARM64/x86-64 and the existing update signing
+identity. The release process runs R8/resource shrinking, release lint, the exact
+native/runtime guards and the under-100-MB optimization guard. Actual artifact
+size, hashes, source commit and completed checks are recorded in the release's
+`decoder-validation.json` and `SHA256SUMS`; source-level unit tests do not replace
+physical-device validation. Existing native/vendor binaries and DMR processing
+are retained; the new code changes discovery and routing, not their implementation.
+
+Version **0.3.30/code33** targets the existing normal preview OTA feed.
+
+# Previous verification: Music 0.3.29 / developer-only monitor and release build
 
 35 targeted app checks pass with no failures, errors or skips: three developer
 options checks, seven channel-monitor checks, ten player-comparison checks, four

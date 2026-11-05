@@ -19,7 +19,12 @@ flowchart TB
     VM <--> STORE["Local library and settings<br/>Saved songs / history / files"]
     VM <--> YT["YouTube data layer<br/>Catalogue and stream URLs"]
     VM --> RADIO["RadioQueue<br/>Provider recommendations / cancellation"]
-    RADIO -->|"Song radio"| YT
+    VM <--> RECS["Recommendation source<br/>YouTube Music / Spotify"]
+    RADIO -->|"Song radio"| RECS
+    RECS --> YT
+    RECS <--> SPOTIFY["Private Spotify metadata process<br/>First-party sign-in / home / radio<br/>Albums and playlists"]
+    SPOTIFY --> MATCH["Lazy recording match<br/>Title / artist / duration / edition"]
+    MATCH --> SELECT
     RADIO -->|"Append recommendations"| CONTROL
     YT <--> ENGINE["Bundled JavaScript engine<br/>Native HTTP and proof bridges"]
     ENGINE <--> CLOUD["YouTube / YouTube Music"]
@@ -34,11 +39,17 @@ flowchart TB
     AUDIO --> OUTPUT["Android audio output<br/>Phone / wired / Bluetooth / USB"]
 ```
 
-The ViewModel uses local listening history with `Recommender` for Mixed for you.
-Up next comes from YouTube Music through `RadioQueue`, preserving provider order
+The user chooses **YouTube Music or Spotify** under Settings → Playback →
+Recommendation source. Spotify connects through its own first-party sign-in page
+in an isolated metadata process. It is experimental and needs account/device
+validation; no Spotify audio or second audio player is used.
+
+The ViewModel uses local listening history only to choose seeds for Mixed for you.
+YouTube candidates retain the existing on-device ranking; Spotify pools retain
+provider order. Up next comes from the selected provider through `RadioQueue`, preserving provider order
 and excluding already-queued songs. Individual selections seed radio; explicit
 albums/playlists and Play all keep their lists. History is not an autoplay pool.
-The catalogue item keeps its YouTube identity, artwork
+The catalogue item keeps its YouTube or Spotify discovery identity, artwork
 and history when another source supplies the audio. Matching checks title, artist, duration and edition.
 Available candidates rank **JOC first → discrete lossless multichannel → lossless
 stereo by sample rate/bit depth**, with local files competing against connected
@@ -115,7 +126,8 @@ describe the current route. Decoder research remains in its standalone module.
 
 [Spotify integration research](SPOTIFY_INTEGRATION_RESEARCH.md) compares direct
 free-account playback approaches and documents the separate web-engine boundary.
-Spotify playback is not integrated or packaged in the current release.
+Spotify **recommendations** are integrated experimentally; direct Spotify audio
+playback is not. See [recommendation setup and test boundaries](SPOTIFY_RECOMMENDATIONS.md).
 
 ### Accounts, storage and updates
 
@@ -188,12 +200,34 @@ the Android installer. Installation still needs the user's confirmation.
 | [Auth](app/src/main/java/labs/rtensor/music/auth/), [YouTubeLoginActivity](app/src/main/java/labs/rtensor/music/YouTubeLoginActivity.kt) | Google account selection, device-assisted YouTube web login and session capture; TIDAL PKCE lives in the source adapter. |
 | [Playback](app/src/main/java/labs/rtensor/music/playback/) | MediaSession/ExoPlayer, source factories, cache/range handling, fallback, background playback and notification. |
 | [Playback sources](app/src/main/java/labs/rtensor/music/sources/) | TIDAL account adapter, server/addon connectors, manifest validation, matching, ranking and rendition/file identities. |
+| [Spotify catalogue](app/src/main/java/labs/rtensor/music/spotify/), [browser bridge](app/src/main/assets/spotify/catalogue.js) | Private metadata-only browser session, recommendation feed/radio, paged albums/playlists and lazy recording matching. |
 | [RadioQueue](app/src/main/java/labs/rtensor/music/playback/RadioQueue.kt) | Provider-supplied Up next, cancellation of stale requests, duplicate exclusion, and retry status. |
 | [Local data](app/src/main/java/labs/rtensor/music/data/) | Library/history, imported master matching, account storage, metadata and on-device recommendation helpers. |
 | [decoder-ffmpeg](decoder-ffmpeg/) | Software ALAC and standard AC-3/E-AC-3 surround-bed decoding before the PCM sink. |
 | [decoder-openjoc](decoder-openjoc/) | Standalone experimental reconstruction research; excluded from Music. |
 | [dsp](dsp/) | PCM/rate/layout adapter, original private DMR JNI boundary, Original/Processed comparison and diagnostics. |
 | [Updates](app/src/main/java/labs/rtensor/music/updates/) | GitHub release discovery and verified in-place APK updates. |
+
+## Music 0.3.30 — recommendation source choice
+
+**Settings → Playback → Recommendation source** offers YouTube Music and Spotify.
+Selecting Spotify opens its first-party sign-in inside Music; the choice is saved
+only after the session is verified. Home, Explore, Mixed for you and automatic
+Up next follow that choice. Switching preserves the current song, position,
+Play/Pause state and manually queued tracks, replacing only the generated tail.
+
+Spotify supplies discovery metadata and paged album/playlist tracks. Existing
+local/connected audio sources are checked first; otherwise only the selected or
+next preloaded track is matched to YouTube. Matching checks title, primary artist,
+duration and edition, and fails clearly rather than playing an unverified version.
+Matches are cached seven days, metadata ten minutes; identical requests coalesce
+and match searches are limited to three concurrent jobs. No playlist-wide audio
+lookup, account token IPC or audio-thread browser work is added.
+
+The Spotify page interface is undocumented and can change. Public build-operation
+discovery and simulated requests are tested, but real account sign-in,
+personalised results and Android device performance still need verification.
+[Setup, architecture and limitations](SPOTIFY_RECOMMENDATIONS.md).
 
 ## Music 0.3.29 — developer-only monitor and release builds
 
@@ -288,8 +322,8 @@ explicit order; provider recommendations extend their end when Autoplay is on.
 Up next preserves YouTube's recommendation order, excluding duplicates and songs
 already queued. Pending requests cannot append to a newer selection or continue
 after Autoplay is switched off. Loading and retry feedback replaces silent radio
-failures, and no history-based fallback queue is substituted. Spotify discovery
-is still a future integration; existing audio-source selection/DSP is unchanged.
+failures, and no history-based fallback queue is substituted. Spotify discovery was added experimentally in 0.3.30; existing audio-source
+selection and DSP stay in use.
 
 ## Music 0.3.22 — stable Home rows and scrolling song information
 

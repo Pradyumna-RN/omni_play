@@ -109,4 +109,32 @@ class RadioQueueTest {
             radio.request(true); assertEquals(1, calls)
         } finally { pending.complete(emptyList()); scope.cancel(); p.release() }
     }
+    @Test fun switchingProviderKeepsCurrentPositionAndManualQueueButReplacesGeneratedTail() {
+        val p = player(); val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        var provider = "YouTube Music"
+        val radio = RadioQueue(p, scope, { true }, { _, _ -> listOf(if (provider == "Spotify") song('d') else song('c')) }, ::item,
+            { _, _ -> }, { provider })
+        try {
+            p.setMediaItems(listOf(seed, song('b')).map(::item)); p.seekTo(23000); p.play(); radio.request(true)
+            assertEquals(listOf(seed.id, song('b').id, song('c').id), ids(p))
+            assertEquals("YouTube Music", p.getMediaItemAt(2).mediaMetadata.extras!!.getString("music_radio_provider"))
+            provider = "Spotify"; radio.changeProvider()
+            assertEquals(listOf(seed.id, song('b').id, song('d').id), ids(p))
+            assertEquals(23000L, p.currentPosition); assertTrue(p.playWhenReady)
+            assertEquals("Spotify", p.getMediaItemAt(2).mediaMetadata.extras!!.getString("music_radio_provider"))
+            assertNull(p.getMediaItemAt(1).mediaMetadata.extras!!.getString("music_radio_provider"))
+        } finally { scope.cancel(); p.release() }
+    }
+    @Test fun oldProviderCannotAppendAfterSwitchEvenWhenRequestIgnoresCancellation() {
+        val p = player(); val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val late = CompletableDeferred<List<Track>>(); var provider = "YouTube Music"
+        val radio = RadioQueue(p, scope, { true }, { _, _ -> if (provider == "Spotify") listOf(song('d')) else withContext(NonCancellable) { late.await() } }, ::item,
+            { _, _ -> }, { provider })
+        try {
+            p.setMediaItem(item(seed)); radio.request(true)
+            provider = "Spotify"; radio.changeProvider(); late.complete(listOf(song('x')))
+            assertEquals(listOf(seed.id, song('d').id), ids(p))
+        } finally { late.complete(emptyList()); scope.cancel(); p.release() }
+    }
+
 }

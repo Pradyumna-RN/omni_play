@@ -3,8 +3,11 @@
 Reviewed 5 November 2026. The original target evaluated here is **Spotify Free as
 well as Premium**, with direct Spotify playback inside Music. A YouTube match
 must never be labelled Spotify playback. This report does not establish
-successful live account playback, and no Spotify engine is currently integrated
-into Music.
+successful live account playback. Music 0.3.30 now adds an independently written,
+experimental **metadata-only recommendation connector**, documented in
+[Spotify recommendations](SPOTIFY_RECOMMENDATIONS.md). Direct Spotify audio
+playback remains unimplemented. The direct-playback sections below describe
+the earlier research target, not the shipped metadata connector.
 
 The follow-up [Telegram, Discord and broader repository review](SPOTIFY_COMMUNITY_RESEARCH.md)
 recommends Spotify discovery/library plus Music's existing playback engine after
@@ -115,7 +118,7 @@ Myspoti is GPL-3.0. No implementation was copied into Music. Reusing its code
 would require satisfying that licence; an independent implementation of the
 architecture must not be presented as a tested port of Myspoti.
 
-## Integration boundary for Music
+## Direct-playback integration boundary (research only)
 
 The candidate is a **second playback engine**, not another URL resolver for
 `DefaultAudioSink`:
@@ -141,7 +144,7 @@ channel monitor and bit-perfect output claims must not be attached to this route
 Spotify account recommendations can later supply Spotify catalogue identities;
 they must not be silently converted to YouTube identities in history or queues.
 
-Music currently has only YouTube/local catalogue identities, and its player
+At the time of the direct-playback research, Music had only YouTube/local catalogue identities, and its player
 service owns one ExoPlayer. A proper integration needs an explicit Spotify
 identity, an engine adapter with the same controls/state contract, queue and
 position reconciliation, and exclusive audio ownership when changing engines.

@@ -213,6 +213,9 @@ fun MusicApp(
     audioLevels: StateFlow<labs.rtensor.dsp.AudioLevelFrame?>? = null,
     onMetering: (Boolean) -> Unit = {},
     onDeveloperOptions: (Boolean) -> Unit = {},
+    onRecommendationEngine: (labs.rtensor.music.recommendations.RecommendationEngine) -> Unit = {},
+    onConnectSpotify: () -> Unit = {}, onDisconnectSpotify: () -> Unit = {},
+    onMoreCollection: () -> Unit = {},
 ) {
     val startPage = if (initialPage == "saved") "library" else initialPage
     var page by rememberSaveable { mutableStateOf(startPage) }
@@ -230,7 +233,7 @@ fun MusicApp(
     fun play(track: Track, list: List<Track>) { onPlay(track, list); navigate("now") }
     fun openEntry(entry: FeedEntry) {
         when {
-            entry.videoId.isNotBlank() -> { val t = entry.asTrack(); play(t, listOf(t)) }
+            entry.videoId.isNotBlank() || entry.kind == "spotify_track" -> { val t = entry.asTrack(); play(t, listOf(t)) }
             entry.kind in listOf("artist", "library_artist") -> { onQuery(entry.title); onSearch(); page = root }
             else -> { onBrowse(entry); navigate("collection") }
         }
@@ -298,11 +301,12 @@ fun MusicApp(
                             "explore" -> ProviderHome(state.copy(feed = state.explore, feedBusy = state.exploreBusy, feedError = state.exploreError, feedHasMore = false), ::openEntry, onRefreshExplore, {}, "Explore")
                             "library" -> LibraryScreen(state, ::play, onSave, ::focusSearch, onRemovePlay)
                             "now" -> NowScreen(state, onToggle, onPrevious, onNext, onSeek, onSave, onSkipTo, onProcessing, playbackPosition, onRetryRadio, audioLevels, onMetering)
-                            "collection" -> CollectionScreen(state, ::play, onSave)
+                            "collection" -> CollectionScreen(state, ::play, onSave, onMoreCollection)
                             "settings" -> SettingsScreen(state, onTheme, onOpenLocal, onChooseMasters, onClearMasters, onClearHistory,
                                 onConnect, onWebSignIn, onDisconnect, onCancelConnect, onGoogleSignIn, onGoogleSignOut, onCancelGoogle, onCheckUpdates, onDownloadUpdate, onInstallUpdate,
                                 onAutoplay, onTrackHistory, onConnectSource, onRemoveSource, onConnectTidal, onDisconnectTidal, onCancelTidal,
-                                onConnectApple, onNativeApple, onDisconnectApple, onCancelApple, onDeveloperOptions)
+                                onConnectApple, onNativeApple, onDisconnectApple, onCancelApple, onDeveloperOptions,
+                                onRecommendationEngine, onConnectSpotify, onDisconnectSpotify)
                             else -> HomeScreen(state, ::focusSearch, ::play, onToggle, ::openEntry, { onRefreshFeed(); onRefreshForYou() }, onMoreFeed, onConnect)
                         }
                     }
@@ -437,15 +441,17 @@ private fun HomeScreen(state: MusicState, onSearch: () -> Unit, onPlay: (Track, 
         item(key = "title") {
             Column {
                 PageTitle(if (recent != null) "Back to your music" else if (hasFeed) "For your ears" else "Room to listen")
+                Text("${state.recommendationEngine.label} recommendations", fontSize = 12.sp, maxLines = 1,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp))
                 Spacer(Modifier.height(8.dp))
                 LoadingLine(state.feedBusy, state.reducedMotion)
             }
         }
         val google = state.googleProfile
-        if (google != null && !state.account.connected && !state.account.connecting) item(key = "sync") {
+        if (state.recommendationEngine == labs.rtensor.music.recommendations.RecommendationEngine.YOUTUBE && google != null && !state.account.connected && !state.account.connecting) item(key = "sync") {
             SyncBanner(google.email, onConnect, motionModifier())
         }
-        if (state.account.connected && !state.feedPersonalized && hasFeed) item(key = "generic-feed") {
+        if (state.recommendationEngine == labs.rtensor.music.recommendations.RecommendationEngine.YOUTUBE && state.account.connected && !state.feedPersonalized && hasFeed) item(key = "generic-feed") {
             NoticeBanner("Your YouTube Music feed isn’t coming through",
                 "YouTube answered as signed out, so this is the general feed. Reconnecting your account usually fixes it.", "Reconnect", onConnect, motionModifier())
         }
@@ -503,7 +509,7 @@ private fun HomeScreen(state: MusicState, onSearch: () -> Unit, onPlay: (Track, 
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         SectionTitle("Mixed for you")
-                        Text("From what you play most on this phone", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp))
+                        Text(if (state.recommendationEngine == labs.rtensor.music.recommendations.RecommendationEngine.SPOTIFY) "Radio from Spotify" else "From what you play most on this phone", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp))
                     }
                     if (state.forYou.isNotEmpty()) FilledTonalButton(onClick = { onPlay(state.forYou.first(), state.forYou) }, shape = RoundedCornerShape(14.dp)) {
                         Icon(Icons.Outlined.PlayArrow, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Play mix", fontSize = 12.sp)
@@ -647,26 +653,29 @@ private fun ProviderHome(state: MusicState, onEntry: (FeedEntry) -> Unit, onRefr
         item(key = "title") {
             Column {
                 PageTitle(title)
-                if (title == "Explore") Text("Picks from what you play, then new releases and charts from YouTube Music.", fontSize = 12.sp, lineHeight = 19.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 10.dp))
+                if (title == "Explore") Text("Discoveries from ${state.recommendationEngine.label}.", fontSize = 12.sp, lineHeight = 19.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 10.dp))
                 Spacer(Modifier.height(16.dp))
                 LoadingLine(state.feedBusy, state.reducedMotion)
             }
         }
         feedSections(state.feed, onEntry)
         if (state.feedError != null) item(key = "error") { Text(state.feedError, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-        if (state.feed.isEmpty() && !state.feedBusy && state.feedError == null) item(key = "empty") { EmptyState("More music awaits", "Pull down to load discoveries from YouTube Music.", Glyph.Compass) }
+        if (state.feed.isEmpty() && !state.feedBusy && state.feedError == null) item(key = "empty") { EmptyState("More music awaits", "Pull down to load discoveries from ${state.recommendationEngine.label}.", Glyph.Compass) }
         if (state.feedHasMore) item(key = "more") { OutlinedButton(onClick = onMore, enabled = !state.feedBusy, modifier = Modifier.fillMaxWidth()) { Text("More from your feed") } }
     }
     }
 }
 
 @Composable
-private fun CollectionScreen(state: MusicState, onPlay: (Track, List<Track>) -> Unit, onSave: (Track) -> Unit) {
+private fun CollectionScreen(state: MusicState, onPlay: (Track, List<Track>) -> Unit, onSave: (Track) -> Unit, onMore: () -> Unit) {
     Column(Modifier.fillMaxSize().padding(horizontal = 24.dp)) {
         Text(state.collectionEntry?.title.orEmpty(), fontSize = 30.sp, fontWeight = FontWeight.Medium, lineHeight = 35.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
         Text(state.collectionEntry?.subtitle.orEmpty(), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 12.dp))
-        if (state.collectionBusy) LoadingLine(true, state.reducedMotion)
-        else if (state.collection.isEmpty() && state.error == null) EmptyState("Nothing to play here", "This collection has no available recordings.", Glyph.MusicNote)
+        if (state.collectionBusy && state.collection.isEmpty()) LoadingLine(true, state.reducedMotion)
+        else if (state.collection.isEmpty() && state.error == null) {
+            EmptyState("Nothing to play here", "This page has no available recordings.", Glyph.MusicNote)
+            if (state.collectionHasMore) OutlinedButton(onClick = onMore, modifier = Modifier.fillMaxWidth()) { Text("Load more songs") }
+        }
         else {
             Button(onClick = { state.collection.firstOrNull()?.let { onPlay(it, state.collection) } }, enabled = state.collection.isNotEmpty(), shape = RoundedCornerShape(12.dp)) { Icon(Icons.Outlined.PlayArrow, null); Text("Play all") }
             Spacer(Modifier.height(14.dp))
@@ -674,6 +683,8 @@ private fun CollectionScreen(state: MusicState, onPlay: (Track, List<Track>) -> 
                 itemsIndexed(state.collection, key = { i, track -> "$i:${track.id}" }) { _, track ->
                     TrackRow(track, state.saved.any { it.libraryKey() == track.libraryKey() }, state.current?.libraryKey() == track.libraryKey(), { onPlay(track, state.collection) }, { onSave(track) })
                 }
+                if (state.collectionBusy) item { LoadingLine(true, state.reducedMotion) }
+                if (state.collectionHasMore) item { OutlinedButton(onClick = onMore, modifier = Modifier.fillMaxWidth()) { Text("Load more songs") } }
             }
         }
     }
@@ -942,10 +953,10 @@ private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () ->
                     HorizontalDivider(color = scheme.outline, thickness = .5.dp)
                     Text(when {
                         !state.autoplay -> "The queue ends here. Turn on Autoplay radio in Settings to keep going."
-                        state.radioLoading -> "Getting YouTube Music recommendations…"
+                        state.radioLoading -> "Getting ${state.recommendationEngine.label} recommendations…"
                         state.radioError != null -> state.radioError
                         track.source == labs.rtensor.music.data.Source.LOCAL -> "Local recording · choose another song or add recordings to the queue."
-                        else -> "YouTube Music recommendations continue after this queue."
+                        else -> "${state.recommendationEngine.label} recommendations continue after this queue."
                     },
                         fontSize = 12.sp, lineHeight = 18.sp, color = scheme.onSurfaceVariant, modifier = Modifier.padding(top = 14.dp))
                     if (state.autoplay && state.radioError != null) TextButton(onClick = onRetryRadio) { Text("Retry recommendations") }
@@ -1279,7 +1290,9 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onLocal
     onConnectSource: (MusicProvider, SourceProtocol, String, String) -> Unit, onRemoveSource: (String) -> Unit,
     onConnectTidal: () -> Unit, onDisconnectTidal: () -> Unit, onCancelTidal: () -> Unit,
     onConnectApple: () -> Unit, onNativeApple: () -> Unit, onDisconnectApple: () -> Unit, onCancelApple: () -> Unit,
-    onDeveloperOptions: (Boolean) -> Unit) {
+    onDeveloperOptions: (Boolean) -> Unit,
+    onRecommendationEngine: (labs.rtensor.music.recommendations.RecommendationEngine) -> Unit,
+    onConnectSpotify: () -> Unit, onDisconnectSpotify: () -> Unit) {
     var confirmClear by remember { mutableStateOf(false) }
     var showLicences by remember { mutableStateOf(false) }
     var showSources by remember { mutableStateOf(false) }
@@ -1296,6 +1309,28 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onLocal
 
         SettingsGroupHeader(settingsSections[1])
         SettingsCard {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
+                Text("Recommendation source", fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                Text("Choose who recommends your next songs. Audio uses your existing playback sources.", fontSize = 12.sp, color = scheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp, bottom = 6.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    labs.rtensor.music.recommendations.RecommendationEngine.entries.forEach { engine ->
+                        FilterChip(selected = state.recommendationEngine == engine, onClick = {
+                            if (engine == labs.rtensor.music.recommendations.RecommendationEngine.SPOTIFY && !state.spotifyAccount.connected) onConnectSpotify()
+                            else onRecommendationEngine(engine)
+                        }, label = { Text(engine.label) }, modifier = Modifier.semantics { contentDescription = "${engine.label} recommendations" })
+                    }
+                }
+                if (state.recommendationEngine == labs.rtensor.music.recommendations.RecommendationEngine.SPOTIFY) Text("Spotify discovery is experimental.", fontSize = 12.sp, color = scheme.onSurfaceVariant)
+                if (state.spotifyAccount.connecting) Text("Opening Spotify sign-in…", fontSize = 12.sp, color = scheme.onSurfaceVariant)
+                if (state.spotifyAccount.connected) Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Spotify · ${state.spotifyAccount.name}", fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        color = scheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                    TextButton(onClick = onDisconnectSpotify) { Text("Disconnect Spotify", fontSize = 12.sp) }
+                }
+                state.spotifyAccount.error?.let { Text(it, fontSize = 12.sp, color = scheme.onSurfaceVariant) }
+            }
+            CardDivider()
             SettingItem("Autoplay radio", "When the queue ends, keep playing similar songs", Glyph.Sparkle, onClick = { onAutoplay(!state.autoplay) }) {
                 Switch(checked = state.autoplay, onCheckedChange = onAutoplay, modifier = Modifier.semantics { contentDescription = "Autoplay radio" })
             }
@@ -1342,7 +1377,7 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onLocal
             SettingItem("Clear listening history", if (!hasHistory) "Nothing to clear" else count, Icons.Outlined.Delete,
                 onClick = if (hasHistory) ({ confirmClear = true }) else null)
             CardDivider(start = 16.dp)
-            Text("Saved recordings, history and encrypted account sessions stay on this device. Connected music servers receive song searches and playback requests. YouTube receives your discovery requests; GitHub receives update checks.",
+            Text("Saved recordings, history and encrypted account sessions stay on this device. Connected music servers receive song searches and playback requests. The selected recommendation provider receives discovery requests; YouTube receives recording-match searches. GitHub receives update checks.",
                 fontSize = 13.sp, lineHeight = 19.sp, color = scheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp))
         }
 

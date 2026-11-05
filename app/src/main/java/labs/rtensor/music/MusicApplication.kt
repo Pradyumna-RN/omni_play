@@ -14,6 +14,7 @@ class MusicApplication : Application(), ImageLoaderFactory {
     override fun attachBaseContext(base: android.content.Context) {
         super.attachBaseContext(base)
         if (getProcessName() == "${base.packageName}:apple_web") android.webkit.WebView.setDataDirectorySuffix("apple-account")
+        if (getProcessName() == "${base.packageName}:spotify_metadata") android.webkit.WebView.setDataDirectorySuffix("spotify-catalogue")
     }
     override fun newImageLoader(): ImageLoader = ImageLoader.Builder(this)
         .memoryCache { MemoryCache.Builder(this).maxSizePercent(0.25).build() }

@@ -23,6 +23,7 @@ internal class RadioQueue(
     private val fetch: suspend (Track, Collection<String>) -> List<Track>,
     private val mediaItem: (Track) -> MediaItem,
     private val status: (loading: Boolean, error: String?) -> Unit,
+    private val providerLabel: () -> String = { "YouTube Music" },
 ) {
     private var job: Job? = null
     private var generation = 0L
@@ -38,6 +39,15 @@ internal class RadioQueue(
         if (job?.isActive == true) return
         track(player.currentMediaItem)?.let { tried.remove(it.libraryKey()) }
         request(force = true)
+    }
+
+    /** Keep current playback and user-queued items; replace only our future radio tail. */
+    fun changeProvider() {
+        reset()
+        for (index in player.mediaItemCount - 1 downTo player.currentMediaItemIndex + 1) {
+            if (player.getMediaItemAt(index).mediaMetadata.extras?.getString(GENERATED) != null) player.removeMediaItem(index)
+        }
+        request()
     }
 
     fun request(force: Boolean = false) {
@@ -65,9 +75,13 @@ internal class RadioQueue(
                     .distinctBy { it.libraryKey() }.take((LIMIT - player.mediaItemCount).coerceAtLeast(0)).toList()
                 if (added.isEmpty()) {
                     tried.remove(key)
-                    status(false, "YouTube Music has no more recommendations for this song.")
+                    status(false, "${providerLabel()} has no more recommendations for this song.")
                 } else {
-                    player.addMediaItems(added.map(mediaItem))
+                    player.addMediaItems(added.map { candidate ->
+                        val item = mediaItem(candidate)
+                        val extras = android.os.Bundle(item.mediaMetadata.extras ?: android.os.Bundle()).apply { putString(GENERATED, providerLabel()) }
+                        item.buildUpon().setMediaMetadata(item.mediaMetadata.buildUpon().setExtras(extras).build()).build()
+                    })
                     status(false, null)
                 }
             } catch (e: CancellationException) {
@@ -76,7 +90,7 @@ internal class RadioQueue(
             } catch (_: Exception) {
                 if (version == generation) {
                     tried.remove(key)
-                    status(false, "Couldn’t load YouTube Music recommendations. Check your connection and retry.")
+                    status(false, "Couldn’t load ${providerLabel()} recommendations. Check the account or connection and retry.")
                 }
             }
         }
@@ -88,5 +102,5 @@ internal class RadioQueue(
         item?.mediaMetadata?.extras?.getString("catalogue_track")?.let { Track.fromJson(JSONObject(it)) }
     }.getOrNull()
 
-    private companion object { const val LIMIT = 100 }
+    private companion object { const val LIMIT = 100; const val GENERATED = "music_radio_provider" }
 }

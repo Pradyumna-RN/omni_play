@@ -12,14 +12,17 @@ data class Track(
     val artwork: String = "",
     val durationMs: Long = 0,
     val source: Source = Source.YOUTUBE,
+    /** Discovery identity; the audio URL/source above still names the actual recording. */
+    val spotifyId: String = "",
 ) {
     /** Imports of the same document share an identity even if an older build used another id. */
-    fun libraryKey(): String = if (source == Source.LOCAL) "local:$url" else id.removePrefix("yt:")
+    fun libraryKey(): String = if (source == Source.LOCAL) "local:$url" else if (spotifyId.isNotBlank()) "spotify:$spotifyId" else id.removePrefix("yt:")
 
     fun json(): JSONObject = JSONObject().apply {
         put("id", id); put("title", title); put("artist", artist)
         put("url", url); put("artwork", artwork); put("durationMs", durationMs)
         put("source", source.name)
+        if (spotifyId.isNotBlank()) put("spotifyId", spotifyId)
     }
 
     companion object {
@@ -28,6 +31,7 @@ data class Track(
             artist = o.optString("artist").takeUnless { it in setOf("Unknown artist", "YouTube Music") }.orEmpty(), url = o.getString("url"),
             artwork = o.optString("artwork"), durationMs = o.optLong("durationMs"),
             source = runCatching { Source.valueOf(o.optString("source")) }.getOrDefault(Source.YOUTUBE),
+            spotifyId = o.optString("spotifyId").takeIf { it.matches(Regex("[A-Za-z0-9]{22}")) }.orEmpty(),
         )
     }
 }

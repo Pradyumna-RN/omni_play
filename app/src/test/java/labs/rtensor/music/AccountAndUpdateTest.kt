@@ -123,24 +123,24 @@ class AccountAndUpdateTest {
         assertEquals("0.10.0", GitHubUpdater.selectRelease(list, "0.2.0")?.version)
     }
     @Test fun integratedMusicOtaUpdatesStableAndPrivatePreviewInstallations() {
-        val tag = "v0.3.29"
+        val tag = "v0.3.30"
         fun asset(name: String) = JSONObject().put("name", name).put("size", 18000000)
             .put("browser_download_url", "https://github.com/RTensorLabs/music-app/releases/download/$tag/$name")
         val fixturePath = System.getProperty("music.otaReleaseFixture")
         val release = if (fixturePath == null) JSONObject().put("tag_name", tag).put("draft", false)
             .put("assets", JSONArray().put(asset("music-release.apk")).put(asset("SHA256SUMS")))
         else JSONObject(java.io.File(fixturePath).readText())
-        for (installed in listOf("0.3.9", "0.3.10", "0.3.11", "0.3.12", "0.3.13", "0.3.14", "0.3.15", "0.3.16", "0.3.17", "0.3.18", "0.3.19", "0.3.20", "0.3.21", "0.3.22", "0.3.23", "0.3.24", "0.3.25", "0.3.26", "0.3.27", "0.3.28")) {
+        for (installed in listOf("0.3.9", "0.3.10", "0.3.11", "0.3.12", "0.3.13", "0.3.14", "0.3.15", "0.3.16", "0.3.17", "0.3.18", "0.3.19", "0.3.20", "0.3.21", "0.3.22", "0.3.23", "0.3.24", "0.3.25", "0.3.26", "0.3.27", "0.3.28", "0.3.29")) {
             val update = GitHubUpdater.selectRelease(JSONArray().put(release), installed)
             assertNotNull("Music $installed must receive the integrated OTA", update)
-            assertEquals("0.3.29", update!!.version)
+            assertEquals("0.3.30", update!!.version)
             assertEquals("music-release.apk", update.apkName)
             assertEquals("https://github.com/RTensorLabs/music-app/releases/download/$tag/music-release.apk", update.apkUrl)
             assertTrue(GitHubUpdater.isReleaseAsset(update.checksumUrl))
         }
-        for (installedCode in listOf(12L, 13L, 14L, 15L, 16L, 17L, 18L, 19L, 20L, 21L, 22L, 23L, 24L, 25L, 26L, 27L, 28L, 29L, 30L, 31L)) GitHubUpdater.verifyIdentity(
+        for (installedCode in listOf(12L, 13L, 14L, 15L, 16L, 17L, 18L, 19L, 20L, 21L, 22L, 23L, 24L, 25L, 26L, 27L, 28L, 29L, 30L, 31L, 32L)) GitHubUpdater.verifyIdentity(
             AppIdentity("labs.rtensor.music", installedCode, setOf("same-signing-key")),
-            AppIdentity("labs.rtensor.music", 32, setOf("same-signing-key")),
+            AppIdentity("labs.rtensor.music", 33, setOf("same-signing-key")),
         )
     }
 }

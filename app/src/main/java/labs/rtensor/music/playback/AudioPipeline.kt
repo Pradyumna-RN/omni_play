@@ -43,6 +43,9 @@ object AudioPipeline {
     val hasPrivateRenderer: Boolean get() = NativeDownmixEngine.isAvailable
     private val mutable = MutableStateFlow(AudioProcessingState(available = hasPrivateRenderer, unavailableReason = NativeDownmixEngine.unavailableReason))
     val state = mutable.asStateFlow()
+    /** MediaSession serializes away application-specific cause types. Keep the safe matching failure in-process. */
+    @Volatile internal var catalogueProblem: labs.rtensor.music.data.SourceException? = null
+        private set
     @Volatile private var metering = false
     private val mutableLevels = MutableStateFlow<AudioLevelFrame?>(null)
     val levels = mutableLevels.asStateFlow()
@@ -52,10 +55,12 @@ object AudioPipeline {
     }
 
     fun selectProcessing(processed: Boolean) { mutable.update { it.copy(selectedProcessed = processed) } }
-    fun clearReport() { mutableLevels.value = null; mutable.update { it.copy(report = null, failure = null) } }
+    fun clearReport() { catalogueProblem = null; mutableLevels.value = null; mutable.update { it.copy(report = null, failure = null) } }
 
     /** Records an audio-stage failure; returns null for errors outside the audio chain. */
     fun reportFailure(error: Throwable): AudioFailure? {
+        catalogueProblem = generateSequence(error) { it.cause }.filterIsInstance<labs.rtensor.music.data.SourceException>()
+            .firstOrNull { it.code == "SPOTIFY_MATCH" }
         val failure = PlaybackDiagnostics.describe(error)
         mutable.update { it.copy(failure = failure) }
         if (failure != null) Log.w(TAG, "${failure.message} | ${failure.detail}")

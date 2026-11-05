@@ -30,18 +30,19 @@ import java.io.IOException
  * catalogue item while the child player reads the selected recording. */
 @UnstableApi
 class ProviderMediaSourceFactory(private val fallback: MediaSource.Factory, private val remote: MediaSource.Factory,
-    private val sources: PlaybackSources) : MediaSource.Factory by fallback {
+    private val sources: PlaybackSources,
+    private val resolveCatalogue: suspend (Track) -> Track = { throw IOException("Spotify matching is unavailable in this build.") }) : MediaSource.Factory by fallback {
     override fun createMediaSource(mediaItem: MediaItem): MediaSource {
         val track = runCatching { mediaItem.mediaMetadata.extras?.getString("catalogue_track")?.let { Track.fromJson(JSONObject(it)) } }.getOrNull()
-        if (track == null || track.source != Source.YOUTUBE || !sources.enabled) return fallback.createMediaSource(mediaItem)
-        return ProviderMediaSource(mediaItem, track, fallback, remote, sources)
+        if (track == null || track.source != Source.YOUTUBE || (!sources.enabled && !labs.rtensor.music.spotify.SpotifyTrackMatcher.pending(track))) return fallback.createMediaSource(mediaItem)
+        return ProviderMediaSource(mediaItem, track, fallback, remote, sources, resolveCatalogue)
     }
 }
 
 @UnstableApi
 private class ProviderMediaSource(private val item: MediaItem, private val track: Track,
     private val fallback: MediaSource.Factory, private val remote: MediaSource.Factory,
-    private val sources: PlaybackSources) : CompositeMediaSource<Unit>() {
+    private val sources: PlaybackSources, private val resolveCatalogue: suspend (Track) -> Track) : CompositeMediaSource<Unit>() {
     private var scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var child: MediaSource? = null
     private var job: Job? = null
@@ -63,14 +64,21 @@ private class ProviderMediaSource(private val item: MediaItem, private val track
         job = scope.launch {
             try {
                 val selected = sources.choose(track, key, local)
+                // Provider/local matches do not need a YouTube search. Otherwise resolve just
+                // the requested Spotify recording, not the rest of its playlist.
+                val matched = if (selected == null && local == null && labs.rtensor.music.spotify.SpotifyTrackMatcher.pending(track)) resolveCatalogue(track) else track
+                val baseItem = if (matched !== track) {
+                    val extras = Bundle(item.mediaMetadata.extras ?: Bundle()).apply { putString("catalogue_track", matched.json().toString()) }
+                    item.buildUpon().setUri(matched.url).setMediaMetadata(item.mediaMetadata.buildUpon().setExtras(extras).build()).build()
+                } else item
                 handler.post {
                     if (released || generation != activeGeneration) return@post
                     try {
                         sources.selected(key, selected, fallbackLabel)
                         val label = selected?.requestedLabel ?: fallbackLabel
-                        val extras = Bundle(item.mediaMetadata.extras ?: Bundle()).apply { putString("route", label) }
-                        displayItem = item.buildUpon().setMediaMetadata(item.mediaMetadata.buildUpon().setExtras(extras).build()).build()
-                        val physical = if (selected == null) item else item.buildUpon().setUri(selected.url)
+                        val extras = Bundle(baseItem.mediaMetadata.extras ?: Bundle()).apply { putString("route", label) }
+                        displayItem = baseItem.buildUpon().setMediaMetadata(baseItem.mediaMetadata.buildUpon().setExtras(extras).build()).build()
+                        val physical = if (selected == null) baseItem else baseItem.buildUpon().setUri(selected.url)
                             .setMimeType(selected.transportMime)
                             .setStreamKeys(selected.streamKeys)
                             .setCustomCacheKey(if (selected.transportMime in setOf("application/dash+xml", "application/x-mpegURL")) null else "$key:${selected.cacheKey}")
@@ -81,7 +89,8 @@ private class ProviderMediaSource(private val item: MediaItem, private val track
                     } catch (e: Exception) { failure = IOException("The connected source could not be prepared.", e) }
                 }
             } catch (e: kotlinx.coroutines.CancellationException) { throw e }
-            catch (_: Exception) { handler.post { if (!released && generation == activeGeneration) failure = IOException("The connected sources could not be resolved.") } }
+            catch (error: Exception) { handler.post { if (!released && generation == activeGeneration) failure = IOException(
+                if (error is labs.rtensor.music.data.SourceException) error.message else "The connected sources could not be resolved.", error) } }
         }
     }
 

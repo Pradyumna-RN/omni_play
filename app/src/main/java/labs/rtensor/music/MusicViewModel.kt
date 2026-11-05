@@ -55,6 +55,9 @@ import labs.rtensor.music.playback.CatalogueTrackCache
 import labs.rtensor.music.playback.LibraryQueueEdits
 import labs.rtensor.music.playback.RadioQueue
 import labs.rtensor.music.sources.*
+import labs.rtensor.music.recommendations.RecommendationEngine
+import labs.rtensor.music.spotify.SpotifyRecommendations
+import labs.rtensor.music.spotify.SpotifyTrackMatcher
 
 data class MusicState(
     val importMessage: String? = null,
@@ -77,6 +80,8 @@ data class MusicState(
     val theme: String = "system",
     val reducedMotion: Boolean = false,
     val developerOptions: Boolean = false,
+    val recommendationEngine: RecommendationEngine = RecommendationEngine.YOUTUBE,
+    val spotifyAccount: AccountState = AccountState(),
     val error: String? = null,
     val errorDiagnostic: String = "",
     val account: AccountState = AccountState(),
@@ -102,6 +107,7 @@ data class MusicState(
     val collection: List<Track> = emptyList(),
     val collectionEntry: FeedEntry? = null,
     val collectionBusy: Boolean = false,
+    val collectionHasMore: Boolean = false,
     val update: UpdateState = UpdateState(),
     val audioProcessing: AudioProcessingState = AudioProcessingState(),
     /** How the current song is played: the user's own Atmos or lossless file, or YouTube. */
@@ -125,12 +131,18 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val updater = GitHubUpdater(application)
     private val masters = LocalMasters(application)
     private val sources = PlaybackSources.get(application)
+    private val spotify = SpotifyRecommendations(application)
+    private val spotifyMatches = SpotifyTrackMatcher.get(application)
+    private var recommendationRevision = 0L
+    private var collectionOffset: Int? = null
     private val routes = mutableMapOf<String, PlaybackRoute>()
     private fun route(track: Track) = routes.getOrPut(track.id) { PlaybackRoute.choose(track, masters.entries.filterNot { it.uri in library.removedLocalUris }) }
     private val mutable = MutableStateFlow(MusicState(
         saved = library.tracks("saved"), history = library.tracks("history"), googleProfile = googleProfiles.load(),
         theme = library.theme, reducedMotion = library.reducedMotion, playEvents = initialEvents.filterNot { library.isRemoved(it.track) },
         developerOptions = library.developerOptions,
+        recommendationEngine = library.recommendationEngine,
+        spotifyAccount = spotify.state.value,
         autoplay = library.autoplay, trackHistory = library.trackHistory,
         mastersSummary = summary(masters.entries, masters.folder != null),
         playbackSources = sources.settings.connections.value.map { it.summary() },
@@ -184,7 +196,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         }
         override fun onPlayerError(error: PlaybackException) {
             syncPlayer(includeQueue = true)
-            val sourceError = generateSequence(error as Throwable) { it.cause }.filterIsInstance<SourceException>().firstOrNull()
+            val sourceError = generateSequence(error as Throwable) { it.cause }.filterIsInstance<SourceException>().firstOrNull() ?: AudioPipeline.catalogueProblem
             val provider = youtube.runtime.problem.value?.takeIf { it.videoId == mutable.value.current?.id?.removePrefix("yt:") }
             // The service classified the full cause chain before this callback arrived.
             val audio = AudioPipeline.state.value.failure
@@ -203,11 +215,19 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch { sources.settings.connections.collect { profiles -> mutable.update { it.copy(playbackSources = profiles.map { p -> p.summary() }) } } }
         viewModelScope.launch { sources.tidal?.state?.collect { account -> mutable.update { it.copy(tidalAccount = account) } } }
         viewModelScope.launch { sources.apple?.state?.collect { account -> mutable.update { it.copy(appleAccount = account) } } }
+        viewModelScope.launch {
+            spotify.state.collect { account ->
+                val changed = account.connected != mutable.value.spotifyAccount.connected || account.revision != mutable.value.spotifyAccount.revision
+                mutable.update { it.copy(spotifyAccount = account) }
+                if (changed && mutable.value.recommendationEngine == RecommendationEngine.SPOTIFY) reloadRecommendations()
+            }
+        }
         controllerFuture.addListener({
             runCatching { controllerFuture.get() }.onSuccess { c ->
                 controller = c
-                radio = RadioQueue(c, viewModelScope, enabled = { mutable.value.autoplay }, fetch = youtube::radio,
-                    mediaItem = ::mediaItem, status = { loading, error -> mutable.update { it.copy(radioLoading = loading, radioError = error) } })
+                radio = RadioQueue(c, viewModelScope, enabled = { mutable.value.autoplay }, fetch = ::providerRadio,
+                    mediaItem = ::mediaItem, status = { loading, error -> mutable.update { it.copy(radioLoading = loading, radioError = error) } },
+                    providerLabel = { mutable.value.recommendationEngine.label })
                 c.addListener(listener)
                 library.reconcileImports((0 until c.mediaItemCount).mapNotNull { index ->
                     catalogueCache.read(c.getMediaItemAt(index).mediaMetadata.extras?.getString("catalogue_track"))
@@ -232,8 +252,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             youtube.runtime.account.collect { account ->
                 val changed = account.connected != mutable.value.account.connected || account.revision != mutable.value.account.revision
-                mutable.update { it.copy(account = account, feed = if (changed) emptyList() else it.feed, explore = if (changed) emptyList() else it.explore) }
-                if (changed) { refreshFeed(); refreshExplore() }
+                val refresh = changed && mutable.value.recommendationEngine == RecommendationEngine.YOUTUBE
+                mutable.update { it.copy(account = account, feed = if (refresh) emptyList() else it.feed, explore = if (refresh) emptyList() else it.explore) }
+                if (refresh) { refreshFeed(); refreshExplore() }
             }
         }
         viewModelScope.launch {
@@ -270,23 +291,33 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     fun refreshFeed(more: Boolean = false) {
         if (more && (mutable.value.feedBusy || !mutable.value.feedHasMore)) return
         feedJob?.cancel()
+        val revision = recommendationRevision
+        val engine = mutable.value.recommendationEngine
         feedJob = viewModelScope.launch {
             mutable.update { it.copy(feedBusy = true, feedError = null) }
             try {
-                val feed = youtube.home(more)
+                val feed = if (engine == RecommendationEngine.SPOTIFY) spotify.home() else youtube.home(more)
+                if (revision != recommendationRevision) return@launch
                 mutable.update { it.copy(feedBusy = false, feed = if (more) it.feed + feed.sections else feed.sections, feedHasMore = feed.hasMore,
-                    feedPersonalized = !it.account.connected || feed.personalized) }
+                    feedPersonalized = engine == RecommendationEngine.SPOTIFY || !it.account.connected || feed.personalized) }
                 if (!more && mutable.value.forYou.isEmpty()) refreshForYou()
             } catch (e: CancellationException) { throw e }
-            catch (e: Exception) { mutable.update { it.copy(feedBusy = false, feedError = sourceMessage(e)) } }
+            catch (e: Exception) { if (revision == recommendationRevision) mutable.update { it.copy(feedBusy = false, feedError = sourceMessage(e)) } }
         }
     }
 
     fun refreshExplore() {
         exploreJob?.cancel()
+        val revision = recommendationRevision
+        val engine = mutable.value.recommendationEngine
         exploreJob = viewModelScope.launch {
             mutable.update { it.copy(exploreBusy = true, exploreError = null) }
             try {
+                if (engine == RecommendationEngine.SPOTIFY) {
+                    val feed = spotify.home()
+                    if (revision == recommendationRevision) mutable.update { it.copy(explore = feed.sections, exploreBusy = false) }
+                    return@launch
+                }
                 val events = mutable.value.playEvents
                 val seeds = Recommender.seeds(events, mutable.value.saved, count = 2)
                 // Personal rows come from YouTube Music's "Related" page for your favourites;
@@ -301,10 +332,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 val sections = (rows + feed.sections).mapNotNull { section ->
                     section.copy(items = section.items.filter { seen.add(it.id) }).takeIf { it.items.isNotEmpty() }
                 }
-                mutable.update { it.copy(explore = sections, exploreBusy = false) }
+                if (revision == recommendationRevision) mutable.update { it.copy(explore = sections, exploreBusy = false) }
             }
             catch (e: CancellationException) { throw e }
-            catch (e: Exception) { mutable.update { it.copy(exploreBusy = false, exploreError = sourceMessage(e)) } }
+            catch (e: Exception) { if (revision == recommendationRevision) mutable.update { it.copy(exploreBusy = false, exploreError = sourceMessage(e)) } }
         }
     }
 
@@ -322,16 +353,56 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             }
         }.filter { it.items.isNotEmpty() }
 
-    fun browse(entry: FeedEntry) {
+    fun browse(entry: FeedEntry) = browsePage(entry, 0)
+    fun moreCollection() { collectionOffset?.let { offset -> mutable.value.collectionEntry?.let { browsePage(it, offset) } } }
+    private fun browsePage(entry: FeedEntry, offset: Int) {
         collectionJob?.cancel()
         collectionJob = viewModelScope.launch {
-            mutable.update { it.copy(collectionEntry = entry, collection = emptyList(), collectionBusy = true, error = null) }
-            try { val tracks = youtube.collection(entry); mutable.update { it.copy(collection = tracks, collectionBusy = false) } }
+            mutable.update { it.copy(collectionEntry = entry, collection = if (offset == 0) emptyList() else it.collection,
+                collectionBusy = true, collectionHasMore = false, error = null) }
+            try {
+                val spotifyEntry = entry.kind.startsWith("spotify_")
+                val page = if (spotifyEntry) spotify.collection(entry, offset) else null
+                val tracks = if (page != null) spotify.tracks(page) else youtube.collection(entry)
+                collectionOffset = page?.optInt("nextOffset", -1)?.takeIf { it > offset }
+                mutable.update { it.copy(collection = (if (offset == 0) tracks else it.collection + tracks).distinctBy(Track::libraryKey),
+                    collectionBusy = false, collectionHasMore = collectionOffset != null) }
+            }
             catch (e: CancellationException) { throw e }
             catch (e: Exception) { mutable.update { it.copy(collectionBusy = false, error = sourceMessage(e)) } }
         }
     }
     fun retryCollection() { mutable.value.collectionEntry?.let(::browse) }
+
+    fun recommendationEngine(engine: RecommendationEngine) {
+        if (engine == RecommendationEngine.SPOTIFY && !mutable.value.spotifyAccount.connected) return
+        if (engine == mutable.value.recommendationEngine) return
+        library.recommendationEngine = engine
+        mutable.update { it.copy(recommendationEngine = engine) }
+        reloadRecommendations()
+    }
+    private fun reloadRecommendations() {
+        recommendationRevision++
+        feedJob?.cancel(); exploreJob?.cancel(); forYouJob?.cancel()
+        mutable.update { it.copy(feed = emptyList(), explore = emptyList(), forYou = emptyList(), feedHasMore = false,
+            feedError = null, exploreError = null, feedBusy = false, exploreBusy = false, forYouBusy = false) }
+        radio?.changeProvider()
+        refreshFeed(); refreshExplore(); refreshForYou()
+    }
+    private suspend fun providerRadio(seed: Track, exclude: Collection<String> = emptyList()): List<Track> =
+        if (mutable.value.recommendationEngine == RecommendationEngine.SPOTIFY) spotify.radio(seed, exclude)
+        else youtube.radio(spotifyMatches.resolve(seed), exclude)
+    fun beginSpotifySignIn() { spotify.connecting() }
+    fun completeSpotifySignIn(success: Boolean) {
+        if (!success) { spotify.cancel(); return }
+        viewModelScope.launch { if (spotify.verify()) recommendationEngine(RecommendationEngine.SPOTIFY) }
+    }
+    fun disconnectSpotify() {
+        recommendationEngine(RecommendationEngine.YOUTUBE)
+        collectionJob?.cancel()
+        if (mutable.value.collectionEntry?.kind?.startsWith("spotify_") == true) mutable.update { it.copy(collection = emptyList(), collectionBusy = false, collectionHasMore = false) }
+        viewModelScope.launch { try { spotify.disconnect() } catch (_: Exception) { /* Other providers remain available. */ } }
+    }
     fun googleSelecting() { mutable.update { it.copy(googleBusy = true, googleError = null) } }
     fun googleSelected(profile: GoogleProfile): Boolean {
         val changed = profile.subject != mutable.value.googleProfile?.subject
@@ -493,7 +564,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         c.setMediaItems(items, selectedIndex, 0)
         c.prepare()
         c.play()
-        // A single song starts its YouTube Music radio, like tapping a song in YouTube Music.
+        // A single song starts radio from the selected recommendation provider.
         if (ordered.size == 1) radio?.request(force = true)
     }
 
@@ -507,7 +578,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         }
         val metadata = MediaMetadata.Builder().setTitle(item.title).setArtist(item.artist)
             .setArtworkUri(item.artwork.takeIf(String::isNotBlank)?.let(Uri::parse)).setExtras(extras).build()
-        // The song keeps its YouTube identity (history, radio, recommendations); only the audio comes from the better file.
+        // Keep its discovery identity (YouTube or Spotify) when another source supplies audio.
         return MediaItem.Builder().setMediaId(item.id).setUri(route.master?.uri ?: item.url)
             .setCustomCacheKey(java.util.UUID.randomUUID().toString())
             .setMediaMetadata(metadata).build()
@@ -558,14 +629,17 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         if (forYouJob?.isActive == true) return
         val seeds = Recommender.seeds(mutable.value.playEvents, mutable.value.saved, rotation = forYouRotation++)
         if (seeds.isEmpty()) return
+        val revision = recommendationRevision
+        val engine = mutable.value.recommendationEngine
         forYouJob = viewModelScope.launch {
             mutable.update { it.copy(forYouBusy = true) }
             try {
-                val pools = seeds.map { seed -> async { runCatching { youtube.radio(seed) }.getOrElse { e -> if (e is CancellationException) throw e; emptyList() } } }.awaitAll()
-                val mix = withContext(Dispatchers.Default) { Recommender.mix(pools, mutable.value.playEvents) }
-                mutable.update { it.copy(forYou = mix, forYouBusy = false) }
+                val pools = seeds.map { seed -> async { runCatching { providerRadio(seed) }.getOrElse { e -> if (e is CancellationException) throw e; emptyList() } } }.awaitAll()
+                val mix = if (engine == RecommendationEngine.SPOTIFY) pools.flatten().distinctBy(Track::libraryKey).take(25)
+                    else withContext(Dispatchers.Default) { Recommender.mix(pools, mutable.value.playEvents) }
+                if (revision == recommendationRevision) mutable.update { it.copy(forYou = mix, forYouBusy = false) }
             } catch (e: CancellationException) { throw e }
-            catch (_: Exception) { mutable.update { it.copy(forYouBusy = false) } }
+            catch (_: Exception) { if (revision == recommendationRevision) mutable.update { it.copy(forYouBusy = false) } }
         }
     }
 
@@ -725,10 +799,11 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun sourceMessage(e: Exception): String =
-        if (e is SourceException) e.message.orEmpty() else "Could not load this recording. Check your connection and retry."
+        if (e is SourceException || e is labs.rtensor.music.spotify.SpotifyCatalogueException) e.message.orEmpty() else "Could not load this recording. Check your connection and retry."
 
     override fun onCleared() {
         radio?.reset()
+        spotify.close()
         finishListen(final = true)
         // Also commit a pending clear/remove if there was no active listen.
         persistHistory(final = true)

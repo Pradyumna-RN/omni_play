@@ -55,6 +55,9 @@ class MainActivity : ComponentActivity() {
         model.cancelAccountConnection()
     }
     private var appleTicket = -1L
+    private val spotifySignIn = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        model.completeSpotifySignIn(result.resultCode == RESULT_OK)
+    }
     private val appleSignIn = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val ticket = result.data?.getLongExtra(labs.rtensor.music.apple.AppleWebLoginActivity.TICKET, appleTicket) ?: appleTicket
         val session = if (result.resultCode == RESULT_OK) result.data?.getStringExtra(labs.rtensor.music.apple.AppleWebLoginActivity.SESSION) else null
@@ -129,6 +132,13 @@ class MainActivity : ComponentActivity() {
                 playbackPosition = model.playbackPosition,
                 audioLevels = model.audioLevels, onMetering = model::setMetering,
                 onDeveloperOptions = model::developerOptions,
+                onRecommendationEngine = model::recommendationEngine,
+                onConnectSpotify = {
+                    model.beginSpotifySignIn()
+                    spotifySignIn.launch(Intent(this, labs.rtensor.music.spotify.SpotifyLoginActivity::class.java))
+                },
+                onDisconnectSpotify = model::disconnectSpotify,
+                onMoreCollection = model::moreCollection,
                 onRemovePlay = model::removePlay, onRefreshForYou = model::refreshForYou,
             )
         }

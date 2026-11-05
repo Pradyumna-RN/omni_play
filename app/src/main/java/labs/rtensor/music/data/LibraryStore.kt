@@ -67,4 +67,7 @@ class LibraryStore(context: Context) {
     var developerOptions: Boolean
         get() = prefs.getBoolean("developer_options", false)
         set(value) { prefs.edit().putBoolean("developer_options", value).apply() }
+    var recommendationEngine: labs.rtensor.music.recommendations.RecommendationEngine
+        get() = labs.rtensor.music.recommendations.RecommendationEngine.parse(prefs.getString("recommendation_engine", null))
+        set(value) { prefs.edit().putString("recommendation_engine", value.wire).apply() }
 }
