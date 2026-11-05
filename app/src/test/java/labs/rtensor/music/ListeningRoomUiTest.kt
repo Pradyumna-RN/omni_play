@@ -97,7 +97,7 @@ class ListeningRoomUiTest {
         val plain = mutableStateOf(playing(audio))
         compose.mainClock.autoAdvance = false
         compose.setContent { MusicApp(plain.value, audioLevels = levels, onMetering = requests::add) }
-        fun frames() { repeat(5) { compose.mainClock.advanceTimeByFrame() }; compose.waitForIdle() }
+        fun frames() { repeat(20) { compose.mainClock.advanceTimeByFrame(); compose.waitForIdle() } }
         frames()
         assertTrue(requests.isEmpty())
         // Reduced motion keeps the lights steady: nothing to measure.
