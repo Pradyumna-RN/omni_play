@@ -1,8 +1,7 @@
 # Signal UI review
 
 Reviewed Claude’s `ab54281` design against the current application, including the
-0.3.31 account, provider and audio-source fixes. This is UI work for the next
-build; it does not publish an APK or OTA by itself.
+0.3.31 account, provider and audio-source fixes. The reviewed UI is included in the Music 0.3.32 release target.
 
 The paper/ink palette, orange accent, square controls, Archivo display type and
 DM Mono labels give Music a coherent visual identity. Both light and dark player

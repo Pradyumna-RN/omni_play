@@ -1,4 +1,28 @@
-# Music 0.3.31 verification
+# Music 0.3.32 / Signal UI
+
+The Signal design passed a full **308-check app run**, including rendered light
+and dark player screens, playback gestures, source controls and recommendation
+partitioning. All checks pass with no failures, errors or skips. Release Kotlin
+compilation and debug lint also pass. The [review](SIGNAL_UI_REVIEW.md) explains
+the corrections made before merging.
+
+The release target is **0.3.32 / versionCode 35**, retaining Android 11+,
+ARM64/x86-64 and the existing signing identity. Updater regression checks cover
+0.3.31 and older integrated installations. Release packaging runs optimization,
+native/runtime integrity checks and release lint. Completed artifact checks and
+exact hashes are recorded in the release’s `decoder-validation.json` and
+`SHA256SUMS`.
+
+Provider/authentication, decoder and DSP implementations are unchanged from
+0.3.31. Existing native/runtime payloads must match the previous release by hash.
+The previous DSP/browser results remain baseline evidence; this UI release does
+not claim new phone performance measurements or newly verified Apple lossless
+account access. Full app checks were completed during UI review; the version-bump
+updater checks and release-package checks are run separately for publication.
+
+## Previous release baseline
+
+### Music 0.3.31 verification
 
 This update fixes the Spotify sign-in handoff across the private browser process.
 The reply now uses the framework Binder receiver, rather than an app-private

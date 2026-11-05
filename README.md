@@ -49,7 +49,7 @@ those features improve.
 
 ## Quick guide
 
-1. **Install or update.** Get the [current preview release](https://github.com/RTensorLabs/music-app/releases/tag/v0.3.31).
+1. **Install or update.** Get the [current preview release](https://github.com/RTensorLabs/music-app/releases/tag/v0.3.32).
    Existing installations can use **Settings → About → Check updates**.
 2. **Choose recommendations.** Open **Settings → Playback → Recommendation source**.
    YouTube Music is the default. Selecting Spotify starts its sign-in; the choice
@@ -94,7 +94,7 @@ The current UI work on `main` uses **Signal**: a paper/ink palette, orange accen
 square controls and compact song recommendations. Home separates the last song,
 recommendations shaped by listening, and new-to-history songs. Collections stay
 in Explore. See the [UI review and verification scope](SIGNAL_UI_REVIEW.md).
-This work appears in the next app build.
+Signal is included in Music 0.3.32.
 
 [Shareable layout review](https://music-layout-review.chalkybongo1.chatgpt.site):
 smaller Home covers and three player options. This is a design prototype; it
@@ -285,7 +285,7 @@ code. The Android installer asks the user to confirm installation.
 
 ## Current release
 
-[Music 0.3.31](https://github.com/RTensorLabs/music-app/releases/tag/v0.3.31)
+[Music 0.3.32](https://github.com/RTensorLabs/music-app/releases/tag/v0.3.32)
 adds the YouTube Music / Spotify recommendation choice. The optimized release
 APK is approximately **89.2 MB**, with Android 11+, ARM64 and x86-64 support.
 
