@@ -24,23 +24,22 @@ class HomeFeedMoreUiTest {
 
     /** Home is a lazy list: bring its "More from your feed" item into view. */
     private fun scrollToMore() = compose.onAllNodes(hasScrollToKeyAction()).filter(hasAnyDescendant(hasText("For your ears"))).onFirst().performScrollToKey("more")
-    private fun top(title: String) = compose.onAllNodesWithText(title).onFirst().getUnclippedBoundsInRoot().top.value
 
-    @Test fun moreFromYourFeedAddsSongsBelowWithoutMovingTheScreen() {
+    @Test fun moreFromYourFeedSwapsInTheNextSetOfSongs() {
         val feed = PagedFeed(listOf(firstPage, (0..2).map { song("p2-$it") }))
         val state = mutableStateOf(start(feed).copy(reducedMotion = true))
         var taps = 0
         compose.setContent { MusicApp(state.value, onMoreFeed = { taps++; state.value = tap(state.value, feed) }) }
         scrollToMore()
         compose.onNodeWithText("Song p2-0").assertDoesNotExist()
-        val lastShown = top("Song p1-5"); val firstShown = top("Song p1-1")
+        compose.onAllNodesWithText("Song p1-5").assertCountEquals(1)
         compose.onNodeWithText("More from your feed").performClick()
         compose.waitForIdle()
         assertEquals(1, taps)
-        assertEquals("songs already on screen must not move", lastShown, top("Song p1-5"), 0.5f)
-        assertEquals(firstShown, top("Song p1-1"), 0.5f)
-        compose.onNodeWithText("Song p2-0").assertExists()
-        assertTrue("new songs go below the ones already shown", top("Song p2-0") > lastShown)
+        // The group now shows the next set instead of the first one.
+        compose.onAllNodes(hasScrollToKeyAction()).onFirst().performScrollToKey("unheard")
+        for (i in 0..2) compose.onNodeWithText("Song p2-$i").assertExists()
+        compose.onNodeWithText("Song p1-5").assertDoesNotExist()
         compose.onNodeWithText("More from your feed").assertDoesNotExist()
     }
 

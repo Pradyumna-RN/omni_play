@@ -40,16 +40,17 @@ class HomeFeedMoreTest {
         var state = start(feed)
         state = tap(state, feed); state = tap(state, feed)
         assertEquals(listOf(0, 1, 2), feed.served)
-        assertEquals(listOf(track("p2-0"), track("p3-0")), homeRecommendationGroups(state).newToYou.takeLast(2))
+        // Each tap swaps in the newest batch.
+        assertEquals(listOf(track("p3-0")), homeRecommendationGroups(state).newToYou)
     }
 
-    @Test fun moreAddsTheNextPagesSongsBelowWhatHomeAlreadyShows() {
+    @Test fun moreShowsTheNextPagesSongsInsteadOfTheFirstSet() {
         val feed = PagedFeed(listOf(firstPage, (0..3).map { song("p2-$it") }, listOf(song("p3-0"))))
         val before = homeRecommendationGroups(start(feed).also { feed.served.clear() })
         assertEquals((1..5).map { track("p1-$it") }, before.newToYou)
         val after = homeRecommendationGroups(tap(start(feed), feed))
         assertEquals(before.fromListening, after.fromListening)
-        assertEquals(before.newToYou + (0..3).map { track("p2-$it") }, after.newToYou)
+        assertEquals((0..3).map { track("p2-$it") }, after.newToYou)
     }
 
     @Test fun songsHomeAlreadyShowsAreNotAddedAgain() {
@@ -58,21 +59,20 @@ class HomeFeedMoreTest {
         val start = start(feed)
         val before = homeRecommendationGroups(start)
         val after = tap(start, feed)
-        assertEquals(before.newToYou + listOf(track("p2-0"), track("p2-1")), homeRecommendationGroups(after).newToYou)
+        assertEquals(listOf(track("p2-0"), track("p2-1")), homeRecommendationGroups(after).newToYou)
+        assertTrue(before.newToYou.isNotEmpty())
         assertEquals("Home never shows a recording twice", after.shownKeys().distinct(), after.shownKeys())
     }
 
-    @Test fun songsAlreadyOnScreenKeepTheirOrderAcrossTaps() {
-        val feed = PagedFeed(listOf(firstPage, listOf(song("p2-0"), song("p2-1")), listOf(song("p3-0"), song("p3-1")), listOf(song("p4-0"))))
+    @Test fun eachTapSwapsInTheNextHandfulAndKeepsTheMix() {
+        val feed = PagedFeed(listOf(firstPage, (0..7).map { song("p2-$it") }, listOf(song("p3-0"), song("p3-1")), listOf(song("p4-0"))))
         val first = start(feed)
         val second = tap(first, feed)
         val third = tap(second, feed)
-        for ((earlier, later) in listOf(first to second, second to third)) {
-            val a = homeRecommendationGroups(earlier); val b = homeRecommendationGroups(later)
-            assertEquals(a.fromListening, b.fromListening)
-            assertEquals(a.newToYou, b.newToYou.take(a.newToYou.size))
-            assertTrue(b.newToYou.size > a.newToYou.size)
-        }
+        // Up to six, from the end of the newest page.
+        assertEquals((2..7).map { track("p2-$it") }, homeRecommendationGroups(second).newToYou)
+        assertEquals(listOf(track("p3-0"), track("p3-1")), homeRecommendationGroups(third).newToYou)
+        for (later in listOf(second, third)) assertEquals(homeRecommendationGroups(first).fromListening, homeRecommendationGroups(later).fromListening)
     }
 
     @Test fun aPageOfOnlyKnownSongsFetchesTheNextPage() {
@@ -81,7 +81,8 @@ class HomeFeedMoreTest {
         val before = homeRecommendationGroups(start)
         val after = tap(start, feed)
         assertEquals(listOf(0, 1, 2), feed.served)
-        assertEquals(before.newToYou + track("p3-0"), homeRecommendationGroups(after).newToYou)
+        assertEquals(listOf(track("p3-0")), homeRecommendationGroups(after).newToYou)
+        assertTrue(before.newToYou.isNotEmpty())
         assertTrue(after.feedHasMore)
     }
 

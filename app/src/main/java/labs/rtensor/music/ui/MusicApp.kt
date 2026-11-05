@@ -737,7 +737,7 @@ private fun HomeScreen(state: MusicState, onSearch: () -> Unit, onPlay: (Track, 
         Recommender.artistAffinity(state.playEvents, now).filterValues { it > 0 }.entries
             .sortedByDescending { it.value }.take(2).mapNotNull { names[it.key] }
     }
-    val recommendations = remember(state.forYou, state.feed, state.feedMore, state.playEvents, state.history, state.current) {
+    val recommendations = remember(state.forYou, state.feed, state.feedMore, state.playEvents, state.history, state.current, state.trackHistory) {
         homeRecommendationGroups(state)
     }
     val unheard = recommendations.newToYou

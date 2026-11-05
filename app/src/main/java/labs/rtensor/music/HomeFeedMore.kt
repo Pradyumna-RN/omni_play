@@ -32,6 +32,9 @@ internal suspend fun loadMoreHomeFeed(state: MusicState, maxPages: Int = HOME_MO
 internal fun MusicState.withHomeFeed(page: HomeFeed, personalized: Boolean): MusicState =
     copy(feed = page.sections, feedMore = emptyList(), feedHasMore = page.hasMore, feedEnded = false, feedPersonalized = personalized)
 
-/** Home after "More from your feed": new songs go after the ones already there; nothing is re-sorted. */
+/**
+ * Home after "More from your feed": the new songs replace the previous batch, so "New to your ears"
+ * shows the next handful. When nothing new came, the last batch stays and Home says so.
+ */
 internal fun MusicState.withMoreHomeFeed(more: HomeFeedMore): MusicState =
-    copy(feedMore = (feedMore + more.songs).distinctBy(Track::libraryKey), feedHasMore = more.hasMore, feedEnded = more.songs.isEmpty())
+    copy(feedMore = if (more.songs.isEmpty()) feedMore else more.songs.distinctBy(Track::libraryKey), feedHasMore = more.hasMore, feedEnded = more.songs.isEmpty())
