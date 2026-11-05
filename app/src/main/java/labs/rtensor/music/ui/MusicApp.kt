@@ -1796,7 +1796,8 @@ private fun AudioComparison(state: MusicState, onProcessing: (Boolean) -> Unit) 
                     if (side) { SpeakerLights(report, processed, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)) }
                     Text(if (side) listOfNotNull("Processed", layout).joinToString(" · ") else "Original", fontSize = 14.sp, lineHeight = 18.sp, maxLines = 1,
                         fontWeight = if (on) FontWeight.SemiBold else FontWeight.Medium,
-                        color = if (on && ready) scheme.onSurface else scheme.onSurfaceVariant)
+                        // The side not chosen stays readable on a cover-tone ground too (muted grey was 3.5:1).
+                        color = if (!ready) scheme.onSurfaceVariant else if (on) scheme.onSurface else scheme.onSurface.copy(alpha = .85f))
                 }
             }
         }
@@ -2213,7 +2214,11 @@ private fun ProgressLine(position: Long, duration: Long, playing: Boolean, reduc
     val classic = LocalLook.current.classic
     val soft = LocalLook.current.soft
     // Classic's line is ink on a square track; the Listening room's is the accent, rounded, with a thumb.
-    val accent = if (classic) MaterialTheme.colorScheme.onBackground else LocalAccent.current.accent
+    // The accent as a mark: lifted or deepened until it stands out 3:1 from the page (a fixed
+    // orange on paper was 2.7:1).
+    val ground = MaterialTheme.colorScheme.background
+    val raw = LocalAccent.current.accent
+    val accent = if (classic) MaterialTheme.colorScheme.onBackground else remember(raw, ground) { markOn(raw, ground, Color.Unspecified).takeIf { it != Color.Unspecified } ?: raw }
     val line = MaterialTheme.colorScheme.outline
     fun release() {
         val target = drag.value ?: return
