@@ -212,6 +212,28 @@ class CoverAccentUiTest {
         assertTrue("Play takes the cover accent", close(playFill(snapshot()), accentOnTone(colours.accent, tones.top)))
     }
 
+    /** Skipping to a song whose cover cannot load keeps the last colour instead of flashing to Signal. */
+    @Test fun aCoverThatKeepsFailingKeepsThePreviousColour() {
+        val first = track("yt:first", "https://yt3.googleusercontent.com/amber=w544-h544-l90-rj")
+        val state = mutableStateOf(MusicState(current = first, durationMs = 200_000, reducedMotion = true, theme = "light"))
+        compose.setContent { MusicApp(state.value, initialPage = "now") }
+        settle { CoverAccent.cached(accentUrl(first.artwork)) != null }
+        val colours = CoverAccent.cached(accentUrl(first.artwork))!!
+        val expected = accentOnTone(colours.accent, playerTones(colours.deep).top)
+        assertTrue("first cover's colour", close(playFill(snapshot()), expected))
+        online = false
+        val second = track("yt:second", "https://yt3.googleusercontent.com/gold=w544-h544-l90-rj")
+        compose.runOnIdle { state.value = state.value.copy(current = second) }
+        settle { requested.contains(accentUrl(second.artwork)) }
+        // Through several retries the accent stays the first cover's, not Signal.
+        repeat(3) {
+            compose.mainClock.advanceTimeBy(CoverAccent.MissMs + 1_000); settle()
+            val fill = playFill(snapshot())
+            assertFalse("not Signal while retrying", close(fill, SignalAccent))
+        }
+        assertNull(CoverAccent.cached(accentUrl(second.artwork)))
+    }
+
     @Test fun playerScreenshotsWithSyntheticCovers() {
         val covers = listOf(
             "amber-portrait" to "https://yt3.googleusercontent.com/amber=w544-h544-l90-rj",

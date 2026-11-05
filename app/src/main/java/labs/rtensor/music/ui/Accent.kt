@@ -328,7 +328,7 @@ internal fun rememberCoverColours(artwork: String?): CoverColours? {
         while (true) {
             val found = CoverAccent.load(context.applicationContext, url)
             if (found != null) { colour = found; break }
-            colour = null
+            // Keep the previous song's colour while this cover keeps failing; no flash to Signal.
             delay(CoverRetryMs[min(attempt++, CoverRetryMs.lastIndex)])
         }
     }
