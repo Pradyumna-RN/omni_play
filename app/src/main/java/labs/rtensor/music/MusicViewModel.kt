@@ -9,7 +9,6 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
-import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
@@ -667,21 +666,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         if (ordered.size == 1) radio?.request(force = true)
     }
 
-    private fun mediaItem(item: Track): MediaItem {
-        val route = route(item)
-        val extras = Bundle().apply {
-            putString("catalogue_track", item.json().toString())
-            putString("route", route.label)
-            putString("fallback_route", route.label)
-            route.master?.let { putString("local_master", it.json().toString()) }
-        }
-        val metadata = MediaMetadata.Builder().setTitle(item.title).setArtist(item.artist)
-            .setArtworkUri(item.artwork.takeIf(String::isNotBlank)?.let(Uri::parse)).setExtras(extras).build()
-        // Keep its discovery identity (YouTube or Spotify) when another source supplies audio.
-        return MediaItem.Builder().setMediaId(item.id).setUri(route.master?.uri ?: item.url)
-            .setCustomCacheKey(java.util.UUID.randomUUID().toString())
-            .setMediaMetadata(metadata).build()
-    }
+    private fun mediaItem(item: Track): MediaItem = labs.rtensor.music.playback.PlayableItems.build(item, route(item))
 
     fun retryRadio() { radio?.retry() }
 

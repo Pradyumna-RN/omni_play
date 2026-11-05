@@ -226,12 +226,7 @@ class MusicPlaybackService : MediaSessionService() {
 
                 override fun onAddMediaItems(session: MediaSession, controller: MediaSession.ControllerInfo, mediaItems: MutableList<MediaItem>): ListenableFuture<MutableList<MediaItem>> {
                     if (controller.packageName != packageName) return Futures.immediateFuture(mutableListOf())
-                    val permitted = mediaItems.filter {
-                        val uri = it.localConfiguration?.uri
-                        uri?.scheme == "content" || (uri?.scheme == "https" && YouTubeLink.normalize(uri.toString())?.contains("/watch?v=") == true) ||
-                            spotifyCatalogueItem(it)
-                    }
-                    return Futures.immediateFuture(permitted.toMutableList())
+                    return Futures.immediateFuture(mediaItems.filter(PlayableItems::permitted).toMutableList())
                 }
             }).build()
     }
@@ -239,12 +234,7 @@ class MusicPlaybackService : MediaSessionService() {
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session
 
     companion object {
-        internal fun spotifyCatalogueItem(item: MediaItem): Boolean = runCatching {
-            val track = Track.fromJson(org.json.JSONObject(item.mediaMetadata.extras?.getString("catalogue_track") ?: return@runCatching false))
-            labs.rtensor.music.spotify.SpotifyTrackMatcher.pending(track) &&
-                track.source == labs.rtensor.music.data.Source.YOUTUBE &&
-                item.localConfiguration?.uri.toString() == "https://open.spotify.com/track/${track.spotifyId}"
-        }.getOrDefault(false)
+        internal fun spotifyCatalogueItem(item: MediaItem): Boolean = PlayableItems.spotifyCatalogueItem(item)
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
