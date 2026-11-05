@@ -28,7 +28,7 @@ import kotlinx.coroutines.withTimeout
 import labs.rtensor.music.auth.DeviceYouTubeSignIn
 import labs.rtensor.music.data.WebSession
 import labs.rtensor.music.data.YouTubeRuntime
-import labs.rtensor.music.ui.MusicTheme
+import labs.rtensor.music.ui.SavedMusicTheme
 import org.json.JSONTokener
 import org.json.JSONObject
 import kotlin.coroutines.resume
@@ -49,7 +49,7 @@ class YouTubeLoginActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            MusicTheme("system") {
+            SavedMusicTheme {
                 Surface(Modifier.fillMaxSize()) {
                     Column(Modifier.fillMaxSize().systemBarsPadding()) {
                         Row(Modifier.fillMaxWidth().padding(8.dp), horizontalArrangement = Arrangement.SpaceBetween) {

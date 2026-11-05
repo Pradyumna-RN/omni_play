@@ -17,7 +17,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.*
-import labs.rtensor.music.ui.MusicTheme
+import labs.rtensor.music.ui.SavedMusicTheme
 import org.json.JSONObject
 import org.json.JSONTokener
 import kotlin.coroutines.resume
@@ -36,7 +36,7 @@ internal class AppleWebLoginActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         setContent {
-            MusicTheme("system") { Surface(Modifier.fillMaxSize()) { Column(Modifier.fillMaxSize().systemBarsPadding()) {
+            SavedMusicTheme { Surface(Modifier.fillMaxSize()) { Column(Modifier.fillMaxSize().systemBarsPadding()) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     TextButton(onClick = ::cancel) { Text("Cancel") }
                     TextButton(onClick = { confirm(true) }, enabled = !busy) { Text("Connect") }

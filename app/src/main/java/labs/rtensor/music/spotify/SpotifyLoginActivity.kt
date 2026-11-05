@@ -17,7 +17,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.*
-import labs.rtensor.music.ui.MusicTheme
+import labs.rtensor.music.ui.SavedMusicTheme
 import org.json.JSONObject
 
 /** Spotify's own sign-in page with one Connect action; only a verified Spotify profile completes it. */
@@ -50,7 +50,7 @@ class SpotifyLoginActivity : ComponentActivity() {
         enableEdgeToEdge()
         openLogin(fresh = savedInstanceState == null)
         setContent {
-            MusicTheme("system") {
+            SavedMusicTheme {
                 SpotifyLoginScreen(pageUrl, message, busy, loading,
                     onCancel = ::cancelLogin, onConnect = ::connectOrContinue,
                     onSignIn = { restartLogin() }, onReload = { restartLogin() }) {

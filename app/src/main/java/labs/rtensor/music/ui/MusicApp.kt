@@ -272,6 +272,17 @@ fun MusicTheme(theme: String = "light", darkNavigationBar: Boolean = false, acce
     ) }
 }
 
+/**
+ * [MusicTheme] with the saved Look, Theme and Accent, for screens outside [MusicApp] (the sign-in
+ * pages). They have no song playing, so "From the cover" shows its Signal fallback there.
+ */
+@Composable
+fun SavedMusicTheme(content: @Composable () -> Unit) {
+    val context = LocalContext.current
+    val store = remember { labs.rtensor.music.data.LibraryStore(context.applicationContext) }
+    MusicTheme(store.theme, accent = store.accent, look = store.look, content = content)
+}
+
 private val LocalReducedMotion = staticCompositionLocalOf { false }
 
 @Composable

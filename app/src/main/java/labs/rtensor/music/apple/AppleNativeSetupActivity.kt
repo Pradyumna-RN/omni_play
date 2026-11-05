@@ -21,7 +21,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
-import labs.rtensor.music.ui.MusicTheme
+import labs.rtensor.music.ui.SavedMusicTheme
 import labs.rtensor.music.BuildConfig
 
 internal class AppleNativeSetupActivity : ComponentActivity() {
@@ -29,7 +29,7 @@ internal class AppleNativeSetupActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-        setContent { MusicTheme("system") {
+        setContent { SavedMusicTheme {
             val state by account.state.collectAsStateWithLifecycle()
             var user by remember { mutableStateOf("") }; var password by remember { mutableStateOf("") }
             var code by remember { mutableStateOf("") }; var importing by remember { mutableStateOf(false) }
