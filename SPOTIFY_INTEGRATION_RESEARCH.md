@@ -12,9 +12,69 @@ account playback, and no Spotify engine is currently integrated into Music.
 | [Myspoti](https://github.com/kota-zo/myspoti) | Android native controls drive the official Spotify Web Player in a WebView. Android Widevine handles playback. Host request filtering and queue/ad recovery suppress ads. | Closest free-account Android candidate; needs a prototype and device validation. |
 | [librespot](https://github.com/librespot-org/librespot) | Independent Spotify client/Connect receiver; the README explicitly requires Premium. | Does not meet the free-account requirement. |
 | [librespot-java](https://github.com/librespot-org/librespot-java) / [Jetispot](https://github.com/iTaysonLab/jetispot) | Java/Android client route. librespot-java development moved to go-librespot; Jetispot is archived and documents Premium as required. | Do not base a new free-account engine on these older clients. |
-| [Spotube](https://github.com/team-spotube/spotube) | Current project separates metadata and audio through plugins. Older Spotify integrations used another audio source. | Metadata/library support alone is not proof of direct Spotify Free audio. |
+| [Spotube](https://github.com/team-spotube/spotube) | Spotify metadata plugin supplies account/library/radio; a separate audio plugin resolves matching recordings. The built-in audio plugin is NewPipe YouTube. | Fits Spotify discovery with Music's existing playback engine; does not establish ad-free direct Spotify audio. |
 | [SpotX](https://github.com/SpotX-Official/SpotX) | Patches the desktop Spotify client. | Not an embeddable Android playback engine. |
 | [spotify-adblock](https://github.com/abba23/spotify-adblock) | Linux shared-library interception around Spotify's Chromium requests. | Not an Android playback engine. |
+
+## Spotube: Spotify account and audio are separate
+
+Inspected the current main application at
+[`08f8f65a2a7fcfb94c69882333fe0a9f7e56d0ec`](https://github.com/team-spotube/spotube/tree/08f8f65a2a7fcfb94c69882333fe0a9f7e56d0ec)
+and the external Spotify metadata plugin at
+[`da3029066a1159d76ca3b81310ffe7918256bbc2`](https://github.com/sonic-liberation/spotube-plugin-spotify/tree/da3029066a1159d76ca3b81310ffe7918256bbc2).
+These findings concern these implementations, not every possible third-party
+Spotube audio plugin.
+
+- [`BuiltInPlugins.kt`](https://github.com/team-spotube/spotube/blob/08f8f65a2a7fcfb94c69882333fe0a9f7e56d0ec/composeApp/src/commonMain/kotlin/org/spotube/spotube/modules/plugin/BuiltInPlugins.kt)
+  registers NewPipe YouTube as an audio plugin and LRCLIB as a lyrics plugin.
+  Spotify is not the built-in audio engine.
+- The Spotify plugin's
+  [`js.kt`](https://github.com/sonic-liberation/spotube-plugin-spotify/blob/da3029066a1159d76ca3b81310ffe7918256bbc2/spotube_plugin_spotify/src/jsMain/kotlin/io/github/sonic_liberation/spotube_plugin_spotify/js.kt)
+  binds album, artist, browse, playlist, search, track and user metadata APIs.
+  It does not bind the audio API. Its
+  [`RealCoreAPI.kt`](https://github.com/sonic-liberation/spotube-plugin-spotify/blob/da3029066a1159d76ca3b81310ffe7918256bbc2/spotube_plugin_spotify/src/jsMain/kotlin/io/github/sonic_liberation/spotube_plugin_spotify/core/RealCoreAPI.kt)
+  opens Spotify's login page, captures a Spotify web-session cookie, obtains
+  session credentials and schedules refresh. This is a web-session integration,
+  not an RTensorLabs developer OAuth registration or a Premium audio entitlement.
+- [`RealMetadataTrackAPI.kt`](https://github.com/sonic-liberation/spotube-plugin-spotify/blob/da3029066a1159d76ca3b81310ffe7918256bbc2/spotube_plugin_spotify/src/commonMain/kotlin/io/github/sonic_liberation/spotube_plugin_spotify/core/RealMetadataTrackAPI.kt)
+  implements song recommendations by requesting a radio playlist for the first
+  seed and reading that playlist. The application's
+  [`DeviceAudioPlayerQueue.kt`](https://github.com/team-spotube/spotube/blob/08f8f65a2a7fcfb94c69882333fe0a9f7e56d0ec/composeApp/src/commonMain/kotlin/org/spotube/spotube/core/audioplayer/DeviceAudioPlayerQueue.kt)
+  asks the selected metadata plugin for recommendations during endless playback.
+  This confirms a provider-radio route rather than replaying listening history
+  as the next-song candidate pool.
+- [`RealNewPipeAudioAPI.kt`](https://github.com/team-spotube/spotube/blob/08f8f65a2a7fcfb94c69882333fe0a9f7e56d0ec/composeApp/src/commonMain/kotlin/org/spotube/spotube/core/zipline/plugin_apis/newpipe_yt/RealNewPipeAudioAPI.kt)
+  resolves YouTube items directly; otherwise it searches by ISRC, title and
+  artist, scores matches, and returns YouTube audio streams. It can fall back to
+  unconfident text-search guesses. That fallback can select the wrong version;
+  Music should require a verified recording match or an explicit user selection.
+
+The checked Spotify plugin also contains a diagnostic log that interpolates the
+session cookie in its token-request function. Never copy that logging into Music;
+account cookies and tokens must stay out of logs. No real credential values were
+read or printed during this review.
+
+The useful architecture for Music's earlier recommendation/DSP goal is:
+
+```mermaid
+flowchart LR
+  Spotify[Spotify account, library and radio] --> Track[Spotify catalogue identity]
+  Track --> Match[Verified recording match]
+  Match --> Sources[Existing authorised playback-source selection]
+  Sources --> Audio[Selected local or provider recording, or YouTube fallback]
+  Audio --> Media3[Music Media3 playback]
+  Media3 --> Routing[Stereo bypass or supported multichannel DMR]
+```
+
+This can preserve the current player and DSP, but the selected audio source must
+be labelled honestly. Spotify recommendations do not turn a YouTube stream into
+Spotify audio, lossless or Atmos. Conversely, a genuine authorised local/provider
+multichannel match can still use Music's existing DMR path.
+
+Spotube and the reviewed metadata plugin use AGPL-3.0-family licensing. No code
+was copied, no plugin installed and no real Spotify login/playback tested. The
+architecture is relevant; dropping their implementation into Music requires a
+separate licence-compatible integration decision.
 
 ## Myspoti: checked beyond the README
 
