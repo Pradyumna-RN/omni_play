@@ -219,7 +219,7 @@ class MusicPlaybackService : MediaLibraryService() {
         val car = CarLibrary(this, mainScope, catalogueSearch = youtube::search, liveHome = {
             youtube.home().sections.flatMap { it.items }.filter { it.videoId.isNotBlank() }.map { it.asTrack() }
         })
-        session = MediaLibraryService.MediaLibrarySession.Builder(this, player, MusicLibraryCallback(packageName, car, mainScope))
+        session = MediaLibraryService.MediaLibrarySession.Builder(this, SessionPlayer(player), MusicLibraryCallback(packageName, car, mainScope))
             .setSessionActivity(intent)
             .build()
     }
