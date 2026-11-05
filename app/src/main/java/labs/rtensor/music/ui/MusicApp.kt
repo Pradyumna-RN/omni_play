@@ -160,6 +160,8 @@ private val Dark = darkColorScheme(
 internal val ButtonShape = RoundedCornerShape(10.dp)
 /** The player's song title: bold Archivo, not the condensed display face. */
 private val PlayerTitleStyle = TextStyle(fontFamily = font, fontWeight = FontWeight.Bold, fontSize = 22.sp, lineHeight = 28.sp)
+/** Sentence-case labels and small headings. Monospace is kept for technical facts only. */
+internal val LabelStyle = TextStyle(fontFamily = font, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, letterSpacing = .01.em)
 internal val MonoLabel = TextStyle(fontFamily = Mono, fontWeight = FontWeight.Medium, fontSize = 13.sp, letterSpacing = .06.em)
 internal val MonoSmall = TextStyle(fontFamily = Mono, fontSize = 12.sp, letterSpacing = .04.em)
 private val DisplayStyle = TextStyle(fontFamily = Display, fontWeight = FontWeight.ExtraBold, letterSpacing = (-.01).em)
@@ -407,10 +409,11 @@ private fun AppHeader(page: String, onHome: () -> Unit, onSettings: () -> Unit, 
     Row(Modifier.fillMaxWidth().statusBarsPadding().padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp).heightIn(min = 48.dp),
         verticalAlignment = Alignment.CenterVertically) {
         if (page in listOf("now", "settings", "collection")) {
-            OutlinedIconButton(onClick = onBack, shape = RectangleShape, border = BorderStroke(2.dp, MaterialTheme.colorScheme.onBackground),
+            OutlinedIconButton(onClick = onBack, shape = ButtonShape, border = BorderStroke(2.dp, MaterialTheme.colorScheme.onBackground),
                 modifier = Modifier.size(48.dp)) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back", Modifier.size(20.dp)) }
             Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                Caption(when (page) { "now" -> "NOW PLAYING"; "collection" -> "COLLECTION"; else -> "SETTINGS" })
+                Text(when (page) { "now" -> "Now playing"; "collection" -> "Collection"; else -> "Settings" }, fontFamily = font, fontSize = 14.sp,
+                    lineHeight = 18.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Spacer(Modifier.width(48.dp))
         } else {
@@ -545,21 +548,21 @@ private fun HomeScreen(state: MusicState, onSearch: () -> Unit, onPlay: (Track, 
         if (state.feedError != null) item(key = "feed-error") {
             Row(motionModifier().fillMaxWidth().padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(state.feedError, fontSize = 13.sp, lineHeight = 19.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-                TextButton(onClick = onRefresh, shape = RectangleShape) { Text("RETRY", style = MonoLabel) }
+                TextButton(onClick = onRefresh, shape = ButtonShape) { Text("Retry", style = LabelStyle) }
             }
         }
         if (showHero) item(key = "hero") {
             Column(Modifier.fillMaxWidth().signalRule(bottom = true, thickness = 1.dp).padding(vertical = 20.dp)) {
                 if (recent == null) {
-                    Text("START WITH A SONG", style = MonoLabel)
+                    Text("Start with a song", style = LabelStyle)
                     Spacer(Modifier.height(12.dp))
-                    Text("Find your\nnext repeat.", style = DisplayStyle, fontSize = 40.sp, lineHeight = 36.sp, maxLines = 2)
+                    Text("Find your\nnext repeat", style = DisplayStyle, fontSize = 40.sp, lineHeight = 36.sp, maxLines = 2)
                     Spacer(Modifier.height(8.dp))
                     Text("A song, an artist, a familiar feeling.", fontSize = 15.sp, lineHeight = 21.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.height(16.dp))
                     SignalAction("Find music", Icons.Outlined.Search, loading = false, onClick = onSearch)
                 } else {
-                    Text(if (playsToday > 0) "LAST PLAYED · $playsToday TODAY" else "LAST PLAYED", style = MonoLabel, modifier = Modifier.padding(bottom = 10.dp))
+                    Text(if (playsToday > 0) "Last played · $playsToday today" else "Last played", style = LabelStyle, modifier = Modifier.padding(bottom = 10.dp))
                     // The featured row keeps one line per field, so its control never moves as metadata changes.
                     Row(Modifier.fillMaxWidth().signalRule(thickness = 1.dp, color = MaterialTheme.colorScheme.outline).heightIn(min = 76.dp).padding(vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically) {
@@ -577,7 +580,7 @@ private fun HomeScreen(state: MusicState, onSearch: () -> Unit, onPlay: (Track, 
                         }
                     }
                     if (state.history.size > 1) {
-                        Text("Recently played", style = MonoSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 14.dp, bottom = 4.dp))
+                        Text("Recently played", fontFamily = font, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 14.dp, bottom = 4.dp))
                         state.history.drop(1).take(4).forEach { track ->
                             val playing = track.libraryKey() == state.current?.libraryKey()
                             LastPlayedRow(track, if (playing) "NOW" else lastPlayedAt[track.libraryKey()]?.let { whenLabel(it, now) }.orEmpty()) {
@@ -591,8 +594,8 @@ private fun HomeScreen(state: MusicState, onSearch: () -> Unit, onPlay: (Track, 
         if (recommendations.fromListening.isNotEmpty() || state.forYouBusy) item(key = "for-you") {
             Column(motionModifier().fillMaxWidth().signalRule(bottom = true, thickness = 1.dp).padding(vertical = 20.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    ScrollingMetadata(if (topArtists.isEmpty()) "FROM YOUR LISTENING" else "YOUR SOUND · ${topArtists.joinToString(" · ").uppercase(Locale.ROOT)}",
-                        MonoLabel, Modifier.weight(1f))
+                    ScrollingMetadata(if (topArtists.isEmpty()) "From your listening" else "Your sound · ${topArtists.joinToString(" · ")}",
+                        LabelStyle, Modifier.weight(1f))
                     if (state.forYou.isNotEmpty()) {
                         Spacer(Modifier.width(12.dp))
                         SignalOutlineButton("Play mix") { onPlay(state.forYou.first(), state.forYou) }
@@ -614,7 +617,7 @@ private fun HomeScreen(state: MusicState, onSearch: () -> Unit, onPlay: (Track, 
                 onBackground = on, primary = on, outline = on.copy(alpha = .25f))
             MaterialTheme(colorScheme = scheme, typography = MaterialTheme.typography, shapes = MaterialTheme.shapes) {
                 Column(motionModifier().padding(vertical = 20.dp).fillMaxWidth().background(accent.accent).padding(16.dp)) {
-                    Text(if (state.trackHistory) "NEW HERE" else "KEEP EXPLORING", style = MonoLabel, color = on)
+                    Text(if (state.trackHistory) "New here" else "Keep exploring", style = LabelStyle, color = on)
                     Text(if (state.trackHistory) "New to your ears" else "Discover more", style = DisplayStyle,
                         fontSize = 32.sp, lineHeight = 36.sp, color = on, modifier = Modifier.padding(top = 8.dp).semantics { heading() })
                     Text(if (state.trackHistory) "Songs outside your recorded listening history."
@@ -672,7 +675,7 @@ private fun LastPlayedRow(track: Track, time: String, onClick: () -> Unit) {
 @Composable
 private fun SignalAction(label: String, icon: ImageVector, loading: Boolean, modifier: Modifier = Modifier, enabled: Boolean = true, onClick: () -> Unit) {
     val accent = LocalAccent.current
-    Row(modifier.heightIn(min = 48.dp).pressable(enabled = enabled, onClick = onClick).background(accent.accent).padding(horizontal = 14.dp),
+    Row(modifier.heightIn(min = 48.dp).pressable(enabled = enabled, onClick = onClick).clip(ButtonShape).background(accent.accent).padding(horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(20.dp), contentAlignment = Alignment.Center) {
             if (loading) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = accent.onAccent)
@@ -686,11 +689,11 @@ private fun SignalAction(label: String, icon: ImageVector, loading: Boolean, mod
 /** A 2dp ink-bordered square button with a mono label. */
 @Composable
 private fun SignalOutlineButton(label: String, modifier: Modifier = Modifier, enabled: Boolean = true, onClick: () -> Unit) {
-    OutlinedButton(onClick = onClick, enabled = enabled, shape = RectangleShape, modifier = modifier.heightIn(min = 48.dp),
+    OutlinedButton(onClick = onClick, enabled = enabled, shape = ButtonShape, modifier = modifier.heightIn(min = 48.dp),
         border = BorderStroke(2.dp, if (enabled) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.outline),
         colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onBackground),
         contentPadding = PaddingValues(horizontal = 16.dp)) {
-        Text(label, style = MonoLabel, maxLines = 1)
+        Text(label, style = LabelStyle, maxLines = 1)
     }
 }
 
@@ -762,7 +765,7 @@ private fun NoticeBanner(title: String, detail: String, action: String, onAction
             }
             Spacer(Modifier.width(12.dp))
             // The button inverts the banner text: an ink button with paper text, or white with ink.
-            Button(onClick = onAction, shape = RectangleShape, contentPadding = PaddingValues(horizontal = 16.dp),
+            Button(onClick = onAction, shape = ButtonShape, contentPadding = PaddingValues(horizontal = 16.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = accent.onAccent, contentColor = if (accent.onAccent == Ink) Paper else Ink)) { Text(action, fontSize = 13.sp) }
         }
     }
@@ -850,7 +853,7 @@ private fun ProviderHome(state: MusicState, onEntry: (FeedEntry) -> Unit, onRefr
         if (state.feedError != null) item(key = "error") {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(state.feedError, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-                TextButton(onClick = onRefresh, enabled = !state.feedBusy, shape = RectangleShape) { Text("RETRY", style = MonoLabel) }
+                TextButton(onClick = onRefresh, enabled = !state.feedBusy, shape = ButtonShape) { Text("Retry", style = LabelStyle) }
             }
         }
         if (state.feed.isEmpty() && !state.feedBusy && state.feedError == null) item(key = "empty") { EmptyState("More music awaits", "Pull down to load discoveries from ${state.recommendationEngine.label}.", Glyph.Compass) }
@@ -870,7 +873,7 @@ private fun CollectionScreen(state: MusicState, onPlay: (Track, List<Track>) -> 
             if (state.collectionHasMore) OutlinedButton(onClick = onMore, modifier = Modifier.fillMaxWidth()) { Text("Load more songs") }
         }
         else {
-            Button(onClick = { state.collection.firstOrNull()?.let { onPlay(it, state.collection) } }, enabled = state.collection.isNotEmpty(), shape = RectangleShape) { Icon(Icons.Outlined.PlayArrow, null); Text("Play all") }
+            Button(onClick = { state.collection.firstOrNull()?.let { onPlay(it, state.collection) } }, enabled = state.collection.isNotEmpty(), shape = ButtonShape) { Icon(Icons.Outlined.PlayArrow, null); Text("Play all") }
             Spacer(Modifier.height(14.dp))
             LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
                 itemsIndexed(state.collection, key = { i, track -> "$i:${track.id}" }) { _, track ->
@@ -982,7 +985,7 @@ private fun SavedList(state: MusicState, onPlay: (Track, List<Track>) -> Unit, o
         } else {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                 Caption("${state.saved.size} SAVED")
-                Button(onClick = { onPlay(state.saved.first(), state.saved) }, shape = RectangleShape) { Icon(Icons.Outlined.PlayArrow, null, Modifier.size(18.dp)); Spacer(Modifier.width(7.dp)); Text("Play all", fontSize = 12.sp) }
+                Button(onClick = { onPlay(state.saved.first(), state.saved) }, shape = ButtonShape) { Icon(Icons.Outlined.PlayArrow, null, Modifier.size(18.dp)); Spacer(Modifier.width(7.dp)); Text("Play all", fontSize = 12.sp) }
             }
             Spacer(Modifier.height(10.dp))
             LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
@@ -1693,9 +1696,9 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onAccen
                     Text("${state.update.progress}%", fontSize = 13.sp, color = scheme.onSurfaceVariant)
                 }
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = onCheckUpdates, enabled = !state.update.checking && !state.update.downloading, shape = RectangleShape) { Text("Check updates", fontSize = 14.sp) }
-                    if (state.update.apkPath != null) Button(onClick = onInstallUpdate, shape = RectangleShape) { Text("Install update", fontSize = 14.sp) }
-                    else if (state.update.release != null) Button(onClick = onDownloadUpdate, enabled = !state.update.downloading && !state.update.checking, shape = RectangleShape) { Text("Download", fontSize = 14.sp) }
+                    OutlinedButton(onClick = onCheckUpdates, enabled = !state.update.checking && !state.update.downloading, shape = ButtonShape) { Text("Check updates", fontSize = 14.sp) }
+                    if (state.update.apkPath != null) Button(onClick = onInstallUpdate, shape = ButtonShape) { Text("Install update", fontSize = 14.sp) }
+                    else if (state.update.release != null) Button(onClick = onDownloadUpdate, enabled = !state.update.downloading && !state.update.checking, shape = ButtonShape) { Text("Download", fontSize = 14.sp) }
                 }
             }
             CardDivider()
@@ -1716,9 +1719,9 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onAccen
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Choose audio from your device.")
-                Button(onClick = { showImport = false; onLocal() }, modifier = Modifier.fillMaxWidth(), shape = RectangleShape) { Text("Choose file") }
+                Button(onClick = { showImport = false; onLocal() }, modifier = Modifier.fillMaxWidth(), shape = ButtonShape) { Text("Choose file") }
                 OutlinedButton(onClick = { showImport = false; onChooseMasters() }, enabled = !state.mastersBusy,
-                    modifier = Modifier.fillMaxWidth(), shape = RectangleShape) { Text("Choose folder") }
+                    modifier = Modifier.fillMaxWidth(), shape = ButtonShape) { Text("Choose folder") }
                 if (state.mastersSummary.isNotBlank()) {
                     Text(state.mastersSummary, fontSize = 13.sp, color = scheme.onSurfaceVariant)
                     if (!state.mastersBusy) {
@@ -1792,19 +1795,19 @@ private fun AccountCard(state: MusicState, onGoogleSignIn: () -> Unit, onGoogleS
             (state.googleError ?: youtube.error)?.let { Text(it, fontSize = 14.sp, lineHeight = 21.sp, color = MaterialTheme.colorScheme.primary) }
             val wide = Modifier.fillMaxWidth().heightIn(min = 48.dp)
             when {
-                state.googleBusy -> OutlinedButton(onClick = onCancelGoogle, modifier = wide, shape = RectangleShape) { Text("Cancel Google sign-in", fontSize = 15.sp) }
+                state.googleBusy -> OutlinedButton(onClick = onCancelGoogle, modifier = wide, shape = ButtonShape) { Text("Cancel Google sign-in", fontSize = 15.sp) }
                 youtube.connecting -> {
                     Text("Finish sign-in on YouTube’s page.", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    OutlinedButton(onClick = onCancelConnect, modifier = wide, shape = RectangleShape) { Text("Cancel sign-in", fontSize = 15.sp) }
+                    OutlinedButton(onClick = onCancelConnect, modifier = wide, shape = ButtonShape) { Text("Cancel sign-in", fontSize = 15.sp) }
                 }
                 google == null && !youtube.connected -> {
-                    Button(onClick = onGoogleSignIn, modifier = wide, shape = RectangleShape) { Text("Sign in with Google", fontSize = 15.sp) }
+                    Button(onClick = onGoogleSignIn, modifier = wide, shape = ButtonShape) { Text("Sign in with Google", fontSize = 15.sp) }
                     Text("Choose a Gmail account on this phone to connect YouTube Music. Google may ask you to confirm sign-in.",
                         fontSize = 13.sp, lineHeight = 19.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     TextButton(onClick = onWebSignIn) { Text("Sign in using browser", fontSize = 15.sp) }
                 }
                 google != null && !youtube.connected -> {
-                    Button(onClick = onConnect, modifier = wide, shape = RectangleShape) { Text("Connect YouTube Music", fontSize = 15.sp) }
+                    Button(onClick = onConnect, modifier = wide, shape = ButtonShape) { Text("Connect YouTube Music", fontSize = 15.sp) }
                     Text("Finishes syncing ${google.email}. You’ll return here automatically.", fontSize = 13.sp, lineHeight = 19.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     FlowRow {
                         TextButton(onClick = onGoogleSignIn) { Text("Change Google account", fontSize = 15.sp) }
@@ -1812,7 +1815,7 @@ private fun AccountCard(state: MusicState, onGoogleSignIn: () -> Unit, onGoogleS
                     }
                 }
                 else -> {
-                    OutlinedButton(onClick = if (google != null) onGoogleSignIn else onConnect, modifier = wide, shape = RectangleShape) {
+                    OutlinedButton(onClick = if (google != null) onGoogleSignIn else onConnect, modifier = wide, shape = ButtonShape) {
                         Text(if (google != null) "Change Google account" else "Change account", fontSize = 15.sp)
                     }
                     FlowRow {
@@ -2065,7 +2068,7 @@ private fun PlayPauseCircle(playing: Boolean, loading: Boolean, reduced: Boolean
     val pressed by source.collectIsPressedAsState()
     val scale by animateFloatAsState(if (pressed && !reduced) .92f else 1f, if (reduced) snap<Float>() else PressSpring, label = "play press")
     Box(
-        Modifier.size(48.dp).graphicsLayer { scaleX = scale; scaleY = scale }.background(Paper)
+        Modifier.size(48.dp).graphicsLayer { scaleX = scale; scaleY = scale }.clip(ButtonShape).background(Paper)
             .clickable(interactionSource = source, indication = LocalIndication.current, enabled = enabled, onClick = onClick)
             .semantics { contentDescription = if (playing) "Pause" else "Play" },
         contentAlignment = Alignment.Center,
@@ -2169,7 +2172,7 @@ private fun LabelledControl(label: String, image: ImageVector, onClick: () -> Un
 @Composable
 private fun PageTitle(text: String) {
     Column(Modifier.fillMaxWidth().signalRule(bottom = true).padding(top = 8.dp, bottom = 16.dp)) {
-        Text("$text.", style = DisplayStyle, fontSize = 44.sp, lineHeight = 40.sp, letterSpacing = (-.02).em, modifier = Modifier.semantics { heading() })
+        Text(text, style = DisplayStyle, fontSize = 44.sp, lineHeight = 40.sp, letterSpacing = (-.02).em, modifier = Modifier.semantics { heading() })
     }
 }
 
@@ -2200,9 +2203,9 @@ private fun ErrorBanner(message: String, onDismiss: () -> Unit, onRetry: () -> U
             FlowRow(Modifier.align(Alignment.End), horizontalArrangement = Arrangement.End) {
                 if (diagnostic.isNotBlank()) TextButton(onClick = {
                     (context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("Playback details", "Music ${BuildConfig.VERSION_NAME} · $videoId\n$diagnostic"))
-                }, shape = RectangleShape, colors = ink) { Text("Copy details", fontSize = 13.sp) }
-                TextButton(onClick = onDismiss, shape = RectangleShape, colors = ink) { Text("Dismiss", fontSize = 13.sp) }
-                TextButton(onClick = onRetry, shape = RectangleShape, colors = ink) { Text("Retry", fontSize = 13.sp, fontWeight = FontWeight.SemiBold) }
+                }, shape = ButtonShape, colors = ink) { Text("Copy details", fontSize = 13.sp) }
+                TextButton(onClick = onDismiss, shape = ButtonShape, colors = ink) { Text("Dismiss", fontSize = 13.sp) }
+                TextButton(onClick = onRetry, shape = ButtonShape, colors = ink) { Text("Retry", fontSize = 13.sp, fontWeight = FontWeight.SemiBold) }
             }
         }
     }

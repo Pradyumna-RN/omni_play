@@ -302,8 +302,8 @@ class ControlInventoryTest {
 
     /** Which screen is on top, read from its title or header caption. */
     private fun screen(): String {
-        val titles = mapOf("Room to listen." to "home", "Back to your music." to "home", "For your ears." to "home",
-            "Explore." to "explore", "Library." to "library", "Settings." to "settings", "NOW PLAYING" to "now", "COLLECTION" to "collection")
+        val titles = mapOf("Room to listen" to "home", "Back to your music" to "home", "For your ears" to "home",
+            "Explore" to "explore", "Library" to "library", "Settings" to "settings", "Now playing" to "now", "Collection" to "collection")
         val shown = titles.filterKeys { compose.onAllNodesWithText(it).fetchSemanticsNodes().isNotEmpty() }.values.toSet()
         assertEquals("Exactly one screen should be shown, saw $shown", 1, shown.size)
         return shown.single()
@@ -454,7 +454,7 @@ class ControlInventoryTest {
 
     @Test fun homeHeroAndRecommendationControls() {
         host(playing.copy(current = other, queue = listOf(other), queueIndex = 0, forYou = listOf(third, other), feedHasMore = true, feedError = "Feed unavailable"))
-        compose.onNodeWithText("RETRY").performClick()
+        compose.onNodeWithText("Retry").performClick()
         compose.runOnIdle { assertEquals(listOf("onRefreshFeed()", "onRefreshForYou()"), calls) }
         calls.clear()
         compose.onNodeWithText("Play mix").performScrollTo().performClick()

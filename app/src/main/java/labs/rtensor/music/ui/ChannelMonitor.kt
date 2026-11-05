@@ -72,7 +72,7 @@ internal fun ChannelMonitor(
                     .semantics { contentDescription = if (expanded) "Collapse channel monitor" else "Expand channel monitor" },
                     verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(width = 6.dp, height = 18.dp).background(light))
-                    Text("Channel monitor", Modifier.weight(1f).padding(start = 10.dp), style = MonoLabel, color = PaperMuted)
+                    Text("Channel monitor", Modifier.weight(1f).padding(start = 10.dp), style = LabelStyle, color = PaperMuted)
                     Icon(if (expanded) Icons.Outlined.KeyboardArrowUp else Icons.Outlined.KeyboardArrowDown, null, tint = Paper)
                 }
                 if (expanded) MonitorReadings(report, playing, trackId, levels, onMetering)

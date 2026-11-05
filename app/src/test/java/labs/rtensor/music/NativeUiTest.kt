@@ -45,12 +45,12 @@ class NativeUiTest {
 
     @Test fun homeAndNavigation() {
         compose.setContent { MusicApp(MusicState(theme = "light", reducedMotion = true)) }
-        compose.onNodeWithText("Room to listen.").assertIsDisplayed()
+        compose.onNodeWithText("Room to listen").assertIsDisplayed()
         compose.onNodeWithText("Already yours").assertDoesNotExist()
         capture("home")
         compose.onNodeWithContentDescription("Search music").assertIsDisplayed()
         compose.onNodeWithContentDescription("Explore").performClick()
-        compose.onNodeWithText("Explore.").assertIsDisplayed()
+        compose.onNodeWithText("Explore").assertIsDisplayed()
         compose.onNodeWithContentDescription("Search").assertDoesNotExist()
         capture("explore")
         compose.onNodeWithContentDescription("Open settings").performClick()
@@ -129,9 +129,9 @@ class NativeUiTest {
         org.junit.Assert.assertTrue(submitted)
         compose.onNodeWithText("1 RESULTS").assertIsDisplayed()
         compose.onNodeWithText("Afterimage").assertIsDisplayed()
-        compose.onNodeWithText("Explore.").assertDoesNotExist()
+        compose.onNodeWithText("Explore").assertDoesNotExist()
         compose.onNodeWithContentDescription("Clear search").performClick()
-        compose.onNodeWithText("Explore.").assertIsDisplayed()
+        compose.onNodeWithText("Explore").assertIsDisplayed()
     }
     @Test fun playerErrorProvidesCopyableDiagnostics() {
         compose.setContent { MusicApp(MusicState(current = track, error = "YouTube rejected the audio stream (HTTP 403).", errorDiagnostic = "YTMUSIC: media probe HTTP 403", reducedMotion = true, theme = "light"), initialPage = "now") }

@@ -206,7 +206,7 @@ class PlayerMotionTest {
         frame(500); cover().assertIsDisplayed()
         compose.onNodeWithContentDescription("Back").performClick()
         frame(500); capture("mini-player-returned")
-        compose.onNodeWithText("Room to listen.").assertIsDisplayed()
+        compose.onNodeWithText("Room to listen").assertIsDisplayed()
         compose.onNodeWithText(one.title).assertIsDisplayed()
     }
 
@@ -233,10 +233,10 @@ class PlayerMotionTest {
             compose.onNode(hasScrollAction() and hasAnyDescendant(hasText(title))).performTouchInput { swipeDown(durationMillis = 600) }
             frame(600)
         }
-        pull("For your ears."); assertEquals(1, home)
-        pull("For your ears."); assertEquals(1, home)
+        pull("For your ears"); assertEquals(1, home)
+        pull("For your ears"); assertEquals(1, home)
         compose.onNodeWithContentDescription("Explore").performClick(); frame(600)
-        pull("Explore."); assertEquals(1, explore)
+        pull("Explore"); assertEquals(1, explore)
     }
 
     @Test @Config(sdk = [35], qualifiers = "w320dp-h740dp-mdpi")
