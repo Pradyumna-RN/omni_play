@@ -83,6 +83,7 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
@@ -182,7 +183,7 @@ private const val AccentMs = 240
  */
 @Composable
 fun MusicTheme(theme: String = "light", darkNavigationBar: Boolean = false, accent: AccentChoice = AccentChoice.SIGNAL,
-    coverAccent: Color? = null, content: @Composable () -> Unit) {
+    coverAccent: Color? = null, darkStatusBar: Boolean = false, content: @Composable () -> Unit) {
     val dark = theme == "dark" || (theme == "system" && isSystemInDarkTheme())
     val target = remember(accent, dark, coverAccent) { accentColours(accent, dark, coverAccent) }
     // Respect both the app's reduced-motion setting and the system animator duration scale.
@@ -200,7 +201,7 @@ fun MusicTheme(theme: String = "light", darkNavigationBar: Boolean = false, acce
     SideEffect {
         (view.context as? Activity)?.let { activity ->
             WindowCompat.getInsetsController(activity.window, view).apply {
-                isAppearanceLightStatusBars = !dark
+                isAppearanceLightStatusBars = !dark && !darkStatusBar
                 isAppearanceLightNavigationBars = !dark && !darkNavigationBar
             }
         }
@@ -315,12 +316,17 @@ fun MusicApp(
     var lastTrack by remember { mutableStateOf(state.current) }
     if (state.current != null) lastTrack = state.current
     // Only "From the cover" reads the artwork; other choices never load it for colour.
-    val coverAccent = if (state.accent == AccentChoice.COVER) rememberCoverAccent(state.current?.artwork) else null
-    CompositionLocalProvider(LocalReducedMotion provides reduced) {
-        MusicTheme(state.theme, darkNavigationBar = page in rootPages + "collection", accent = state.accent, coverAccent = coverAccent) {
+    val cover = if (state.accent == AccentChoice.COVER) rememberCoverColours(state.current?.artwork) else null
+    // The player takes a deep tone from the cover; every other page stays paper/ink.
+    val tones = remember(cover) { cover?.let { playerTones(it.deep) } }?.takeIf { page == "now" }
+    CompositionLocalProvider(LocalReducedMotion provides reduced, LocalPlayerTones provides tones) {
+        MusicTheme(state.theme, darkNavigationBar = page in rootPages + "collection" || tones != null, accent = state.accent,
+            coverAccent = cover?.accent, darkStatusBar = tones != null) {
             Scaffold(
                 topBar = {
-                    AppHeader(page, onHome = { navigate("home") }, onSettings = { navigate("settings") }, onBack = ::goBack) { SearchBar(state, onQuery, onSearch, searchFocus, Modifier.weight(1f)) }
+                    OnPlayerTones(Modifier.background(tones?.top ?: Color.Transparent)) {
+                        AppHeader(page, onHome = { navigate("home") }, onSettings = { navigate("settings") }, onBack = ::goBack) { SearchBar(state, onQuery, onSearch, searchFocus, Modifier.weight(1f)) }
+                    }
                 },
                 bottomBar = {
                     if (page in rootPages + "collection") {
@@ -338,7 +344,7 @@ fun MusicApp(
                     } else Spacer(Modifier.navigationBarsPadding())
                 },
                 contentWindowInsets = WindowInsets(0, 0, 0, 0),
-                containerColor = MaterialTheme.colorScheme.background,
+                containerColor = tones?.bottom ?: MaterialTheme.colorScheme.background,
             ) { inset ->
                 Column(Modifier.fillMaxSize().padding(inset)) {
                     var lastError by remember { mutableStateOf(state.error) }
@@ -1073,9 +1079,13 @@ private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () ->
     // Same rule as the mini player: buffering never locks the transport, so a stalled song can
     // still be paused or skipped here. Only finding audio (resolving) holds Play/Pause back.
     val canSkip = !pending
-    val scheme = MaterialTheme.colorScheme
     val upcoming = if (queueIndex >= 0) state.queue.withIndex().drop(queueIndex + 1) else emptyList()
-    BoxWithConstraints(Modifier.fillMaxSize().background(scheme.background)) {
+    val tones = LocalPlayerTones.current
+    val ground = if (tones != null) Modifier.background(Brush.verticalGradient(listOf(tones.top, tones.bottom)))
+        else Modifier.background(MaterialTheme.colorScheme.background)
+    OnPlayerTones(ground) {
+    val scheme = MaterialTheme.colorScheme
+    BoxWithConstraints(Modifier.fillMaxSize()) {
         val coverSize = (maxHeight * .31f).coerceIn(150.dp, 250.dp)
         // The queue continues right under the controls, so scrolling down shows what plays next.
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 10.dp, bottom = 32.dp)) {
@@ -1164,6 +1174,32 @@ private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () ->
                     if (state.autoplay && state.radioError != null) TextButton(onClick = onRetryRadio) { Text("Retry recommendations") }
                 }
             }
+        }
+    }
+    }
+}
+
+/**
+ * On the player with a cover gradient, content reads as on ink: paper text, muted paper for
+ * secondary text, and the accent lifted so it stands out from the tone. Elsewhere it does nothing
+ * but apply [modifier].
+ */
+@Composable
+private fun OnPlayerTones(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    val tones = LocalPlayerTones.current
+    if (tones == null) { Box(modifier) { content() }; return }
+    val accent = LocalAccent.current
+    val lifted = remember(accent.accent, tones) { accentOnTone(accent.accent, tones.top) }
+    val base = MaterialTheme.colorScheme
+    val scheme = remember(base, tones, lifted) {
+        base.copy(primary = Paper, onPrimary = Ink, background = tones.top, onBackground = Paper, surface = tones.top, onSurface = Paper,
+            surfaceVariant = Paper.copy(alpha = .12f).compositeOver(tones.top), onSurfaceVariant = PaperMuted,
+            outline = Paper.copy(alpha = .3f).compositeOver(tones.top), outlineVariant = Paper.copy(alpha = .18f).compositeOver(tones.top),
+            primaryContainer = lifted, onPrimaryContainer = onAccentFor(lifted), secondaryContainer = lifted, onSecondaryContainer = onAccentFor(lifted))
+    }
+    CompositionLocalProvider(LocalAccent provides AccentColours(lifted, onAccentFor(lifted), accent.onDock)) {
+        MaterialTheme(colorScheme = scheme, typography = MaterialTheme.typography, shapes = MaterialTheme.shapes) {
+            Box(modifier) { CompositionLocalProvider(LocalContentColor provides Paper) { content() } }
         }
     }
 }

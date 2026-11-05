@@ -84,7 +84,7 @@ data class MusicState(
     val queue: List<Track> = emptyList(),
     val queueIndex: Int = -1,
     val theme: String = "system",
-    val accent: AccentChoice = AccentChoice.SIGNAL,
+    val accent: AccentChoice = AccentChoice.DEFAULT,
     val reducedMotion: Boolean = false,
     val developerOptions: Boolean = false,
     val recommendationEngine: RecommendationEngine = RecommendationEngine.YOUTUBE,

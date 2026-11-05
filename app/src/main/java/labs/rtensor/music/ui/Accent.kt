@@ -11,6 +11,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.isSpecified
 import androidx.compose.ui.graphics.luminance
@@ -50,6 +51,27 @@ internal const val MinMarkContrast = 3.0
 internal data class AccentColours(val accent: Color, val onAccent: Color, val onDock: Color)
 
 internal val LocalAccent = compositionLocalOf { accentColours(AccentChoice.SIGNAL, dark = false, cover = null) }
+
+/** What "From the cover" takes from one artwork: the accent, and a deep tone for the player. */
+internal data class CoverColours(val accent: Color, val deep: Color)
+
+/**
+ * The player's background with "From the cover": a vertical gradient from [top], the cover's
+ * deep tone, to [bottom], a darker shade of it. Paper and muted paper text read on both.
+ */
+internal data class PlayerTones(val top: Color, val bottom: Color)
+
+/** Set while the player shows a cover gradient; null means today's paper/ink. */
+internal val LocalPlayerTones = staticCompositionLocalOf<PlayerTones?> { null }
+
+internal fun playerTones(deep: Color): PlayerTones {
+    val hsl = FloatArray(3).also { ColorUtils.colorToHSL(deep.toArgb(), it) }
+    return PlayerTones(deep, Color(ColorUtils.HSLToColor(floatArrayOf(hsl[0], hsl[1], hsl[2] * .5f))))
+}
+
+/** The accent as used on a player tone: lightened, if needed, to stand out from it and to carry text. */
+internal fun accentOnTone(accent: Color, tone: Color): Color =
+    closestLightness(accent) { contrastRatio(it, tone) >= MinMarkContrast && contrastRatio(it, onAccentFor(it)) >= MinTextContrast } ?: Paper
 
 /** WCAG 2 contrast ratio between two opaque colours, 1..21. */
 internal fun contrastRatio(a: Color, b: Color): Double {
@@ -112,8 +134,10 @@ internal fun closestLightness(colour: Color, accept: (Color) -> Boolean): Color?
 internal object CoverAccent {
     /** Below this HSL saturation a colour reads as grey and Signal is used instead. */
     private const val MinSaturation = .25f
-    /** Artwork URL → extracted accent, or [Color.Unspecified] when the cover had none. */
-    private val cache = LruCache<String, Color>(64)
+    /** Stands for "this cover has no usable colour" in the cache. */
+    private val NONE = CoverColours(Color.Unspecified, Color.Unspecified)
+    /** Artwork URL → extracted colours, or [NONE]. */
+    private val cache = LruCache<String, CoverColours>(64)
 
     /** True when [colour] reads as a mark on paper and on ink, and carries readable text. */
     fun fitsBothThemes(colour: Color): Boolean =
@@ -124,17 +148,36 @@ internal object CoverAccent {
     fun adjust(colour: Color): Color? = closestLightness(colour, ::fitsBothThemes)
 
     /** A vivid swatch from [bitmap], adjusted for contrast; null for blank or greyscale art. */
-    fun extract(bitmap: Bitmap): Color? = try {
+    fun extract(bitmap: Bitmap): Color? = colours(bitmap)?.accent
+
+    /** The accent and the deep player tone from [bitmap]; null for blank or greyscale art. */
+    fun colours(bitmap: Bitmap): CoverColours? = try {
         val palette = Palette.from(bitmap).maximumColorCount(16).generate()
         val swatch = palette.vibrantSwatch ?: palette.lightVibrantSwatch ?: palette.darkVibrantSwatch
             ?: palette.dominantSwatch?.takeIf { it.hsl[1] >= MinSaturation && it.hsl[2] in .1f..0.9f }
-        swatch?.let { adjust(Color(it.rgb)) }
+        val accent = swatch?.let { adjust(Color(it.rgb)) }
+        val deepSource = palette.darkVibrantSwatch ?: palette.darkMutedSwatch ?: swatch
+        val deep = deepSource?.let { deepTone(Color(it.rgb)) }
+        if (accent != null && deep != null) CoverColours(accent, deep) else null
     } catch (_: Exception) { null }
 
-    /** null: not worked out yet. [Color.Unspecified]: worked out, use Signal. */
-    fun cached(url: String): Color? = cache.get(url)
+    /**
+     * A dark, calmer version of [colour] for the player background: saturation capped so it
+     * stays a tone rather than a neon, lightness lowered until muted paper text passes AA.
+     */
+    fun deepTone(colour: Color): Color {
+        val hsl = FloatArray(3).also { ColorUtils.colorToHSL(colour.toArgb(), it) }
+        val calm = Color(ColorUtils.HSLToColor(floatArrayOf(hsl[0], min(hsl[1], .55f), min(hsl[2], .22f))))
+        return closestLightness(calm) { contrastRatio(PaperMuted, it) >= MinTextContrast && contrastRatio(Paper, it) >= 7.0 } ?: Ink
+    }
 
-    suspend fun load(context: Context, url: String): Color {
+    /** null: not worked out yet. Otherwise the cover's colours, or ones with unspecified colours. */
+    fun cached(url: String): CoverColours? = cache.get(url)
+
+    /** For tests and previews: work out [bitmap]'s colours now and remember them for [url]. */
+    fun prime(url: String, bitmap: Bitmap) { cache.put(url, colours(bitmap) ?: NONE) }
+
+    suspend fun load(context: Context, url: String): CoverColours {
         cache.get(url)?.let { return it }
         val found = try {
             // A small software bitmap is enough for Palette and shares Coil's disk cache.
@@ -143,22 +186,22 @@ internal object CoverAccent {
             bitmap?.let {
                 withContext(Dispatchers.Default) {
                     val readable = if (it.config == Bitmap.Config.HARDWARE) it.copy(Bitmap.Config.ARGB_8888, false) else it
-                    extract(readable)
+                    colours(readable)
                 }
             }
         } catch (e: CancellationException) { throw e } catch (_: Exception) { null }
-        return (found ?: Color.Unspecified).also { cache.put(url, it) }
+        return (found ?: NONE).also { cache.put(url, it) }
     }
 }
 
-/** The accent for [artwork], or null (use Signal) while loading, without artwork or on failure. */
+/** The colours for [artwork], or null (use Signal and paper/ink) while loading, without artwork or on failure. */
 @Composable
-internal fun rememberCoverAccent(artwork: String?): Color? {
+internal fun rememberCoverColours(artwork: String?): CoverColours? {
     val context = LocalContext.current
     val url = artwork?.takeIf { it.isNotBlank() }?.let { ArtworkUrl.sized(it, 120) }
     // The previous song's colour stays until the next one is known, so skipping animates from
     // colour to colour instead of flashing back to Signal in between.
     var colour by remember { mutableStateOf(url?.let(CoverAccent::cached)) }
     LaunchedEffect(url) { colour = if (url == null) null else CoverAccent.load(context.applicationContext, url) }
-    return colour?.takeIf { it.isSpecified }
+    return colour?.takeIf { it.accent.isSpecified }
 }

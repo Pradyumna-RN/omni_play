@@ -13,6 +13,10 @@ import labs.rtensor.music.ui.Ink
 import labs.rtensor.music.ui.MinMarkContrast
 import labs.rtensor.music.ui.MinTextContrast
 import labs.rtensor.music.ui.Paper
+import labs.rtensor.music.ui.PaperMuted
+import labs.rtensor.music.ui.accentOnTone
+import labs.rtensor.music.ui.onAccentFor
+import labs.rtensor.music.ui.playerTones
 import labs.rtensor.music.ui.SignalAccent
 import labs.rtensor.music.ui.accentColours
 import labs.rtensor.music.ui.contrastRatio
@@ -45,13 +49,40 @@ class AccentColourTest {
         }
     }
 
-    @Test fun unknownOrMissingStoredAccentFallsBackToSignal() {
-        assertEquals(AccentChoice.SIGNAL, LibraryStore(context).accent)
+    @Test fun unknownOrMissingStoredAccentFallsBackToTheCoverDefault() {
+        // Nobody chose: new installs and earlier users both get "From the cover".
+        assertEquals(AccentChoice.COVER, AccentChoice.DEFAULT)
+        assertEquals(AccentChoice.COVER, LibraryStore(context).accent)
+        assertEquals(AccentChoice.COVER, MusicState().accent)
         prefs.edit().putString("accent", "teal").commit()
-        assertEquals(AccentChoice.SIGNAL, LibraryStore(context).accent)
+        assertEquals(AccentChoice.COVER, LibraryStore(context).accent)
         prefs.edit().putString("accent", "").commit()
+        assertEquals(AccentChoice.COVER, LibraryStore(context).accent)
+        assertEquals(AccentChoice.COVER, AccentChoice.parse(null))
+        // An explicit choice, Signal included, is kept.
+        prefs.edit().putString("accent", "signal").commit()
         assertEquals(AccentChoice.SIGNAL, LibraryStore(context).accent)
-        assertEquals(AccentChoice.SIGNAL, AccentChoice.parse(null))
+    }
+
+    @Test fun playerTonesFromTheCoverKeepTextAndAccentReadable() {
+        for (raw in listOf(0xFF1030E0, 0xFFFFF59D, 0xFF3E7A4C, 0xFFE91E63, 0xFF0A1450, 0xFFFF5A1F)) {
+            val deep = CoverAccent.deepTone(Color(raw))
+            val tones = playerTones(deep)
+            for (ground in listOf(tones.top, tones.bottom)) {
+                assertTrue("$raw paper", contrastRatio(Paper, ground) >= 7.0)
+                assertTrue("$raw muted paper", contrastRatio(PaperMuted, ground) >= MinTextContrast)
+            }
+            assertEquals("$raw deep hue", hsl(Color(raw))[0], hsl(deep)[0], 4f)
+            val accent = CoverAccent.adjust(Color(raw))!!
+            val lifted = accentOnTone(accent, tones.top)
+            assertTrue("$raw accent on tone", contrastRatio(lifted, tones.top) >= MinMarkContrast)
+            assertTrue("$raw text on lifted accent", contrastRatio(lifted, onAccentFor(lifted)) >= MinTextContrast)
+        }
+        val art = solid(0xFF7A7A7A.toInt()).apply { for (x in 0 until 32) for (y in 0 until 64) setPixel(x, y, 0xFF1030E0.toInt()) }
+        val colours = CoverAccent.colours(art)!!
+        assertEquals(CoverAccent.extract(art), colours.accent)
+        assertTrue(contrastRatio(PaperMuted, colours.deep) >= MinTextContrast)
+        assertNull(CoverAccent.colours(solid(0xFF808080.toInt())))
     }
 
     @Test fun signalIsUnchangedFromTheOriginalLook() {

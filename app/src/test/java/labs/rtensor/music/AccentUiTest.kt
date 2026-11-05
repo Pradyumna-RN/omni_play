@@ -67,7 +67,9 @@ class AccentUiTest {
             assertTrue("${choice.label} target is at least 48dp", (size.right - size.left).value >= 48f && (size.bottom - size.top).value >= 48f)
             node.assert(SemanticsMatcher.expectValue(androidx.compose.ui.semantics.SemanticsProperties.Role, androidx.compose.ui.semantics.Role.RadioButton))
         }
-        compose.onNodeWithContentDescription("Signal accent colour").assertIsSelected()
+        // Nobody has chosen yet, so the default "From the cover" is selected.
+        compose.onNodeWithContentDescription("From the cover accent colour").assertIsSelected()
+        compose.onNodeWithContentDescription("Signal accent colour").assertIsNotSelected()
         compose.onNodeWithContentDescription("Cobalt accent colour").assertIsNotSelected().performClick()
         compose.runOnIdle { assertEquals(listOf(AccentChoice.COBALT), chosen) }
         compose.onNodeWithContentDescription("Cobalt accent colour").assertIsSelected()
