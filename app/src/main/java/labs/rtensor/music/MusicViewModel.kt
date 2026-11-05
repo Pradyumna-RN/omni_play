@@ -375,7 +375,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     fun retryCollection() { mutable.value.collectionEntry?.let(::browse) }
 
     fun recommendationEngine(engine: RecommendationEngine) {
-        if (engine == RecommendationEngine.SPOTIFY && !mutable.value.spotifyAccount.connected) return
+        if (engine == RecommendationEngine.SPOTIFY && !spotify.state.value.connected) return
         if (engine == mutable.value.recommendationEngine) return
         library.recommendationEngine = engine
         mutable.update { it.copy(recommendationEngine = engine) }
@@ -395,7 +395,13 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     fun beginSpotifySignIn() { spotify.connecting() }
     fun completeSpotifySignIn(success: Boolean) {
         if (!success) { spotify.cancel(); return }
-        viewModelScope.launch { if (spotify.verify()) recommendationEngine(RecommendationEngine.SPOTIFY) }
+        viewModelScope.launch {
+            if (spotify.verify()) {
+                // The account collector may still be queued when verify returns on the main thread.
+                mutable.update { it.copy(spotifyAccount = spotify.state.value) }
+                recommendationEngine(RecommendationEngine.SPOTIFY)
+            }
+        }
     }
     fun disconnectSpotify() {
         recommendationEngine(RecommendationEngine.YOUTUBE)

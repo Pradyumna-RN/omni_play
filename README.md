@@ -49,7 +49,7 @@ those features improve.
 
 ## Quick guide
 
-1. **Install or update.** Get the [current preview release](https://github.com/RTensorLabs/music-app/releases/tag/v0.3.30).
+1. **Install or update.** Get the [current preview release](https://github.com/RTensorLabs/music-app/releases/tag/v0.3.31).
    Existing installations can use **Settings → About → Check updates**.
 2. **Choose recommendations.** Open **Settings → Playback → Recommendation source**.
    YouTube Music is the default. Selecting Spotify starts its sign-in; the choice
@@ -79,11 +79,20 @@ those features improve.
 | Qobuz and personal music libraries | Available through configured playback-source connections. |
 | Consistent lossless/multichannel playback across providers | A goal being validated, dependent on available matching recordings and working provider access. |
 
-The player should describe the format actually received. Stereo lossless remains
+The player separates the **audio provider** from its format: Apple Music AAC,
+ALAC/FLAC lossless, supported surround audio, or a YouTube fallback. A Spotify
+recommendation can therefore play from Apple Music without changing its discovery
+identity. The provider name updates if playback falls back.
+
+The player describes the format actually received. Stereo lossless remains
 stereo. Supported E-AC-3/JOC decoding currently supplies its standard 5.1/7.1
 surround bed to DMR; this does not recover the full Atmos object scene. Discovery
 metadata, a successful sign-in or an album badge does not prove the audio format.
 See [verification and current limits](VERIFICATION.md).
+
+[Shareable layout review](https://music-layout-review.chalkybongo1.chatgpt.site):
+smaller Home covers and three player options. This is a design prototype; it
+does not play audio or change the Android app’s current player layout.
 
 ## Architecture
 
@@ -270,7 +279,7 @@ code. The Android installer asks the user to confirm installation.
 
 ## Current release
 
-[Music 0.3.30](https://github.com/RTensorLabs/music-app/releases/tag/v0.3.30)
+[Music 0.3.31](https://github.com/RTensorLabs/music-app/releases/tag/v0.3.31)
 adds the YouTube Music / Spotify recommendation choice. The optimized release
 APK is approximately **89.2 MB**, with Android 11+, ARM64 and x86-64 support.
 

@@ -37,14 +37,14 @@ internal class SpotifyCatalogueClient(context: Context) : SpotifyCatalogueAccess
             connection?.let { runCatching { context.unbindService(it) } }
             connection = next
             check(context.bindService(Intent(context, SpotifyCatalogueService::class.java), next, Context.BIND_AUTO_CREATE or Context.BIND_IMPORTANT))
-            try { withTimeout(10_000) { ready.await() } }
+            try { withTimeoutOrNull(10_000) { ready.await() } ?: throw SpotifyCatalogueException("TIMEOUT") }
             catch (e: Exception) { if (connection === next) { runCatching { context.unbindService(next) }; connection = null }; throw e }
         }
     }
     override suspend fun request(operation: String, args: JSONObject): JSONObject {
         val binder = bind()
-        return withTimeout(40_000) {
-            suspendCancellableCoroutine { continuation ->
+        return withTimeoutOrNull(40_000) {
+            suspendCancellableCoroutine<JSONObject> { continuation ->
                 val id = UUID.randomUUID().toString()
                 val receiver = object : ResultReceiver(Handler(Looper.getMainLooper())) {
                     override fun onReceiveResult(resultCode: Int, resultData: Bundle?) {
@@ -61,13 +61,13 @@ internal class SpotifyCatalogueClient(context: Context) : SpotifyCatalogueAccess
                 try { transact(binder, SpotifyCatalogueService.REQUEST, id, operation, args.toString(), receiver) }
                 catch (_: Exception) { if (continuation.isActive) continuation.resumeWithException(IOException("Spotify catalogue stopped. Reconnect Spotify.")) }
             }
-        }
+        } ?: throw SpotifyCatalogueException("TIMEOUT")
     }
     private fun transact(binder: IBinder, code: Int, id: String, operation: String = "", json: String = "", receiver: ResultReceiver? = null) {
         val data = Parcel.obtain(); val reply = Parcel.obtain()
         try {
             data.writeInterfaceToken(SpotifyCatalogueService.DESCRIPTOR); data.writeString(id)
-            if (code == SpotifyCatalogueService.REQUEST) { data.writeString(operation); data.writeString(json); data.writeParcelable(receiver, 0) }
+            if (code == SpotifyCatalogueService.REQUEST) { data.writeString(operation); data.writeString(json); SpotifyCatalogueProtocol.writeReceiver(data, checkNotNull(receiver)) }
             check(binder.transact(code, data, reply, 0)); reply.readException()
         } finally { data.recycle(); reply.recycle() }
     }

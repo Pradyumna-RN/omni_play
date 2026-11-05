@@ -18,12 +18,31 @@ data class SourcePlaybackInfo(val stream: ProviderStream?, val fallbackLabel: St
     fun label(render: DownmixReport?): String {
         val remote = stream ?: return fallbackLabel
         val f = actualFormat ?: return remote.requestedLabel
-        val codec = when (f.sampleMimeType) { "audio/flac" -> "FLAC"; "audio/alac" -> "ALAC"; "audio/eac3-joc" -> "E-AC-3 JOC"; "audio/eac3" -> "E-AC-3"; "audio/mp4a-latm" -> "AAC"; else -> "Audio" }
-        val multichannel = render?.inputPositions?.size?.let { it > 2 } == true
+        val codec = when (f.sampleMimeType) {
+            "audio/flac" -> "FLAC lossless"
+            "audio/alac" -> "ALAC lossless"
+            "audio/eac3-joc" -> "E-AC-3 JOC"
+            "audio/eac3" -> "E-AC-3"
+            "audio/mp4a-latm" -> "AAC compressed"
+            else -> "Audio"
+        }
+        // A decoder may report the channel count without a speaker mask. An empty
+        // position list does not make a six-channel source stereo.
+        val channels = render?.sourceChannels?.takeIf { it > 0 }
+            ?: f.channelCount.takeIf { it > 0 }
+        val multichannel = channels != null && channels > 2
         val route = when {
-            multichannel && render?.processingEnabled == true -> "${render.inputPositions.size} ch → DMR"
-            multichannel -> "${render!!.inputPositions.size} ch · original front L/R"
-            render == null -> "checking decoded channels"
+            render == null -> when {
+                multichannel -> "$channels-channel source · checking output"
+                channels == 1 -> "mono source · checking output"
+                channels == 2 -> "stereo source · checking output"
+                else -> "checking decoded channels"
+            }
+            multichannel && render.processingEnabled -> "$channels ch → DMR stereo"
+            multichannel && !render.comparisonAvailable -> "$channels ch · original audio · processing unavailable"
+            multichannel -> "$channels ch · original front L/R"
+            channels == null -> "checking decoded channels"
+            channels == 1 -> "mono · unchanged"
             f.sampleMimeType == "audio/eac3-joc" -> "stereo decode · DMR unavailable"
             else -> "stereo · unchanged"
         }

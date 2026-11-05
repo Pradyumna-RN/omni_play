@@ -1,4 +1,44 @@
-# Current verification: Music 0.3.30 / recommendation source choice
+# Music 0.3.31 verification
+
+This update fixes the Spotify sign-in handoff across the private browser process.
+The reply now uses the framework Binder receiver, rather than an app-private
+anonymous class that the service cannot load. Android 11 and Android 15 tests
+exercise both the old failure and the actual repaired client/service reply path.
+The sign-in screen provides the same Continue/Connect flow as YouTube, with
+bounded verification, progress, retry and cancellation. Allowlisted linked-account
+pages are interactive only; the catalogue bridge stays on Spotify’s HTTPS origin.
+
+Apple source labels distinguish the actual provider, AAC compression, verified
+ALAC/FLAC input and the decoded surround bed routed to stereo DMR. Unknown speaker
+positions no longer cause a known multichannel input to be labelled stereo.
+An unverified rendition shows “checking audio” and a YouTube fallback loses the
+Apple label immediately. UI and format regressions cover these transitions.
+
+Advanced Apple sign-in now names the failed stage (engine startup, account
+authentication, code submission, session verification or subscription check),
+retaining only a numeric provider error code. Raw exception text, passwords and
+account tokens never enter these messages. Tests cover preservation of the existing
+AAC vault on an advanced-login failure. These diagnostics do not establish that
+the failing phone can authenticate or deliver lossless/multichannel audio. AAC
+and advanced playback remain separate authorizations; merging their UI cannot
+grant a missing playback entitlement. No native provider, decoder or DMR binary
+was changed in this update.
+
+A separate [public design review](https://music-layout-review.chalkybongo1.chatgpt.site)
+compares smaller Home covers and three centred player concepts. Browser checks
+cover exact transport alignment, next-song visibility, queue opening/closing,
+theme selection and stable metadata height. These mockups are not a native
+Android performance test and have not replaced the shipped player layout.
+
+No real Spotify account or physical phone was available for this verification.
+Apple AAC works according to the user’s report; the advanced-login failure has
+not been reproduced on their phone. Exact completed test counts, artifact hashes,
+signing identity and native/runtime retention checks are recorded in this release’s
+`decoder-validation.json` and `SHA256SUMS`.
+
+## Previous release baseline
+
+### Music 0.3.30 / recommendation source choice
 
 **269 unique app checks, 86 DSP checks and ten browser-bridge checks pass**, with
 no failures, errors or skips. The full app run passes 268 checks; the final

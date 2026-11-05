@@ -42,10 +42,11 @@ class AppleAccountTest {
     private fun vault() = AccountSession(context, "apple-actor-test") { SecretKeySpec(ByteArray(32) { 9 }, "AES") }.also { it.clear() }
     private class Runtime : AppleNativeAccess {
         var status = "awaiting_2fa"; var closed = 0; var code = ""; var session = ""
-        override suspend fun ensure(session: String): JSONObject { this.session = session; return JSONObject().put("runtimeReady", true) }
+        var failRuntime = false; var providerCode = 0
+        override suspend fun ensure(session: String): JSONObject { if (failRuntime) error("sensitive native diagnostic must not be displayed"); this.session = session; return JSONObject().put("runtimeReady", true) }
         override suspend fun account(operation: Int, user: String, secret: String): JSONObject {
             if (operation == 2) { code = secret; status = "authenticated" }
-            return JSONObject().put("state", status)
+            return JSONObject().put("state", status).put("errorCode", providerCode)
         }
         override suspend fun credentials() = AppleCredentials("header.payload.signature", "synthetic-user-token", storefront = "us", native = true)
         override suspend fun playback(song: String) = JSONObject()
@@ -97,4 +98,31 @@ class AppleAccountTest {
         assertEquals("", runtime.code); assertFalse(account.state.value.needsCode); assertNull(vault.load())
         assertThrows(IllegalArgumentException::class.java) { account.verificationCode("x12345") }
     }
+    @Test fun failedAdvancedSetupKeepsTheWorkingAacSessionAndReportsOnlyTheFailureStage() {
+        val vault = vault()
+        val original = AppleCredentials("header.payload.signature", "synthetic-aac-user-token", storefront = "us").json().toString()
+        vault.save(original)
+        val runtime = Runtime().apply { failRuntime = true }
+        val account = AppleAccount(context, vault, http(), runtime)
+        assertTrue(account.state.value.connected)
+        account.signInNative("fixture@example.test", "synthetic-password")
+        until { !account.state.value.connecting && account.state.value.error != null }
+        assertTrue(account.state.value.error!!.contains("audio engine could not start"))
+        assertTrue(account.state.value.error!!.contains("AAC connection is still available"))
+        assertFalse(account.state.value.error!!.contains("sensitive"))
+        assertTrue(account.state.value.connected); assertFalse(account.state.value.native)
+        assertEquals(original, vault.load())
+        assertTrue(AppleAccount(context, vault, http(), Runtime()).state.value.connected)
+    }
+    @Test fun providerFailureRetainsItsNumericCodeWithoutLeakingAccountDetails() {
+        val runtime = Runtime().apply { status = "failed"; providerCode = -22006 }
+        val account = AppleAccount(context, vault(), http(), runtime)
+        account.signInNative("fixture@example.test", "synthetic-password")
+        until { account.state.value.error != null }
+        val error = account.state.value.error!!
+        assertTrue(error.contains("authentication")); assertTrue(error.contains("provider code -22006"))
+        assertFalse(error.contains("fixture")); assertFalse(error.contains("password"))
+        assertFalse(account.state.value.connected)
+    }
+
 }

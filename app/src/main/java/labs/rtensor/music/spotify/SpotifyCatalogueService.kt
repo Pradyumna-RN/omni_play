@@ -24,8 +24,7 @@ internal class SpotifyCatalogueService : Service() {
                 val operation = data.readString().orEmpty()
                 val json = data.readString().orEmpty()
                 require(json.length <= 16384 && operation in setOf("profile", "home", "radio", "search", "collection", "disconnect"))
-                @Suppress("DEPRECATION") val receiver = data.readParcelable<ResultReceiver>(ResultReceiver::class.java.classLoader)
-                    ?: return false
+                val receiver = SpotifyCatalogueProtocol.readReceiver(data)
                 main.post {
                     val job = scope.launch(start = CoroutineStart.LAZY) {
                         try {
@@ -33,6 +32,8 @@ internal class SpotifyCatalogueService : Service() {
                             val result = if (operation == "disconnect") { runtime.disconnect(); JSONObject() }
                                 else runtime.call(operation, JSONObject(json))
                             receiver.send(0, Bundle().apply { putString("result", result.toString()) })
+                        } catch (_: TimeoutCancellationException) {
+                            receiver.send(1, Bundle().apply { putString("error", "TIMEOUT") })
                         } catch (e: CancellationException) { throw e }
                         catch (e: Exception) {
                             receiver.send(1, Bundle().apply { putString("error", (e as? SpotifyCatalogueException)?.code ?: "CATALOGUE_UNAVAILABLE") })
@@ -47,7 +48,7 @@ internal class SpotifyCatalogueService : Service() {
     }
     override fun onBind(intent: Intent?): IBinder = binder
     override fun onDestroy() {
-        scope.cancel(); SpotifyWebRuntime.get(applicationContext).close(); super.onDestroy()
+        scope.cancel(); SpotifyWebRuntime.get(applicationContext).closeIfIdle(); super.onDestroy()
     }
     companion object {
         const val DESCRIPTOR = "labs.rtensor.music.spotify.Catalogue"

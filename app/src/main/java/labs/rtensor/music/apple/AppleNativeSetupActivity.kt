@@ -57,7 +57,8 @@ internal class AppleNativeSetupActivity : ComponentActivity() {
                 verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 TextButton(onClick = { account.cancel(); finish() }) { Text("Back") }
                 Text("Apple Music", style = MaterialTheme.typography.headlineSmall)
-                Text("Experimental account playback inside Music. Tries multichannel first, then the highest available lossless rate. Requires your own active subscription.")
+                Text("Advanced Apple Music connection. Requires an active subscription and compatible playback access. Signing in does not guarantee that a song is available as lossless or surround audio.")
+                if (state.connected && !state.native) Text("AAC stereo is already connected. This additional setup will keep that connection until a new session is verified.")
                 if (!BuildConfig.APPLE_RUNTIME_INCLUDED) {
                 Text("Import a compatible Apple Music 3.6.0-beta installer (build 1109, APK or APKM) once. Only verified runtime libraries are kept privately; the installer is never installed or uploaded. Current Apple Music installers use a different runtime.")
                 OutlinedButton(enabled = !importing && !state.connecting && !state.needsCode,
@@ -88,7 +89,7 @@ internal class AppleNativeSetupActivity : ComponentActivity() {
                 if (state.connecting || importing) LinearProgressIndicator(Modifier.fillMaxWidth())
                 (error ?: state.error)?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 if (state.connected && state.native && !state.connecting && !state.needsCode) {
-                    Text("Native Apple account connected. Matching songs will be checked when you play.")
+                    Text("Advanced Apple account connected. Matching songs and actual formats will be checked when you play; see Audio source in the player.")
                     Button(onClick = { finish() }) { Text("Done") }
                 }
                 Text("Availability depends on this runtime, the account and the recording. The player reports the actual codec and decoded channels. The original DMR processes the decoded surround bed; stereo plays unchanged.", style = MaterialTheme.typography.bodySmall)

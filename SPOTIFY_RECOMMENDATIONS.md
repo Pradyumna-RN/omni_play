@@ -1,6 +1,6 @@
 # YouTube Music / Spotify recommendation choice
 
-Implemented for Music 0.3.30 on Android 11+. Spotify is an experimental,
+Updated for Music 0.3.31 on Android 11+. Spotify is an experimental,
 account-backed **metadata** connector. Its live sign-in, personalised feed/radio
 and physical-phone performance have not been tested in this workspace.
 
@@ -8,8 +8,9 @@ and physical-phone performance have not been tested in this workspace.
 
 1. Open **Settings → Playback → Recommendation source**.
 2. YouTube Music is the default. Tap **Spotify** to open Spotify's own sign-in page
-   inside Music. Use its email sign-in; external Google/Facebook redirects are not
-   supported by this isolated browser.
+   inside Music. Email sign-in and linked-account pages are supported by the
+   interactive browser. Complete Spotify’s sign-in, then use Continue/Connect if
+   automatic confirmation has not finished. Reload and retry are available.
 3. Music selects Spotify only after verifying the signed-in profile. The choice
    persists across app restarts. Reconnect if the session expires, or select
    YouTube Music at any time.
@@ -80,8 +81,9 @@ version would be a useful later addition for unmatched tracks.
   cache file is separately encrypted by Music.
 - File/content access, mixed content, third-party cookies and all WebChrome
   permission requests are disabled. Audio/video playback is paused by the bridge;
-  no protected-media permission is granted. External linked-account login is
-  blocked rather than exposing a native bridge to an unrelated origin.
+  no protected-media permission is granted. Only interactive sign-in can visit the allowlisted Google, Apple or Facebook
+  authentication pages. The catalogue bridge remains restricted to Spotify,
+  and hidden background requests cannot navigate to another login provider.
 - Home/catalogue results are cached ten minutes and concurrent identical requests
   coalesce. Switching accounts invalidates pending results and caches. Cache size
   is bounded, sign-in cancellation cannot revive a stale account, and source
@@ -127,3 +129,10 @@ recent WebView: sign-in/restart/reconnect, Home and album/playlist paging, radio
 several full tracks, source switching during playback and with a manual queue,
 seek/next/background controls, account expiry and memory/scrolling performance.
 No existing provider or DSP feature was removed to add this option.
+
+The 0.3.31 sign-in fix transports reply callbacks using the framework Binder
+receiver, so verification does not depend on loading an app-private anonymous
+class in the metadata process. Android 11 and Android 15 host tests cover the
+real client/service reply path. Browser ownership survives background requests;
+page changes and timeouts settle with retry feedback. These tests do not replace
+a live subscriber/free-account sign-in on an Android phone.

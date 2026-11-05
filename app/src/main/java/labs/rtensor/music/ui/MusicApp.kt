@@ -1017,17 +1017,6 @@ private fun AudioComparison(state: MusicState, onProcessing: (Boolean) -> Unit) 
     }
 }
 
-/** Where the audio comes from: the user's Atmos or lossless file, or the YouTube stream. */
-@Composable
-private fun RouteLabel(label: String) {
-    if (label.isBlank()) return
-    val own = label != "YouTube"
-    Text(if (own) label else "YouTube · compressed stream", fontSize = 12.sp, lineHeight = 17.sp,
-        fontWeight = if (own) FontWeight.Medium else FontWeight.Normal,
-        color = if (own) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(top = 14.dp).semantics { contentDescription = "Audio source: $label" })
-}
-
 /** Read the clock in this small subtree, rather than invalidating the cover,
  * controls and lazy queue every time the playback position changes. */
 @Composable

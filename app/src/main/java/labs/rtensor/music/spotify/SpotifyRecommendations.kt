@@ -35,10 +35,10 @@ internal class SpotifyRecommendations(context: Context,
             mutable.value = AccountState(connected = true, name = name, revision = revision)
             true
         } catch (e: CancellationException) { throw e }
-        catch (_: Exception) {
+        catch (e: Exception) {
             if (ticket != authGeneration) return false
             prefs.edit().putBoolean("connected", false).apply()
-            mutable.update { it.copy(connected = false, connecting = false, error = "Spotify sign-in could not be verified. Reconnect and try again.") }; false
+            mutable.update { it.copy(connected = false, connecting = false, error = (e as? SpotifyCatalogueException)?.message ?: "Spotify sign-in could not be verified. Reconnect and try again.") }; false
         }
     }
     suspend fun disconnect() {

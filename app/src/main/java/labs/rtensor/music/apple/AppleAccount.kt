@@ -80,8 +80,8 @@ internal class AppleAccount(private val context: Context, private val vault: Acc
         mutable.value = mutable.value.copy(connecting = true, needsCode = false, error = null, revision = ticket)
         authJob = scope.launch {
             try {
-                runtime.ensure(session)
-                runtime.account(1, user, password)
+                signInStep(AppleSignInStep.RUNTIME) { runtime.ensure(session) }
+                signInStep(AppleSignInStep.AUTHENTICATION) { runtime.account(1, user, password) }
                 settle(ticket, session)
             } catch (error: TimeoutCancellationException) { failed(ticket, error) }
             catch (error: CancellationException) { throw error }
@@ -94,7 +94,7 @@ internal class AppleAccount(private val context: Context, private val vault: Acc
         val ticket = generation.get()
         mutable.update { it.copy(connecting = true, needsCode = false, error = null) }
         authJob = scope.launch {
-            try { runtime.account(2, secret = code); settle(ticket, session) }
+            try { signInStep(AppleSignInStep.VERIFICATION) { runtime.account(2, secret = code) }; settle(ticket, session) }
             catch (error: TimeoutCancellationException) { failed(ticket, error) }
             catch (error: CancellationException) { throw error }
             catch (error: Exception) { failed(ticket, error) }
@@ -102,16 +102,17 @@ internal class AppleAccount(private val context: Context, private val vault: Acc
     }
     private suspend fun settle(ticket: Long, session: String) = withTimeout(90_000) {
         while (ticket == generation.get()) {
-            val status = runtime.account(0)
+            val status = signInStep(AppleSignInStep.AUTHENTICATION) { runtime.account(0) }
             when (status.optString("state")) {
                 "awaiting_2fa" -> { mutable.update { it.copy(connecting = false, needsCode = true) }; return@withTimeout }
                 "authenticated" -> {
-                    val next = runtime.credentials()
-                    val region = http.storefront(next)
+                    val next = signInStep(AppleSignInStep.SESSION) { runtime.credentials() }
+                    val region = signInStep(AppleSignInStep.SUBSCRIPTION) { http.storefront(next) }
                     if (ticket == generation.get()) save(AppleCredentials(next.developerToken, next.musicUserToken, next.name, region, true), session)
                     return@withTimeout
                 }
-                "failed", "logged_out" -> error("Apple rejected sign-in (code ${status.optInt("errorCode")}).")
+                "failed", "logged_out" -> throw AppleSignInFailure(AppleSignInStep.AUTHENTICATION,
+                    status.optInt("errorCode").takeIf { it != 0 })
             }
             delay(500)
         }
@@ -119,10 +120,15 @@ internal class AppleAccount(private val context: Context, private val vault: Acc
     private fun failed(ticket: Long, error: Exception) {
         if (ticket != generation.get()) return
         runtime.close()
-        mutable.update { it.copy(connecting = false, needsCode = false, error = when (error) {
+        val discarded = pendingSession; pendingSession = null
+        val message = when (error) {
             is TimeoutCancellationException -> "Apple sign-in timed out. Try again."
-            else -> "Apple sign-in could not continue. Check the account, verification code and runtime compatibility."
-        }) }
+            is AppleSignInFailure -> error.safeMessage
+            else -> "Apple sign-in could not finish. Retry the connection."
+        }
+        mutable.update { it.copy(connecting = false, needsCode = false,
+            error = message + if (it.connected && !it.native) " Your AAC connection is still available." else "") }
+        cleanup(discarded)
     }
     private fun save(value: AppleCredentials, session: String?) {
         val json = value.json().apply { if (session != null) put("runtimeSession", session) }
@@ -169,3 +175,24 @@ internal class AppleAccount(private val context: Context, private val vault: Acc
         }
     }
 }
+
+/** Fixed diagnostics only: never forward a native exception, account ID or secret to the UI. */
+internal enum class AppleSignInStep(val description: String) {
+    RUNTIME("Apple audio engine could not start on this device"),
+    AUTHENTICATION("Apple account authentication did not complete"),
+    VERIFICATION("Apple verification code could not be submitted"),
+    SESSION("Apple sign-in completed but its playback session could not be verified"),
+    SUBSCRIPTION("Apple sign-in completed but music subscription access could not be verified")
+}
+
+internal class AppleSignInFailure(val step: AppleSignInStep, val providerCode: Int? = null) :
+    Exception(step.description) {
+    val safeMessage: String get() = step.description +
+        (providerCode?.let { " (provider code $it)" } ?: "") + ". Retry the connection."
+}
+
+private suspend fun <T> signInStep(step: AppleSignInStep, action: suspend () -> T): T = try {
+    action()
+} catch (cancel: CancellationException) { throw cancel }
+catch (failure: AppleSignInFailure) { throw failure }
+catch (_: Exception) { throw AppleSignInFailure(step) }

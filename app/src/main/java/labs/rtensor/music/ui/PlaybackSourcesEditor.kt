@@ -40,15 +40,15 @@ internal fun PlaybackSourcesEditor(state: MusicState, onDismiss: () -> Unit,
     val scheme = MaterialTheme.colorScheme
     val busy = state.sourceBusy
     Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("Recommendations stay with YouTube. Playback checks matching Atmos recordings first, then lossless quality. Stereo plays unchanged.",
+        Text("Recommendations use your selected discovery service. The audio source is shown separately in the player. Playback checks matching surround and lossless recordings; stereo plays unchanged.",
             fontSize = 13.sp, lineHeight = 19.sp, color = scheme.onSurfaceVariant)
         Surface(shape = RoundedCornerShape(14.dp), color = scheme.surfaceVariant.copy(alpha = .5f), modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text("Apple Music · experimental", fontSize = 15.sp, fontWeight = FontWeight.Medium)
                 Text(when {
-                    state.appleAccount.connected && state.appleAccount.native -> "Native account connected · checks multichannel, then lossless, then AAC"
-                    state.appleAccount.connected -> "Account connected · AAC stereo"
-                    else -> "Use your subscription inside Music. AAC uses Apple’s web sign-in; lossless and multichannel use an imported native runtime."
+                    state.appleAccount.connected && state.appleAccount.native -> "Advanced account connected · format availability is checked per song. The player shows the actual audio source and codec."
+                    state.appleAccount.connected -> "AAC account connected · compressed stereo. This sign-in does not enable lossless or multichannel."
+                    else -> "Sign in for Apple Music AAC stereo. Lossless and surround require separate supported playback access; they are not enabled by an AAC sign-in."
                 }, fontSize = 12.sp, lineHeight = 17.sp, color = scheme.onSurfaceVariant)
                 if (state.appleAccount.connecting || state.appleAccount.needsCode) TextButton(onClick = onCancelApple) { Text("Cancel Apple sign-in") }
                 else {
