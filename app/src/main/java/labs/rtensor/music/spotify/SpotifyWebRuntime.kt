@@ -188,11 +188,12 @@ internal class SpotifyWebRuntime private constructor(private val context: Contex
         if (cookie.contains("sp_dc=")) vault.save(JSONObject().put("cookie", cookie).toString())
         CookieManager.getInstance().flush()
     }
-    fun disconnect() {
+    /** Signs out on this phone. Returns once the cookie store has been written without Spotify's
+     * session, so Android ending this process straight after cannot bring the old account back. */
+    suspend fun disconnect() {
         vault.clear()
         close()
-        CookieManager.getInstance().removeAllCookies(null)
-        WebStorage.getInstance().deleteAllData()
+        withTimeoutOrNull(5_000) { labs.rtensor.music.auth.SignInWebData.eraseAndWait() }
     }
     fun close() {
         invalidate("Spotify catalogue closed.")
