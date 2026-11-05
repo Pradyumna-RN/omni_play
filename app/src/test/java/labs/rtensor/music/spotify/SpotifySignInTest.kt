@@ -1,14 +1,19 @@
 package labs.rtensor.music.spotify
 
+import android.app.Application
 import android.content.Context
+import android.content.MutableContextWrapper
 import android.net.Uri
 import android.os.Looper
+import android.webkit.CookieManager
 import android.webkit.WebResourceRequest
+import androidx.activity.ComponentActivity
 import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.*
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
@@ -20,7 +25,7 @@ class SpotifySignInTest {
     private class Observer : SpotifyLoginObserver {
         var url = ""; var error: String? = null
         override fun pageChanged(url: String, finished: Boolean) { this.url = url }
-        override fun failed(message: String) { error = message }
+        override fun failed(problem: SpotifySignInProblem) { error = problem.page }
     }
     private fun request(value: String, main: Boolean = true) = object : WebResourceRequest {
         override fun getUrl() = Uri.parse(value)
@@ -79,5 +84,71 @@ class SpotifySignInTest {
             runtime.openPlayer(); shadowOf(Looper.getMainLooper()).idle()
             assertNull(failure); assertTrue(pending.isActive)
         } finally { scope.cancel(); shadowOf(Looper.getMainLooper()).idle(); runtime.hideLogin(observer); runtime.close() }
+    }
+
+    @Test fun googleFacebookAndAppleHandOffPagesCanFinishAnInteractiveSignIn() {
+        // Google sets a fresh sign-in on YouTube before returning to Spotify; Facebook can answer
+        // from its regional web host. Blocking these hops stranded sign-in halfway.
+        for (url in listOf("https://accounts.youtube.com/accounts/SetSID?ssdc=1", "https://web.facebook.com/login.php",
+            "https://mbasic.facebook.com/login.php", "https://idmsa.apple.com/appleauth/auth/signin")) {
+            assertTrue(url, SpotifyWebRuntime.navigationAllowed(Uri.parse(url), true))
+            assertFalse(url, SpotifyWebRuntime.navigationAllowed(Uri.parse(url)))
+            assertFalse(url, SpotifyWebRuntime.playerOrigin(url))
+        }
+        for (url in listOf("https://accounts.youtube.com.attacker.test/accounts/SetSID", "https://web.facebook.com.attacker.test/",
+            "http://accounts.youtube.com/accounts/SetSID", "https://www.youtube.com/watch?v=x", "https://attacker.facebook.com.test/")) {
+            assertFalse(url, SpotifyWebRuntime.navigationAllowed(Uri.parse(url), true))
+        }
+    }
+    @Test fun aBlockedPageIsNamedByItsHostOnlyAndThatReasonIsKept() {
+        val runtime = SpotifyWebRuntime.get(context); val observer = Observer()
+        val view = runtime.showLogin(observer, fresh = true)
+        try {
+            assertTrue(view.webViewClient.shouldOverrideUrlLoading(view, request("https://login.example.test/start?code=PRIVATE_CODE&email=private@example.test")))
+            val error = checkNotNull(observer.error)
+            assertTrue(error, error.contains("login.example.test"))
+            assertFalse(error, error.contains("PRIVATE_CODE") || error.contains("private@example.test"))
+        } finally { runtime.hideLogin(observer); runtime.close() }
+    }
+    @Test fun googleRefusingTheInAppPageExplainsTheEmailOrPhoneRoute() {
+        val runtime = SpotifyWebRuntime.get(context); val observer = Observer()
+        val view = runtime.showLogin(observer, fresh = true)
+        try {
+            view.webViewClient.onPageFinished(view, "https://accounts.google.com/v3/signin/identifier?continue=x")
+            assertNull("An ordinary Google page is not a failure", observer.error)
+            view.webViewClient.onPageFinished(view, "https://accounts.google.com/v3/signin/rejected?continue=x")
+            assertEquals(SpotifySignInProblem.GOOGLE_REFUSED.page, observer.error)
+            observer.error = null
+            view.webViewClient.onPageFinished(view, "https://accounts.google.co.in/signin/oauth/error?authError=ZGlzYWxsb3dlZF91c2VyYWdlbnQ")
+            assertEquals(SpotifySignInProblem.GOOGLE_REFUSED.page, observer.error)
+            assertTrue(SpotifySignInProblem.GOOGLE_REFUSED.page.contains("email or phone number"))
+        } finally { runtime.hideLogin(observer); runtime.close() }
+    }
+    @Test fun afterAndroidEndsTheSignInProcessASurvivingSessionReopensSpotifyInsteadOfTheLoginForm() {
+        val runtime = SpotifyWebRuntime.get(context); val observer = Observer()
+        val cookies = CookieManager.getInstance()
+        try {
+            runtime.close(); cookies.removeAllCookies(null)
+            cookies.setCookie(SpotifySignInNavigation.PLAYER, "sp_dc=session")
+            // A restored activity in a new process: no page exists yet, Spotify kept its session.
+            assertEquals(SpotifySignInNavigation.PLAYER, shadowOf(runtime.showLogin(observer, fresh = false)).lastLoadedUrl)
+            runtime.hideLogin(observer); runtime.close()
+            // A new sign-in always starts on Spotify's login page.
+            assertEquals(SpotifySignInNavigation.loginUrl(), shadowOf(runtime.showLogin(observer, fresh = true)).lastLoadedUrl)
+            runtime.hideLogin(observer); runtime.close(); cookies.removeAllCookies(null)
+            assertEquals(SpotifySignInNavigation.loginUrl(), shadowOf(runtime.showLogin(observer, fresh = false)).lastLoadedUrl)
+        } finally { runtime.hideLogin(observer); runtime.close(); cookies.removeAllCookies(null) }
+    }
+    @Test fun theSignInPageUsesTheActivityWindowOnlyWhileItIsShown() {
+        val runtime = SpotifyWebRuntime.get(context); val observer = Observer()
+        val activity = Robolectric.buildActivity(ComponentActivity::class.java).setup().get()
+        try {
+            val view = runtime.showLogin(observer, fresh = true, window = activity)
+            val host = view.context as MutableContextWrapper
+            assertSame(activity, host.baseContext)
+            runtime.hideLogin(observer)
+            assertNotSame("A hidden catalogue page must not keep the activity", activity, host.baseContext)
+            assertTrue(host.baseContext is Application)
+        } finally { runtime.hideLogin(observer); runtime.close() }
     }
 }

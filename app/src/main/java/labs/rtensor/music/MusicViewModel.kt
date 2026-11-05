@@ -473,8 +473,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         if (mutable.value.recommendationEngine == RecommendationEngine.SPOTIFY) spotify.radio(seed, exclude)
         else youtube.radio(spotifyMatches.resolve(seed), exclude)
     fun beginSpotifySignIn() { spotify.connecting() }
-    fun completeSpotifySignIn(success: Boolean) {
-        if (!success) { spotify.cancel(); return }
+    /** Every way out of Spotify sign-in leaves a result in Settings: connected, or a reason. */
+    fun completeSpotifySignIn(success: Boolean, problem: String? = null) {
+        if (!success) { spotify.cancel(problem); return }
         viewModelScope.launch {
             if (spotify.verify()) {
                 // The account collector may still be queued when verify returns on the main thread.

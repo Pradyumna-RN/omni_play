@@ -23,9 +23,14 @@ internal class SpotifyRecommendations(context: Context,
     @Volatile private var revision = 0L
     private var authGeneration = 0L
     fun connecting() { authGeneration++; mutable.update { it.copy(connecting = true, error = null) } }
-    fun cancel() { authGeneration++; mutable.update { it.copy(connecting = false) } }
+    /** Sign-in ended without a connection: say so, with the sign-in page's reason when it had one. */
+    fun cancel(problem: String? = null) {
+        authGeneration++
+        mutable.update { it.copy(connecting = false, error = cancelledMessage(problem)) }
+    }
     suspend fun verify(): Boolean {
         val ticket = ++authGeneration
+        mutable.update { it.copy(connecting = true, error = null) }
         return try {
             val name = api.request("profile").getString("name").take(120)
             require(name.isNotBlank())
@@ -96,6 +101,11 @@ internal class SpotifyRecommendations(context: Context,
     fun close() { api.close() }
     companion object {
         private const val CACHE_MS = 10 * 60 * 1000L
+        internal fun cancelledMessage(problem: String?): String {
+            val reason = problem?.trim()?.take(240)?.trimEnd('.')?.takeIf { it.isNotBlank() }
+            return if (reason == null) "Spotify sign-in was cancelled before it finished. Tap Spotify to try again."
+                else "Spotify sign-in didn't finish: $reason. Tap Spotify to try again."
+        }
         private fun items(array: JSONArray) = (0 until array.length()).take(80).mapNotNull { i ->
             runCatching { SpotifyItem.parse(array.getJSONObject(i)) }.getOrNull()
         }.distinctBy { it.uri }

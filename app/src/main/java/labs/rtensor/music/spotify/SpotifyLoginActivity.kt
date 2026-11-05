@@ -1,5 +1,6 @@
 package labs.rtensor.music.spotify
 
+import android.content.Intent
 import android.os.Bundle
 import android.view.ViewGroup
 import android.webkit.WebView
@@ -19,7 +20,7 @@ import kotlinx.coroutines.*
 import labs.rtensor.music.ui.MusicTheme
 import org.json.JSONObject
 
-/** Same Continue/Connect flow as YouTube; only a verified Spotify profile completes it. */
+/** Spotify's own sign-in page with one Connect action; only a verified Spotify profile completes it. */
 class SpotifyLoginActivity : ComponentActivity() {
     private var engine: SpotifyWebRuntime? = null
     private var browser by mutableStateOf<WebView?>(null)
@@ -29,6 +30,8 @@ class SpotifyLoginActivity : ComponentActivity() {
     private var loading by mutableStateOf(true)
     private var attemptedAutoConnect = false
     private var confirmationJob: Job? = null
+    /** The last problem shown here. Leaving without connecting reports it in Settings. */
+    private var problem: SpotifySignInProblem? = null
     private val observer = object : SpotifyLoginObserver {
         override fun pageChanged(url: String, finished: Boolean) {
             pageUrl = url; loading = !finished
@@ -37,9 +40,9 @@ class SpotifyLoginActivity : ComponentActivity() {
                 attemptedAutoConnect = true; confirmAccount()
             }
         }
-        override fun failed(message: String) {
+        override fun failed(problem: SpotifySignInProblem) {
             confirmationJob?.cancel(); busy = false; loading = false
-            this@SpotifyLoginActivity.message = message
+            show(problem)
         }
     }
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -65,23 +68,32 @@ class SpotifyLoginActivity : ComponentActivity() {
             }
         }
     }
+    private fun show(next: SpotifySignInProblem) { problem = next; message = next.page }
     private fun openLogin(fresh: Boolean) {
         try {
             val runtime = SpotifyWebRuntime.get(applicationContext); engine = runtime
-            browser = runtime.showLogin(observer, fresh)
+            // A restored activity without a page means Android ended the sign-in process while
+            // the listener was away (reading an emailed code, for example).
+            val restarted = !fresh && !runtime.hasBrowser
+            browser = runtime.showLogin(observer, fresh, this)
+            if (restarted) message = RESTARTED
         } catch (_: Exception) {
             loading = false
-            message = "Spotify sign-in needs Android System WebView. Update it, then tap Reload."
+            show(SpotifySignInProblem.NO_WEBVIEW)
         }
     }
     private fun restartLogin() {
         confirmationJob?.cancel(); busy = false; attemptedAutoConnect = false
-        message = INSTRUCTIONS; loading = true
+        problem = null; message = INSTRUCTIONS; loading = true
         openLogin(fresh = true)
     }
     private fun connectOrContinue() {
         val runtime = engine ?: return
-        if (!SpotifySignInNavigation.player(pageUrl)) runtime.openPlayer()
+        if (!SpotifySignInNavigation.player(pageUrl)) {
+            // Leaving Spotify's page before it has signed in would throw away what was typed.
+            if (!runtime.hasSessionHint()) { message = FINISH_FIRST; return }
+            runtime.openPlayer()
+        }
         confirmAccount()
     }
     private fun confirmAccount() {
@@ -95,18 +107,19 @@ class SpotifyLoginActivity : ComponentActivity() {
                 setResult(RESULT_OK); finish()
             } catch (_: TimeoutCancellationException) {
                 busy = false; attemptedAutoConnect = false
-                message = "Spotify is still opening your account. Wait for the page, then tap Connect."
+                show(SpotifySignInProblem.SLOW)
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
                 busy = false
-                message = if ((e as? SpotifyCatalogueException)?.code == "AUTH_REQUIRED")
-                    "Finish signing in to Spotify, then tap Connect. Tap Sign in to reopen the login page."
-                    else "Could not verify the Spotify account yet. Wait for Spotify to open, then tap Connect or Reload."
+                show(if ((e as? SpotifyCatalogueException)?.code == "AUTH_REQUIRED") SpotifySignInProblem.NOT_SIGNED_IN
+                    else SpotifySignInProblem.NOT_VERIFIED)
             }
         }
     }
     private fun cancelLogin() {
-        confirmationJob?.cancel(); setResult(RESULT_CANCELED); finish()
+        confirmationJob?.cancel()
+        setResult(RESULT_CANCELED, Intent().apply { problem?.let { putExtra(PROBLEM, it.summary) } })
+        finish()
     }
     override fun onDestroy() {
         confirmationJob?.cancel()
@@ -114,8 +127,12 @@ class SpotifyLoginActivity : ComponentActivity() {
         engine?.hideLogin(observer); browser = null
         super.onDestroy()
     }
-    private companion object {
-        const val INSTRUCTIONS = "Sign in to Spotify. When Spotify opens, your account connects automatically. You can also tap Continue, then Connect."
+    companion object {
+        /** Result extra: a short, fixed reason when sign-in ends without a connection. */
+        const val PROBLEM = "labs.rtensor.music.spotify.PROBLEM"
+        internal const val INSTRUCTIONS = "Sign in on Spotify's page below. When Spotify opens, your account connects automatically. If it doesn't, tap Connect."
+        internal const val FINISH_FIRST = "Sign in on Spotify's page below first. Its own Continue and Log in buttons are in the page; tap Connect once Spotify has signed you in."
+        internal const val RESTARTED = "Android closed the sign-in page while Music was in the background. Sign in again; if Spotify already signed you in, it connects automatically."
     }
 }
 
@@ -124,11 +141,11 @@ internal fun SpotifyLoginScreen(pageUrl: String, message: String, busy: Boolean,
     onCancel: () -> Unit, onConnect: () -> Unit, onSignIn: () -> Unit, onReload: () -> Unit,
     browser: @Composable () -> Unit) {
     Surface(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize().systemBarsPadding()) {
+        Column(Modifier.fillMaxSize().systemBarsPadding().imePadding()) {
             Row(Modifier.fillMaxWidth().padding(8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                 TextButton(onClick = onCancel) { Text("Cancel") }
                 TextButton(onClick = onConnect, enabled = !busy && pageUrl.isNotBlank()) {
-                    Text(if (SpotifySignInNavigation.player(pageUrl)) "Connect" else "Continue")
+                    Text("Connect")
                 }
             }
             Text(runCatching { android.net.Uri.parse(pageUrl).host }.getOrNull() ?: "Spotify sign-in",

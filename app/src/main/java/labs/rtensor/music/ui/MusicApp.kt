@@ -1620,7 +1620,7 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onAccen
                     }
                 }
                 if (state.recommendationEngine == labs.rtensor.music.recommendations.RecommendationEngine.SPOTIFY) Text("Spotify discovery is experimental.", fontSize = 12.sp, color = scheme.onSurfaceVariant)
-                if (state.spotifyAccount.connecting) Text("Opening Spotify sign-in…", fontSize = 12.sp, color = scheme.onSurfaceVariant)
+                if (state.spotifyAccount.connecting) Text("Connecting Spotify…", fontSize = 12.sp, color = scheme.onSurfaceVariant)
                 if (state.spotifyAccount.connected) Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Spotify · ${state.spotifyAccount.name}", fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
                         color = scheme.onSurfaceVariant, modifier = Modifier.weight(1f))

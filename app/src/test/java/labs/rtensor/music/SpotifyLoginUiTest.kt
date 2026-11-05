@@ -20,11 +20,13 @@ import org.robolectric.annotation.GraphicsMode
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class SpotifyLoginUiTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
-    @Test fun continueBecomesConnectOnSpotifyAndNeverShowsSensitiveUrlParameters() {
+    @Test fun oneConnectActionOnEveryPageThatNeverCompetesWithSpotifysContinueOrShowsUrlParameters() {
         val url = mutableStateOf("https://accounts.google.com/login?code=PRIVATE_CODE&login_hint=private@example.test")
         var connects = 0
         compose.setContent { MusicTheme("light") { SpotifyLoginScreen(url.value, "Finish signing in", false, false, {}, { connects++ }, {}, {}) { Text("Browser") } } }
-        compose.onNodeWithText("Continue").performClick()
+        // Spotify's own login form has a "Continue" button; the header must not offer a second one.
+        compose.onNodeWithText("Continue").assertDoesNotExist()
+        compose.onNodeWithText("Connect").performClick()
         compose.onNodeWithText("accounts.google.com").assertIsDisplayed()
         compose.onNodeWithText("PRIVATE_CODE", substring = true).assertDoesNotExist()
         compose.onNodeWithText("private@example.test", substring = true).assertDoesNotExist()
