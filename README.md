@@ -113,6 +113,10 @@ scene decoder is not registered or packaged, and its setting is removed.
 [PCM/DSP integration](dsp/README.md) and [provider status](PROVIDER_PLAYBACK_STATUS.md)
 describe the current route. Decoder research remains in its standalone module.
 
+[Spotify integration research](SPOTIFY_INTEGRATION_RESEARCH.md) compares direct
+free-account playback approaches and documents the separate web-engine boundary.
+Spotify playback is not integrated or packaged in the current release.
+
 ### Accounts, storage and updates
 
 Google account selection, the YouTube web session and TIDAL's browser PKCE flow
