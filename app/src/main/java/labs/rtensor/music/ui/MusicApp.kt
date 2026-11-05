@@ -256,7 +256,9 @@ fun MusicApp(
     val reduced = state.reducedMotion
     fun focusSearch() { searchFocus.requestFocus(); keyboard?.show() }
     fun navigate(next: String) {
-        if (next in rootPages) { root = next; onQuery(""); keyboard?.hide() }
+        // Changing tabs closes an open search. Only clear when there is one: a blank query also
+        // clears the shared error, which would silently drop a playback error and its Retry.
+        if (next in rootPages) { root = next; if (state.query.isNotEmpty()) onQuery(""); keyboard?.hide() }
         if (page != "now" && next == "now") back = page
         page = next
     }
@@ -272,9 +274,17 @@ fun MusicApp(
         sharedQuery?.takeIf { it.isNotBlank() }?.let { onQuery(it); page = root; onSearch(); onShareConsumed() }
     }
     LaunchedEffect(page) { if (page == "explore" && state.explore.isEmpty() && !state.exploreBusy) onRefreshExplore() }
+    // One back for the header arrow and the system gesture, so both land on the same page.
+    // Leaving a tab for Home goes through navigate(), which also makes Home the root again.
+    fun goBack() {
+        when (page) {
+            "now" -> page = back
+            "settings", "collection" -> page = root
+            else -> navigate("home")
+        }
+    }
     BackHandler(page != "home" || state.query.isNotEmpty()) {
-        if (page in rootPages && state.query.isNotEmpty()) onQuery("")
-        else page = when (page) { "now" -> back; "settings", "collection" -> root; else -> "home" }
+        if (page in rootPages && state.query.isNotEmpty()) onQuery("") else goBack()
     }
     // Keep the last track while the mini player animates away.
     var lastTrack by remember { mutableStateOf(state.current) }
@@ -283,9 +293,7 @@ fun MusicApp(
         MusicTheme(state.theme, darkNavigationBar = page in rootPages + "collection") {
             Scaffold(
                 topBar = {
-                    AppHeader(page, onHome = { navigate("home") }, onSettings = { navigate("settings") }, onBack = {
-                        page = when (page) { "now" -> back; else -> root }
-                    }) { SearchBar(state, onQuery, onSearch, searchFocus, Modifier.weight(1f)) }
+                    AppHeader(page, onHome = { navigate("home") }, onSettings = { navigate("settings") }, onBack = ::goBack) { SearchBar(state, onQuery, onSearch, searchFocus, Modifier.weight(1f)) }
                 },
                 bottomBar = {
                     if (page in rootPages + "collection") {
