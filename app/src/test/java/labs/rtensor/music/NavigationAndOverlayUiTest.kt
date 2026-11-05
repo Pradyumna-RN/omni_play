@@ -133,4 +133,32 @@ class NavigationAndOverlayUiTest {
         compose.onNodeWithText("Keep history").performClick()
         compose.onNodeWithText("Clear listening history?").assertDoesNotExist()
     }
+
+    @Test fun exploreErrorOffersAVisibleRetry() {
+        var refreshes = 0
+        compose.setContent {
+            MusicApp(MusicState(exploreError = "YouTube Music did not answer.", reducedMotion = true), initialPage = "explore",
+                onRefreshExplore = { refreshes++ })
+        }
+        compose.onNodeWithText("YouTube Music did not answer.").assertIsDisplayed()
+        val before = compose.runOnIdle { refreshes }
+        compose.onNodeWithText("RETRY").performClick()
+        compose.runOnIdle { assertEquals(before + 1, refreshes) }
+    }
+
+    @Test fun libraryTabsExposeTabRoleAndSelection() {
+        compose.setContent { MusicApp(MusicState(reducedMotion = true), initialPage = "library") }
+        val saved = compose.onNodeWithContentDescription("Saved tab")
+        val history = compose.onNodeWithContentDescription("History tab")
+        history.assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Tab))
+        saved.assertIsSelected(); history.assertIsNotSelected()
+        history.performClick()
+        compose.onNodeWithContentDescription("History tab").assertIsSelected()
+        compose.onNodeWithContentDescription("Saved tab").assertIsNotSelected()
+    }
+
+    @Test fun homeMonogramHasAFullTouchTarget() {
+        compose.setContent { MusicApp(MusicState(reducedMotion = true)) }
+        compose.onNodeWithContentDescription("Music, go home").assertWidthIsAtLeast(48.dp).assertHeightIsAtLeast(48.dp)
+    }
 }

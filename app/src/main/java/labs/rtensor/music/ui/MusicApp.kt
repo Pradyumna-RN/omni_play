@@ -372,8 +372,8 @@ private fun AppHeader(page: String, onHome: () -> Unit, onSettings: () -> Unit, 
             Spacer(Modifier.width(48.dp))
         } else {
             // A small monogram stands in for the old wordmark so search can share the row.
-            Column(Modifier.clip(RectangleShape).clickable(onClick = onHome).padding(horizontal = 6.dp, vertical = 8.dp)
-                .semantics { contentDescription = "Music, go home" }, horizontalAlignment = Alignment.CenterHorizontally) {
+            Column(Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).clip(RectangleShape).clickable(onClick = onHome).padding(horizontal = 6.dp, vertical = 8.dp)
+                .semantics { contentDescription = "Music, go home" }, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                 Text("M", style = DisplayStyle, fontSize = 24.sp, lineHeight = 22.sp)
                 Spacer(Modifier.height(3.dp))
                 Box(Modifier.width(14.dp).height(4.dp).background(SignalAccent))
@@ -806,7 +806,12 @@ private fun ProviderHome(state: MusicState, onEntry: (FeedEntry) -> Unit, onRefr
             }
         }
         feedSections(state.feed, onEntry)
-        if (state.feedError != null) item(key = "error") { Text(state.feedError, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        if (state.feedError != null) item(key = "error") {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(state.feedError, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                TextButton(onClick = onRefresh, enabled = !state.feedBusy, shape = RectangleShape) { Text("RETRY", style = MonoLabel) }
+            }
+        }
         if (state.feed.isEmpty() && !state.feedBusy && state.feedError == null) item(key = "empty") { EmptyState("More music awaits", "Pull down to load discoveries from ${state.recommendationEngine.label}.", Glyph.Compass) }
         if (state.feedHasMore) item(key = "more") { OutlinedButton(onClick = onMore, enabled = !state.feedBusy, modifier = Modifier.fillMaxWidth()) { Text("More from your feed") } }
     }
@@ -916,8 +921,9 @@ private fun SegmentedTabs(labels: List<String>, position: Float, onSelect: (Int)
             labels.forEachIndexed { index, label ->
                 val closeness = (1f - abs(position - index)).coerceIn(0f, 1f)
                 val color = androidx.compose.ui.graphics.lerp(scheme.onSurfaceVariant, scheme.primary, closeness)
-                Box(Modifier.weight(1f).fillMaxHeight().clip(RectangleShape).clickable { onSelect(index) }
-                    .semantics { contentDescription = "$label tab" }, contentAlignment = Alignment.Center) {
+                val chosen = abs(position - index) < .5f
+                Box(Modifier.weight(1f).fillMaxHeight().clip(RectangleShape).clickable(role = Role.Tab) { onSelect(index) }
+                    .semantics { contentDescription = "$label tab"; selected = chosen }, contentAlignment = Alignment.Center) {
                     Text(label, fontSize = 14.sp, fontWeight = if (closeness > .5f) FontWeight.SemiBold else FontWeight.Medium, color = color)
                 }
             }
