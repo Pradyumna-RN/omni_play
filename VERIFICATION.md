@@ -1,3 +1,35 @@
+# Music 0.3.33 / player, accents and Android Auto
+
+This release reviews Claude's merged player/accent redesign, playback and account
+recovery changes, Android Auto browsing and voice search. The player has rounded
+artwork, centred transport controls, cover-derived colours and fixed accent
+choices. Palette extraction runs off the UI thread and caches results; tests
+check contrast, missing-artwork fallbacks and actual rendered screens.
+
+The review found a car queue-selection defect: filtering a removed or unplayable
+entry could shift the requested start index and play a different song. The fix
+preserves the original request index, including repeated occurrences, and rejects
+a removed selected song. All four regressions failed before the fix and passed afterward;
+the complete car callback suite also passed against the corrected code.
+
+The release target is **0.3.33 / versionCode 36**, Android 11+, ARM64/x86-64 and
+the existing signing identity. **436 unique app checks pass**, with no failures, errors or skips: 432 in the full run, followed by 35 affected checks containing four new regressions.
+The affected checks and lint cover
+the actual Android sources on a host. Exact completed counts and release-artifact
+checks are recorded in `decoder-validation.json` and `SHA256SUMS`. Packaging runs
+R8/resource shrinking, release lint, native/runtime integrity guards and the
+under-100-MB size guard.
+
+Decoder and DSP sources and packaged native/runtime binaries are retained from
+0.3.32. Their earlier DSP/browser results remain baseline evidence, not newly
+executed tests. No physical phone, car, signed-in Spotify session or new Apple
+lossless/multichannel account playback was validated by this review. Android Auto
+uses the existing engine and provider routes; its automated checks do not replace
+car or Desktop Head Unit testing. Car-started history/radio continuation currently
+depends on Music being open on the phone.
+
+## Previous release baseline
+
 # Music 0.3.32 / Signal UI
 
 The Signal design passed a full **308-check app run**, including rendered light

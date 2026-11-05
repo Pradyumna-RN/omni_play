@@ -281,6 +281,44 @@ class AndroidAutoLibraryTest {
             is labs.rtensor.music.playback.CarRequestException)
     }
 
+    @Test fun multiSongSelectionKeepsItsSongWhenAnEarlierBrowseEntryWasRemoved() {
+        val saved = listOf(yt(1), yt(2), yt(3))
+        store.writeTracks("saved", saved)
+        val requests = ids(children("car:tab:saved")).map { MediaItem.Builder().setMediaId(it).build() }.toMutableList()
+        store.writeTracks("saved", saved.drop(1))
+        val result = await(callback.onSetMediaItems(session, car, requests, 1, 12_000))
+        assertEquals(yt(2), catalogueTrack(result.mediaItems[result.startIndex]))
+        assertEquals(0, result.startIndex); assertEquals(12_000L, result.startPositionMs)
+    }
+
+    @Test fun aRemovedChosenSongInAMultiSongRequestCannotStartAnotherSong() {
+        val saved = listOf(yt(1), yt(2), yt(3))
+        store.writeTracks("saved", saved)
+        val requests = ids(children("car:tab:saved")).map { MediaItem.Builder().setMediaId(it).build() }.toMutableList()
+        store.writeTracks("saved", listOf(saved[0], saved[2]))
+        assertTrue(failure(callback.onSetMediaItems(session, car, requests, 1, 12_000))
+            is labs.rtensor.music.playback.CarRequestException)
+    }
+
+    @Test fun repeatedSongsKeepTheSelectedOccurrenceAfterFiltering() {
+        store.writeTracks("saved", listOf(yt(1), yt(2), yt(3)))
+        val requests = listOf(yt(1), yt(2), yt(1), yt(3)).map {
+            MediaItem.Builder().setMediaId("car:song:saved:${it.libraryKey()}").build()
+        }.toMutableList()
+        store.writeTracks("saved", listOf(yt(1), yt(3)))
+        val result = await(callback.onSetMediaItems(session, car, requests, 2, 9_000))
+        assertEquals(listOf(yt(1), yt(1), yt(3)), result.mediaItems.map(::catalogueTrack))
+        assertEquals(1, result.startIndex); assertEquals(9_000L, result.startPositionMs)
+    }
+
+    @Test fun anUnplayableEarlierEntryDoesNotShiftTheSelectedSong() {
+        store.writeTracks("saved", listOf(yt(1), yt(2).copy(url = "https://example.test/not-an-authorized-source"), yt(3)))
+        val requests = ids(children("car:tab:saved")).map { MediaItem.Builder().setMediaId(it).build() }.toMutableList()
+        val result = await(callback.onSetMediaItems(session, car, requests, 2, 8_000))
+        assertEquals(yt(3), catalogueTrack(result.mediaItems[result.startIndex]))
+        assertEquals(1, result.startIndex); assertEquals(8_000L, result.startPositionMs)
+    }
+
     @Test fun onlyMusicAndTheCarMayBrowseOrPlayByBrowseId() {
         store.writeTracks("saved", listOf(yt(1)))
         assertTrue(callback.onConnect(session, car).isAccepted)

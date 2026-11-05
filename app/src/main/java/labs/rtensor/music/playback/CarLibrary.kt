@@ -148,22 +148,32 @@ internal class CarLibrary(
             if (start < 0) throw CarRequestException(SessionError.ERROR_NOT_SUPPORTED, "This song cannot be played from the car.")
             return MediaItemsWithStartPosition(items.map { it.second }, start, C.TIME_UNSET)
         }
-        val items = playable(requests.mapNotNull { locate(it.mediaId)?.let { (tracks, index) -> tracks[index] } })
+        val resolved = requests.mapIndexedNotNull { requestIndex, request ->
+            locate(request.mediaId)?.let { (tracks, index) -> IndexedValue(requestIndex, tracks[index]) }
+        }
+        val items = playableEntries(resolved)
         if (items.isEmpty()) throw CarRequestException(SessionError.ERROR_BAD_VALUE, "These songs are no longer available.")
-        return MediaItemsWithStartPosition(items.map { it.second }, startIndex.takeIf { it in items.indices } ?: 0,
-            if (startIndex in items.indices) startPositionMs else C.TIME_UNSET)
+        // Filtering stale or unplayable requests must not change which song was chosen.
+        // Keep the request index too, so repeated occurrences of one song stay distinct.
+        val start = if (startIndex in requests.indices) items.indexOfFirst { it.index == startIndex } else 0
+        if (start < 0) throw CarRequestException(SessionError.ERROR_BAD_VALUE, "The chosen song is no longer available. Open the list again.")
+        return MediaItemsWithStartPosition(items.map { it.value.second }, start,
+            if (startIndex in requests.indices) startPositionMs else C.TIME_UNSET)
     }
 
     /** Resolve each requested song on its own, for "add to queue". */
     suspend fun resolveEach(requests: List<MediaItem>): List<MediaItem> =
         playable(requests.mapNotNull { locate(it.mediaId)?.let { (tracks, index) -> tracks[index] } }).map { it.second }
 
-    private suspend fun playable(tracks: List<Track>): List<Pair<Track, MediaItem>> = withContext(io) {
+    private suspend fun playable(tracks: List<Track>): List<Pair<Track, MediaItem>> =
+        playableEntries(tracks.withIndex().toList()).map { it.value }
+
+    private suspend fun playableEntries(tracks: List<IndexedValue<Track>>): List<IndexedValue<Pair<Track, MediaItem>>> = withContext(io) {
         val store = LibraryStore(context)
         val masters = LocalMasters(context).entries.filterNot { it.uri in store.removedLocalUris }
-        tracks.filterNot(store::isRemoved)
-            .map { it to PlayableItems.build(it, PlaybackRoute.choose(it, masters)) }
-            .filter { PlayableItems.permitted(it.second) }
+        tracks.filterNot { store.isRemoved(it.value) }
+            .map { (index, track) -> IndexedValue(index, track to PlayableItems.build(track, PlaybackRoute.choose(track, masters))) }
+            .filter { PlayableItems.permitted(it.value.second) }
     }
 
     private suspend fun tracks(tab: Tab): List<Track> = withContext(io) {

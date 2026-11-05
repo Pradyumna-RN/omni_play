@@ -49,7 +49,7 @@ those features improve.
 
 ## Quick guide
 
-1. **Install or update.** Get the [current preview release](https://github.com/RTensorLabs/music-app/releases/tag/v0.3.32).
+1. **Install or update.** Get the [current preview release](https://github.com/RTensorLabs/music-app/releases/tag/v0.3.33).
    Existing installations can use **Settings → About → Check updates**.
 2. **Choose recommendations.** Open **Settings → Playback → Recommendation source**.
    YouTube Music is the default. Selecting Spotify starts its sign-in; the choice
@@ -91,11 +91,12 @@ surround bed to DMR; this does not recover the full Atmos object scene. Discover
 metadata, a successful sign-in or an album badge does not prove the audio format.
 See [verification and current limits](VERIFICATION.md).
 
-The current UI work on `main` uses **Signal**: a paper/ink palette, orange accent,
-square controls and compact song recommendations. Home separates the last song,
-recommendations shaped by listening, and new-to-history songs. Collections stay
-in Explore. See the [UI review and verification scope](SIGNAL_UI_REVIEW.md).
-Signal is included in Music 0.3.32.
+The current UI builds on **Signal**, with compact Home recommendations, rounded
+player artwork and a centred round Play button. The default accent follows the
+cover; fixed accent choices are available in Settings. Home separates the last
+song, recommendations shaped by listening, and new-to-history songs. Collections
+stay in Explore. Android Auto shares the phone's playback engine, library and
+provider routing. See [verification and current limits](VERIFICATION.md).
 
 [Shareable layout review](https://music-layout-review.chalkybongo1.chatgpt.site):
 smaller Home covers and three player options. This is a design prototype; it
@@ -127,7 +128,10 @@ flowchart TB
     YT <--> ENGINE["YouTube client<br/>Catalogue and stream requests"]
     ENGINE <--> CLOUD["YouTube / YouTube Music"]
     VM <-->|"Commands / player events"| CONTROL["MediaController"]
-    CONTROL <--> SERVICE["Playback service<br/>MediaSession and notification"]
+    CONTROL <--> SERVICE["Playback service<br/>MediaLibrarySession and notification"]
+    CAR["Android Auto / voice search"] <-->|"Browse / search / controls"| SERVICE
+    SERVICE <--> CARLIB["CarLibrary<br/>Resolve current library IDs"]
+    CARLIB <--> STORE
     SERVICE --> SELECT["Source routing<br/>Match / rank / pin a recording"]
     STORE -->|"Imported files"| SELECT
     YT -->|"YouTube fallback"| SELECT
@@ -286,15 +290,16 @@ code. The Android installer asks the user to confirm installation.
 
 ## Current release
 
-[Music 0.3.32](https://github.com/RTensorLabs/music-app/releases/tag/v0.3.32)
-adds the YouTube Music / Spotify recommendation choice. The optimized release
-APK is approximately **89.2 MB**, with Android 11+, ARM64 and x86-64 support.
+[Music 0.3.33](https://github.com/RTensorLabs/music-app/releases/tag/v0.3.33)
+adds Android Auto and voice search, cover-derived or fixed accent colours, a
+refined player and playback/reconnection fixes. The optimized release targets
+Android 11+, ARM64 and x86-64, and stays below 100 MB.
 
-Validation includes **269 unique app checks, 86 DSP checks and ten browser-bridge
-checks**, plus public Spotify catalogue probes and update-selection verification.
-These checks do not establish signed-in provider playback or performance on a
-physical phone. See [verification](VERIFICATION.md) and the release assets for
-the exact source commit, APK checksums and packaging evidence.
+Automated app checks cover the player, navigation, account recovery, car browsing
+and queue selection. Existing DSP and browser results remain baseline evidence;
+they are not new phone performance or subscriber-playback measurements. See
+[verification](VERIFICATION.md) and the release assets for completed counts,
+source commit, APK checksums and packaging evidence.
 
 ## Build
 
