@@ -24,7 +24,9 @@ internal object PlayerTransport {
                 player.prepare()
                 player.play()
             }
-            player.playWhenReady -> player.pause()
+            // During a call (audio focus) the player is held silent with play still requested, and the
+            // app shows Play. A tap on that Play must keep playing once the call ends, not pause.
+            player.playWhenReady && player.playbackSuppressionReason == Player.PLAYBACK_SUPPRESSION_REASON_NONE -> player.pause()
             else -> player.play()
         }
     }
