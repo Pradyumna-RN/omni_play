@@ -27,6 +27,7 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
@@ -149,6 +150,28 @@ private fun MonitorReadings(report: DownmixReport?, playing: Boolean, trackId: S
             }
             Text("Measured activity · before device volume", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 8.dp))
+        }
+    }
+}
+
+/**
+ * The channel monitor's plan view at a glance, for the Original/Processed switch: one light per
+ * speaker in the source, lit in the accent when it is heard. In the Original comparison only the
+ * front pair is heard. Static: it shows the routing, not the level.
+ */
+@Composable
+internal fun SpeakerLights(report: DownmixReport?, processed: Boolean, modifier: Modifier = Modifier) {
+    val positions = report?.inputPositions.orEmpty().ifEmpty { listOf(SpeakerPosition.FL, SpeakerPosition.FR) }
+    val frontOnly = !processed && report?.comparisonAvailable == true
+    val lit = LocalAccent.current.accent
+    val faded = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .45f)
+    Canvas(modifier.clearAndSetSemantics {}) {
+        val r = size.minDimension * .085f
+        positions.forEach { p ->
+            val (x, y) = location(p)
+            val centre = Offset(r + (size.width - 2 * r) * x, r + (size.height - 2 * r) * y)
+            val heard = !frontOnly || p == SpeakerPosition.FL || p == SpeakerPosition.FR
+            if (heard) drawCircle(lit, r, centre) else drawCircle(faded, r, centre, style = Stroke(1.dp.toPx()))
         }
     }
 }

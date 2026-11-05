@@ -72,8 +72,8 @@ class NativeUiTest {
         compose.onAllNodesWithContentDescription("Save").assertCountEquals(1)
         compose.onNodeWithContentDescription("Save").performScrollTo().performClick()
         compose.onNodeWithContentDescription("Saved").assertExists()
-        compose.onNodeWithText("Pause").performScrollTo().performClick()
-        compose.onNodeWithText("Play").assertExists()
+        compose.onNodeWithContentDescription("Pause").performScrollTo().performClick()
+        compose.onNodeWithContentDescription("Play").assertExists()
         capture("player")
     }
 
@@ -103,7 +103,7 @@ class NativeUiTest {
     @Test @Config(sdk = [35], qualifiers = "w320dp-h740dp-mdpi")
     fun compactPlayerKeepsTransportReachable() {
         compose.setContent { MusicApp(MusicState(current = track, durationMs = 224000, reducedMotion = true, theme = "light"), initialPage = "now") }
-        compose.onNodeWithText("Play").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithContentDescription("Play").performScrollTo().assertIsDisplayed()
         compose.onNodeWithContentDescription("Save").assertIsDisplayed()
         capture("player-320")
     }

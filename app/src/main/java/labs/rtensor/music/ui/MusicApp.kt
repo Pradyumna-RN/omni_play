@@ -22,6 +22,8 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -154,6 +156,10 @@ private val Dark = darkColorScheme(
     outline = InkRule, secondaryContainer = SignalAccent, onSecondaryContainer = Ink,
     primaryContainer = SignalAccent, onPrimaryContainer = Ink,
 )
+/** Bordered and filled buttons share one small radius. */
+internal val ButtonShape = RoundedCornerShape(10.dp)
+/** The player's song title: bold Archivo, not the condensed display face. */
+private val PlayerTitleStyle = TextStyle(fontFamily = font, fontWeight = FontWeight.Bold, fontSize = 22.sp, lineHeight = 28.sp)
 internal val MonoLabel = TextStyle(fontFamily = Mono, fontWeight = FontWeight.Medium, fontSize = 13.sp, letterSpacing = .06.em)
 internal val MonoSmall = TextStyle(fontFamily = Mono, fontSize = 12.sp, letterSpacing = .04.em)
 private val DisplayStyle = TextStyle(fontFamily = Display, fontWeight = FontWeight.ExtraBold, letterSpacing = (-.01).em)
@@ -1086,7 +1092,8 @@ private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () ->
     OnPlayerTones(ground) {
     val scheme = MaterialTheme.colorScheme
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        val coverSize = (maxHeight * .31f).coerceIn(150.dp, 250.dp)
+        // The cover fills the width between the gutters; on a short screen it stops at 45% of the height.
+        val coverSize = minOf(maxWidth - 40.dp, maxHeight * .45f).coerceAtLeast(150.dp)
         // The queue continues right under the controls, so scrolling down shows what plays next.
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 10.dp, bottom = 32.dp)) {
             item(key = "player") {
@@ -1097,9 +1104,7 @@ private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () ->
                                 canPrevious = canSkip, canNext = canSkip && hasNext, onPrevious = onPrevious, onNext = onNext)
                         }
                     }
-                    Spacer(Modifier.height(16.dp))
-                    PlaybackTimeline(playbackPosition, position, duration, playing, reduced, pending, onSeek)
-                    Spacer(Modifier.height(14.dp))
+                    Spacer(Modifier.height(20.dp))
                     // The title rises into place from below while the old one lifts away: a different
                     // motion from the cover so the two never look like one sliding block.
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -1109,8 +1114,8 @@ private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () ->
                             (fadeOut(tween(100)) + slideOutVertically(tween(140, easing = EmphasizedAccelerate)) { -it / 8 })).using(SizeTransform(clip = false))
                     }) { shown ->
                         Column(Modifier.fillMaxWidth()) {
-                            ScrollingMetadata(shown.title, DisplayStyle.copy(fontSize = 32.sp, lineHeight = 36.sp), Modifier.semantics { heading() })
-                            ScrollingMetadata(shown.artist, TextStyle(fontSize = 16.sp, lineHeight = 22.sp, color = scheme.onSurfaceVariant), Modifier.padding(top = 6.dp))
+                            ScrollingMetadata(shown.title, PlayerTitleStyle.copy(color = scheme.onBackground), Modifier.semantics { heading() })
+                            ScrollingMetadata(shown.artist, TextStyle(fontFamily = font, fontSize = 16.sp, lineHeight = 22.sp, color = scheme.onSurfaceVariant), Modifier.padding(top = 2.dp))
                         }
                     }
                     Spacer(Modifier.width(12.dp))
@@ -1118,34 +1123,20 @@ private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () ->
                     LabelledControl(if (saved) "Saved" else "Save", if (saved) Icons.Outlined.Favorite else Icons.Outlined.FavoriteBorder,
                         { onSave(track) }, modifier = Modifier.size(48.dp), highlighted = saved)
                     }
+                    Spacer(Modifier.height(14.dp))
+                    PlaybackTimeline(playbackPosition, position, duration, playing, reduced, pending, audioBadge(state.routeLabel), onSeek)
                     // Reserve the line so the controls never jump when loading starts or stops.
-                    Box(Modifier.padding(top = 8.dp).height(16.dp)) {
+                    Box(Modifier.padding(top = 4.dp).height(16.dp)) {
                         androidx.compose.animation.AnimatedVisibility(loading, enter = fadeIn(tween(if (reduced) 0 else QuickMs)), exit = fadeOut(tween(if (reduced) 0 else QuickMs))) {
-                            Text(if (state.resolving) "FINDING AUDIO…" else "BUFFERING…", style = MonoSmall, color = scheme.onSurface, lineHeight = 16.sp)
+                            Text(if (state.resolving) "Finding audio…" else "Buffering…", fontFamily = font, fontSize = 12.sp, color = scheme.onSurface, lineHeight = 16.sp)
                         }
                     }
-                    Spacer(Modifier.height(12.dp))
-                    // Symmetric transport controls keep Play/Pause on the screen centre.
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        LabelledControl("Previous", Glyph.Previous, onPrevious, enabled = canSkip)
-                        val accent = LocalAccent.current
-                        Button(onClick = onToggle, enabled = !state.resolving, shape = RectangleShape, modifier = Modifier.weight(1f).height(72.dp),
-                            contentPadding = PaddingValues(horizontal = 10.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = accent.accent, contentColor = accent.onAccent,
-                                disabledContainerColor = accent.accent.copy(alpha = .55f), disabledContentColor = accent.onAccent)) {
-                            Crossfade(if (loading) 0 else if (playing) 1 else 2, animationSpec = tween(if (reduced) 0 else QuickMs), label = "play button") { mode ->
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    when (mode) {
-                                        0 -> CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = accent.onAccent)
-                                        1 -> Icon(Glyph.Pause, null, Modifier.size(22.dp))
-                                        else -> Icon(Icons.Outlined.PlayArrow, null, Modifier.size(24.dp))
-                                    }
-                                    Spacer(Modifier.width(10.dp))
-                                    Text(when (mode) { 0 -> "Loading"; 1 -> "Pause"; else -> "Play" }, style = DisplayStyle, fontSize = 20.sp, maxLines = 1)
-                                }
-                            }
-                        }
-                        LabelledControl("Next", Glyph.Next, onNext, enabled = canSkip && hasNext)
+                    Spacer(Modifier.height(6.dp))
+                    // Symmetric transport keeps Play/Pause on the screen centre.
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+                        TransportButton("Previous", Glyph.Previous, onPrevious, enabled = canSkip)
+                        PlayButton(if (loading) 0 else if (playing) 1 else 2, enabled = !state.resolving, reduced = reduced, onClick = onToggle)
+                        TransportButton("Next", Glyph.Next, onNext, enabled = canSkip && hasNext)
                     }
                     RouteLabel(state.routeLabel)
                     if (showsAudioComparison(state)) AudioComparison(state, onProcessing)
@@ -1223,11 +1214,33 @@ private fun AudioComparison(state: MusicState, onProcessing: (Boolean) -> Unit) 
     val waiting = audio.available && (state.loadingTrack != null || report == null)
     val ready = audio.available && report?.comparisonAvailable == true && state.loadingTrack == null
     val processed = audio.selectedProcessed && (waiting || report?.comparisonAvailable == true)
+    val scheme = MaterialTheme.colorScheme
+    val accent = LocalAccent.current
     Column(Modifier.fillMaxWidth().padding(top = 14.dp)) {
-        val edge = if (ready) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.outline
-        Row(Modifier.fillMaxWidth().height(52.dp).border(2.dp, edge, RectangleShape).padding(2.dp)) {
-            ModeSegment("ORIGINAL", "Original audio", !processed, ready, Modifier.weight(1f)) { onProcessing(false) }
-            ModeSegment("PROCESSED", "Processed audio", processed, ready, Modifier.weight(1f)) { onProcessing(true) }
+        // One large switch: on is Processed, off is the Original. Disabled (with the reason below)
+        // whenever the comparison is not available, exactly like the old two-part control.
+        val shape = RoundedCornerShape(18.dp)
+        val layout = report?.let(::layoutName)
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 68.dp).clip(shape).background(scheme.surfaceVariant)
+                .border(1.dp, if (ready) scheme.outline else scheme.outline.copy(alpha = .5f), shape)
+                .toggleable(value = processed, enabled = ready, role = Role.Switch, onValueChange = onProcessing)
+                .semantics { contentDescription = "Processed audio" }
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            SpeakerLights(report, processed, Modifier.size(40.dp))
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text(if (processed) listOfNotNull("Processed", layout).joinToString(" · ") else "Original",
+                    fontSize = 16.sp, lineHeight = 21.sp, fontWeight = FontWeight.SemiBold, color = if (ready) scheme.onSurface else scheme.onSurfaceVariant)
+                Text(when { !ready -> "Not available right now"; processed -> "Tap for the original"; else -> "Tap for processed audio" },
+                    fontSize = 12.sp, lineHeight = 17.sp, color = scheme.onSurfaceVariant)
+            }
+            Spacer(Modifier.width(8.dp))
+            Switch(checked = processed, onCheckedChange = null, enabled = ready, modifier = Modifier.clearAndSetSemantics {},
+                colors = SwitchDefaults.colors(checkedTrackColor = accent.accent, checkedThumbColor = accent.onAccent,
+                    checkedBorderColor = accent.accent, disabledCheckedTrackColor = accent.accent.copy(alpha = .4f)))
         }
         val detail = when {
             !audio.available -> "Processing unavailable · ${audio.unavailableReason ?: "the DSP library did not load"}"
@@ -1249,35 +1262,76 @@ private fun AudioComparison(state: MusicState, onProcessing: (Boolean) -> Unit) 
             report.inputPositions.size == 2 -> "Stereo processing"
             else -> "${report.inputPositions.size} channels → stereo"
         }
-        Text(detail, style = MonoSmall, lineHeight = 17.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp))
+        Text(detail, fontSize = 12.sp, lineHeight = 17.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp))
     }
 }
 
-/** One half of the listening-mode switch: ink when chosen, bare ground otherwise. */
-@Composable
-private fun ModeSegment(text: String, description: String, selected: Boolean, enabled: Boolean, modifier: Modifier, onClick: () -> Unit) {
-    val scheme = MaterialTheme.colorScheme
-    val fill = if (selected) scheme.onBackground else Color.Transparent
-    val ink = when {
-        selected -> scheme.background
-        enabled -> scheme.onBackground
-        else -> scheme.onSurfaceVariant
-    }
-    Box(
-        modifier.fillMaxHeight().background(if (selected && !enabled) fill.copy(alpha = .6f) else fill)
-            .clickable(enabled = enabled, role = Role.Tab, onClick = onClick)
-            .semantics { contentDescription = description; this.selected = selected },
-        contentAlignment = Alignment.Center,
-    ) { Text(text, style = MonoLabel, color = ink, maxLines = 1) }
+/** A speaker layout the way people write it: stereo, 5.1, 7.1.4. Null when the source does not say. */
+internal fun layoutName(report: labs.rtensor.dsp.DownmixReport): String? {
+    val positions = report.inputPositions
+    if (positions.isEmpty()) return report.sourceChannels.takeIf { it > 0 }?.let { if (it == 2) "stereo" else if (it == 1) "mono" else "$it ch" }
+    if (positions.size == 1) return "mono"
+    if (positions.size == 2) return "stereo"
+    val lfe = if (labs.rtensor.dsp.SpeakerPosition.LFE in positions) 1 else 0
+    val height = positions.count { it.id >= labs.rtensor.dsp.SpeakerPosition.TFL.id }
+    val bed = positions.size - lfe - height
+    return "$bed.$lfe" + if (height > 0) ".$height" else ""
 }
 
 /** Read the clock in this small subtree, rather than invalidating the cover,
  * controls and lazy queue every time the playback position changes. */
 @Composable
 private fun PlaybackTimeline(updates: StateFlow<Long>?, fallback: Long, duration: Long, playing: Boolean,
-    reduced: Boolean, pending: Boolean, onSeek: (Long) -> Unit) {
+    reduced: Boolean, pending: Boolean, badge: String?, onSeek: (Long) -> Unit) {
     val position = updates?.collectAsStateWithLifecycle()?.value ?: fallback
-    ProgressLine(if (pending) 0 else position, duration, playing, reduced, onSeek)
+    ProgressLine(if (pending) 0 else position, duration, playing, reduced, badge, onSeek)
+}
+
+/**
+ * The audio format as a short technical badge, taken from the route label the player already
+ * shows ("YouTube · AAC compressed 48.0 kHz · stereo · unchanged" gives "AAC · 48 kHz").
+ * Only what the label states is shown; there is no bitrate in it, so none is shown.
+ */
+internal fun audioBadge(route: String): String? {
+    if (route.isBlank()) return null
+    val codec = listOf("E-AC-3 JOC", "E-AC-3", "FLAC", "ALAC", "AAC").firstOrNull { route.contains(it) }
+    val rate = Regex("""(\d+(?:\.\d+)?) kHz""").find(route)?.groupValues?.get(1)?.toFloatOrNull()?.let {
+        if (it % 1f == 0f) "${it.toInt()} kHz" else "${"%.1f".format(Locale.ROOT, it)} kHz"
+    }
+    return listOfNotNull(codec, rate).joinToString(" · ").ifBlank { null }
+}
+
+/** Previous and Next: a bare glyph in a round 56dp target, no box. */
+@Composable
+private fun TransportButton(label: String, image: ImageVector, onClick: () -> Unit, enabled: Boolean) {
+    val scheme = MaterialTheme.colorScheme
+    Box(
+        Modifier.size(56.dp).clip(CircleShape).clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+            .semantics { contentDescription = label },
+        contentAlignment = Alignment.Center,
+    ) { Icon(image, null, Modifier.size(28.dp), tint = if (enabled) scheme.onBackground else scheme.onSurfaceVariant.copy(alpha = .4f)) }
+}
+
+/** The round 58dp accent Play/Pause button. [mode]: 0 loading, 1 playing (shows Pause), 2 paused. */
+@Composable
+private fun PlayButton(mode: Int, enabled: Boolean, reduced: Boolean, onClick: () -> Unit) {
+    val accent = LocalAccent.current
+    val label = when (mode) { 0 -> "Loading"; 1 -> "Pause"; else -> "Play" }
+    Box(
+        Modifier.size(58.dp).clip(CircleShape).background(if (enabled) accent.accent else accent.accent.copy(alpha = .55f))
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+            .semantics { contentDescription = label },
+        contentAlignment = Alignment.Center,
+    ) {
+        Crossfade(mode, animationSpec = tween(if (reduced) 0 else QuickMs), label = "play button") { shown ->
+            when (shown) {
+                0 -> CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp, color = accent.onAccent)
+                1 -> Icon(Glyph.Pause, null, Modifier.size(24.dp), tint = accent.onAccent)
+                // The play triangle is optically off-centre; nudge it right.
+                else -> Icon(Icons.Outlined.PlayArrow, null, Modifier.size(32.dp).offset(x = 1.dp), tint = accent.onAccent)
+            }
+        }
+    }
 }
 
 /** The mini player's clock also stays in its own composition/draw subtree. */
@@ -1340,7 +1394,7 @@ private fun CoverDeck(track: Track, index: Int, previousTrack: Track?, nextTrack
     val previous by rememberUpdatedState(onPrevious)
     val allowNext by rememberUpdatedState(canNext)
     val allowPrevious by rememberUpdatedState(canPrevious)
-    val shape = RectangleShape
+    val shape = RoundedCornerShape(14.dp)
     BoxWithConstraints(Modifier.fillMaxWidth().aspectRatio(1f)) {
         val width = constraints.maxWidth.toFloat().coerceAtLeast(1f)
         val flick = with(LocalDensity.current) { 700.dp.toPx() }
@@ -1387,6 +1441,8 @@ private fun CoverDeck(track: Track, index: Int, previousTrack: Track?, nextTrack
                 rotationZ = x / width * 10f
                 transformOrigin = TransformOrigin(.5f, 1.6f)
                 alpha = if (d < 1f) .25f + .75f * d else 1f
+                // A soft shadow lifts the top card off the ground.
+                shadowElevation = 14.dp.toPx(); ambientShadowColor = Color.Black; spotShadowColor = Color.Black
                 this.shape = shape; clip = true
             }
             .pointerInput(Unit) {
@@ -1453,7 +1509,7 @@ private fun rememberSmoothPosition(position: Long, duration: Long, animate: Bool
  * thickens it, and you can tap or drag anywhere on it to seek.
  */
 @Composable
-private fun ProgressLine(position: Long, duration: Long, playing: Boolean, reduced: Boolean, onSeek: (Long) -> Unit) {
+private fun ProgressLine(position: Long, duration: Long, playing: Boolean, reduced: Boolean, badge: String?, onSeek: (Long) -> Unit) {
     val drag = remember { mutableStateOf<Float?>(null) }
     val smooth = rememberSmoothPosition(position, duration, playing && !reduced)
     val fraction = { drag.value ?: if (duration > 0) (smooth.value.toFloat() / duration).coerceIn(0f, 1f) else 0f }
@@ -1466,7 +1522,7 @@ private fun ProgressLine(position: Long, duration: Long, playing: Boolean, reduc
     LaunchedEffect(active) { grow.animateTo(if (active) 1f else 0f, tween(if (reduced) 0 else QuickMs, easing = EmphasizedDecelerate)) }
     val seek by rememberUpdatedState(onSeek)
     val scope = rememberCoroutineScope()
-    val accent = MaterialTheme.colorScheme.onBackground
+    val accent = LocalAccent.current.accent
     val line = MaterialTheme.colorScheme.outline
     fun release() {
         val target = drag.value ?: return
@@ -1495,19 +1551,21 @@ private fun ProgressLine(position: Long, duration: Long, playing: Boolean, reduc
             },
     ) {
         val g = grow.value
-        val h = (8.dp + 4.dp * g).toPx()
+        val h = (6.dp + 2.dp * g).toPx()
         val y = center.y - h / 2
-        drawRect(line, Offset(0f, y), Size(size.width, h))
+        val round = CornerRadius(h / 2)
+        drawRoundRect(line, Offset(0f, y), Size(size.width, h), round)
+        // The round thumb stays inside the line at both ends.
+        val r = (7.dp + 2.dp * g).toPx()
         val played = size.width * fraction()
-        drawRect(accent, Offset(0f, y), Size(played, h))
-        // A square notch marks the playhead while it is being dragged.
-        if (g > 0f) {
-            val w = 4.dp.toPx()
-            drawRect(accent, Offset((played - w / 2).coerceIn(0f, size.width - w), y - 4.dp.toPx() * g), Size(w, h + 8.dp.toPx() * g))
-        }
+        if (played > 0f) drawRoundRect(accent, Offset(0f, y), Size(played, h), round)
+        drawCircle(accent, r, Offset(played.coerceIn(r, size.width - r), center.y))
     }
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
         Text(clock(seconds * 1000), style = MonoSmall, color = MaterialTheme.colorScheme.onSurface)
+        if (badge != null) Text(badge, style = MonoSmall, fontSize = 11.sp, lineHeight = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1,
+            modifier = Modifier.padding(horizontal = 8.dp).border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(6.dp))
+                .padding(horizontal = 6.dp, vertical = 2.dp).semantics { contentDescription = "Audio format $badge" })
         Text(if (duration > 0) clock(duration) else "—:—", style = MonoSmall, color = MaterialTheme.colorScheme.onSurface)
     }
 }
@@ -2111,8 +2169,8 @@ private fun LabelledControl(label: String, image: ImageVector, onClick: () -> Un
     val tint by animateColorAsState(if (highlighted) accent.onAccent else if (enabled) scheme.onBackground else scheme.onSurfaceVariant.copy(alpha = .4f),
         tween(if (reduced) 0 else 180), label = "control tint")
     Box(
-        modifier.size(64.dp, 72.dp).pressable(enabled = enabled, onClick = onClick).background(fill)
-            .border(2.dp, if (enabled || highlighted) scheme.onBackground else scheme.outline)
+        modifier.size(64.dp, 72.dp).pressable(enabled = enabled, onClick = onClick).clip(ButtonShape).background(fill)
+            .border(2.dp, if (enabled || highlighted) scheme.onBackground else scheme.outline, ButtonShape)
             .semantics { contentDescription = label; role = Role.Button },
         contentAlignment = Alignment.Center,
     ) { Icon(image, null, Modifier.size(24.dp), tint = tint) }

@@ -388,9 +388,11 @@ class ControlInventoryTest {
     @Test fun nowScreenTransportQueueAndSaveFireTheRightCallbacks() {
         host(playing.copy(radioError = "Recommendations failed."), "now")
         compose.onNodeWithContentDescription("Previous").performClick()
-        compose.onNodeWithText("Pause").performClick()
+        compose.onNodeWithContentDescription("Pause").performClick()
         compose.onNodeWithContentDescription("Next").performClick()
         compose.onNodeWithContentDescription("Save").performClick()
+        // The full-width cover pushes the queue below the fold, so scroll the list to it first.
+        compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasText("Low Tide"))
         compose.onNodeWithText("Low Tide").performScrollTo().performClick()
         compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasText("Retry recommendations"))
         compose.onNodeWithText("Retry recommendations").performClick()
@@ -416,7 +418,7 @@ class ControlInventoryTest {
         compose.onNodeWithContentDescription("Next recording").assertIsEnabled()
         openMiniPlayer()
         assertEquals("now", screen())
-        compose.onNode(hasClickAction() and hasText("Loading")).assertIsEnabled()
+        compose.onNode(hasClickAction() and hasContentDescription("Loading")).assertIsEnabled()
         compose.onNodeWithContentDescription("Next").assertIsEnabled()
         compose.onNodeWithContentDescription("Previous").assertIsEnabled()
     }

@@ -38,12 +38,13 @@ class PlayerProcessingTest {
             changes += processed
             state.value = state.value.copy(audioProcessing = state.value.audioProcessing.copy(selectedProcessed = processed))
         }) }
-        compose.onNodeWithContentDescription("Original audio").performScrollTo().performClick().assertIsSelected()
+        // One switch: on is Processed, off is the Original.
+        compose.onNodeWithContentDescription("Processed audio").performScrollTo().assertIsOn().performClick().assertIsOff()
         compose.onNodeWithText("Switching to original…").assertIsDisplayed()
         compose.runOnIdle { state.value = state.value.copy(audioProcessing = state.value.audioProcessing.copy(
             report = state.value.audioProcessing.report!!.copy(processingEnabled = false, listeningMode = ListeningMode.ORIGINAL))) }
         compose.onNodeWithText("Front L/R only · 6-channel source").assertIsDisplayed()
-        compose.onNodeWithContentDescription("Processed audio").performClick().assertIsSelected()
+        compose.onNodeWithContentDescription("Processed audio").performClick().assertIsOn()
         compose.onNodeWithText("Switching to processed…").assertIsDisplayed()
         compose.runOnIdle { state.value = state.value.copy(audioProcessing = state.value.audioProcessing.copy(
             report = state.value.audioProcessing.report!!.copy(processingEnabled = true, listeningMode = ListeningMode.PROCESSED))) }
@@ -56,8 +57,9 @@ class PlayerProcessingTest {
 
     @Test fun playerOffersOnlyOriginalAndProcessedForTheUnmodifiedSurroundBed() {
         compose.setContent { MusicApp(initial(DownmixReport(48000, surround)), initialPage = "now") }
-        compose.onNodeWithContentDescription("Processed audio").performScrollTo().assertIsSelected()
-        compose.onNodeWithContentDescription("Original audio").assertExists()
+        compose.onNodeWithContentDescription("Processed audio").performScrollTo().assertIsOn().assertIsEnabled()
+        compose.onAllNodes(isToggleable()).assertCountEquals(1)
+        compose.onNodeWithText("Processed · 5.1", substring = true).assertExists()
         compose.onNodeWithContentDescription("Spatial headphone audio").assertDoesNotExist()
         compose.onNodeWithText("6 channels → stereo").assertIsDisplayed()
     }
@@ -75,7 +77,7 @@ class PlayerProcessingTest {
             it.copy(audioProcessing = it.audioProcessing.copy(selectedProcessed = false))
         }
         compose.setContent { MusicApp(state, initialPage = "now") }
-        compose.onNodeWithContentDescription("Original audio").performScrollTo().assertIsSelected()
+        compose.onNodeWithContentDescription("Processed audio").performScrollTo().assertIsOff()
         compose.onNodeWithText("Front L/R only · 6-channel source").assertIsDisplayed()
     }
 
@@ -101,7 +103,7 @@ class PlayerProcessingTest {
             // The renderer receives no PCM while paused. Only the requested mode changes.
             state.value = state.value.copy(audioProcessing = state.value.audioProcessing.copy(selectedProcessed = processed))
         }) }
-        compose.onNodeWithContentDescription("Processed audio").performScrollTo().performClick().assertIsSelected()
+        compose.onNodeWithContentDescription("Processed audio").performScrollTo().performClick().assertIsOn()
         compose.onNodeWithText("Processed · ready when you play").assertIsDisplayed()
         compose.onNodeWithText("Front L/R only · 6-channel source").assertDoesNotExist()
         compose.runOnIdle { state.value = state.value.copy(playing = true) }
@@ -122,7 +124,7 @@ class PlayerProcessingTest {
         }) }
         compose.onNodeWithContentDescription("Processed audio").performScrollTo().performClick()
         compose.onNodeWithText("Processed · ready when you play").assertIsDisplayed()
-        compose.onNodeWithContentDescription("Original audio").performClick().assertIsSelected()
+        compose.onNodeWithContentDescription("Processed audio").performClick().assertIsOff()
         compose.onNodeWithText("Processed · ready when you play").assertDoesNotExist()
         compose.onNodeWithText("Front L/R only · 6-channel source").assertIsDisplayed()
     }
@@ -139,8 +141,8 @@ class PlayerProcessingTest {
         val report = DownmixReport(48000, emptyList(), outputChannels = 6, processingEnabled = false,
             comparisonAvailable = false, unavailableReason = reason, sourceChannels = 6)
         compose.setContent { MusicApp(initial(report), initialPage = "now") }
-        compose.onNodeWithContentDescription("Original audio").performScrollTo().assertIsNotEnabled().assertIsSelected()
-        compose.onNodeWithContentDescription("Processed audio").assertIsNotEnabled().assertIsNotSelected()
+        compose.onNodeWithContentDescription("Processed audio").performScrollTo().assertIsNotEnabled().assertIsOff()
+        compose.onNodeWithText("Original", substring = true).assertExists()
         compose.onNodeWithText("6 channels · original audio · $reason").assertIsDisplayed()
         compose.onNodeWithText("6 channels → stereo").assertDoesNotExist()
     }
@@ -149,8 +151,7 @@ class PlayerProcessingTest {
         val state = initial(DownmixReport(48000, surround)).copy(audioProcessing =
             AudioProcessingState(available = false, unavailableReason = "The DSP library is not included"))
         compose.setContent { MusicApp(state, initialPage = "now") }
-        compose.onNodeWithContentDescription("Original audio").performScrollTo().assertIsNotEnabled().assertIsSelected()
-        compose.onNodeWithContentDescription("Processed audio").assertIsNotEnabled()
+        compose.onNodeWithContentDescription("Processed audio").performScrollTo().assertIsNotEnabled().assertIsOff()
         compose.onNodeWithText("Processing unavailable · The DSP library is not included").assertIsDisplayed()
     }
 }

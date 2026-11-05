@@ -87,11 +87,12 @@ class AccentUiTest {
         for (choice in fixed) for (theme in listOf("light", "dark")) {
             compose.runOnIdle { state.value = state.value.copy(accent = choice, theme = theme) }
             val expected = accentColours(choice, theme == "dark", null)
-            val play = compose.onNodeWithText("Play").performScrollTo()
+            val play = compose.onNodeWithContentDescription("Play").performScrollTo()
             val image = snapshot()
             val button = bounds(play)
-            assertTrue("$choice $theme Play fill", close(pixel(image, button.left + 4, button.top + 4), expected.accent))
-            assertTrue("$choice $theme Play label", anyPixel(image, bounds(compose.onNodeWithText("Play", useUnmergedTree = true)), expected.onAccent))
+            // The round button: its fill beside the glyph, and the glyph in the on-accent colour.
+            assertTrue("$choice $theme Play fill", close(pixel(image, button.center.x - 22, button.center.y), expected.accent))
+            assertTrue("$choice $theme Play glyph", anyPixel(image, Rect(button.center.x - 12, button.center.y - 12, button.center.x + 12, button.center.y + 12), expected.onAccent))
             val heart = bounds(compose.onNodeWithContentDescription("Saved"))
             assertTrue("$choice $theme heart fill", close(pixel(image, heart.left + 6, heart.top + 6), expected.accent))
             assertTrue("$choice $theme heart icon", anyPixel(image, Rect(heart.center.x - 12, heart.center.y - 12, heart.center.x + 12, heart.center.y + 12), expected.onAccent))

@@ -37,7 +37,7 @@ class SignalReviewUiTest {
         compose.setContent{MusicApp(s.value,initialPage="now")}
         for(theme in listOf("light","dark")) {
             compose.runOnIdle{s.value=s.value.copy(theme=theme)}
-            val play=compose.onNodeWithText("Play").getUnclippedBoundsInRoot();val seek=compose.onNodeWithContentDescription("Playback position").getUnclippedBoundsInRoot()
+            val play=compose.onNodeWithContentDescription("Play").getUnclippedBoundsInRoot();val seek=compose.onNodeWithContentDescription("Playback position").getUnclippedBoundsInRoot()
             assertEquals("Play must be on the screen centre",(seek.left.value+seek.right.value)/2,(play.left.value+play.right.value)/2,1f)
             assertTrue(compose.onNodeWithContentDescription("Save").getUnclippedBoundsInRoot().top<play.top)
             compose.onNodeWithText(next.title).assertIsDisplayed();capture("player-$theme")
