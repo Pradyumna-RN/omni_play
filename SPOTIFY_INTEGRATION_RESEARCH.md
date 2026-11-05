@@ -1,9 +1,15 @@
 # Spotify integration: free accounts and direct playback
 
-Reviewed 5 November 2026. The requested target is **Spotify Free as well as
-Premium**, with direct Spotify playback inside Music. A YouTube match must never
-be labelled Spotify playback. This report does not establish successful live
-account playback, and no Spotify engine is currently integrated into Music.
+Reviewed 5 November 2026. The original target evaluated here is **Spotify Free as
+well as Premium**, with direct Spotify playback inside Music. A YouTube match
+must never be labelled Spotify playback. This report does not establish
+successful live account playback, and no Spotify engine is currently integrated
+into Music.
+
+The follow-up [Telegram, Discord and broader repository review](SPOTIFY_COMMUNITY_RESEARCH.md)
+recommends Spotify discovery/library plus Music's existing playback engine after
+the catalogue-overlap discussion. The direct-playback architecture below remains
+an investigated alternative, not a feature that has been implemented.
 
 ## Repository findings
 
