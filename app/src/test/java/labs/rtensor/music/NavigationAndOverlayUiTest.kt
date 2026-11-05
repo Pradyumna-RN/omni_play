@@ -122,4 +122,15 @@ class NavigationAndOverlayUiTest {
         compose.onNodeWithText("Afterimage").assertIsDisplayed()
         compose.onNodeWithText("Afterimage (Spotify)").assertIsDisplayed()
     }
+
+    @Test fun settingsDialogsSurviveActivityRecreation() {
+        val restore = StateRestorationTester(compose)
+        restore.setContent { MusicApp(MusicState(history = listOf(track), reducedMotion = true), initialPage = "settings") }
+        compose.onNodeWithText("Clear listening history").performScrollTo().performClick()
+        compose.onNodeWithText("Clear listening history?").assertIsDisplayed()
+        restore.emulateSavedInstanceStateRestore()
+        compose.onNodeWithText("Clear listening history?").assertIsDisplayed()
+        compose.onNodeWithText("Keep history").performClick()
+        compose.onNodeWithText("Clear listening history?").assertDoesNotExist()
+    }
 }

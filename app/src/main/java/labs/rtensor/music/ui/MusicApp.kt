@@ -1455,14 +1455,14 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onLocal
     onDeveloperOptions: (Boolean) -> Unit,
     onRecommendationEngine: (labs.rtensor.music.recommendations.RecommendationEngine) -> Unit,
     onConnectSpotify: () -> Unit, onDisconnectSpotify: () -> Unit) {
-    var confirmClear by remember { mutableStateOf(false) }
-    var showLicences by remember { mutableStateOf(false) }
-    var showSources by remember { mutableStateOf(false) }
+    var confirmClear by rememberSaveable { mutableStateOf(false) }
+    var showLicences by rememberSaveable { mutableStateOf(false) }
+    var showSources by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
     val notices = remember { context.resources.openRawResource(R.raw.third_party_notices).bufferedReader().use { it.readText() } }
     val scroll = rememberScrollState()
     val scheme = MaterialTheme.colorScheme
-    var showImport by remember { mutableStateOf(false) }
+    var showImport by rememberSaveable { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().verticalScroll(scroll).padding(horizontal = 20.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         PageTitle("Settings")
 
