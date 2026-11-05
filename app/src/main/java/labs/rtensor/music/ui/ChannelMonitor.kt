@@ -66,13 +66,13 @@ internal fun ChannelMonitor(
         onSurfaceVariant = PaperMuted, outline = PanelFaded, outlineVariant = InkRule,
     )
     MaterialTheme(colorScheme = panel, typography = MaterialTheme.typography, shapes = MaterialTheme.shapes) {
-        Surface(Modifier.fillMaxWidth().padding(top = 16.dp), color = Ink, contentColor = Paper) {
+        Surface(Modifier.fillMaxWidth().padding(top = 16.dp), color = LocalLook.current.stage, contentColor = Paper, shape = LocalLook.current.card) {
             Column {
                 Row(Modifier.fillMaxWidth().clickable { expanded = !expanded }.heightIn(min = 48.dp).padding(horizontal = 16.dp, vertical = 12.dp)
                     .semantics { contentDescription = if (expanded) "Collapse channel monitor" else "Expand channel monitor" },
                     verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(width = 6.dp, height = 18.dp).background(light))
-                    Text("Channel monitor", Modifier.weight(1f).padding(start = 10.dp), style = LabelStyle, color = PaperMuted)
+                    Text("Channel monitor", Modifier.weight(1f).padding(start = 10.dp), style = LabelText, color = PaperMuted)
                     Icon(if (expanded) Icons.Outlined.KeyboardArrowUp else Icons.Outlined.KeyboardArrowDown, null, tint = Paper)
                 }
                 if (expanded) MonitorReadings(report, playing, trackId, levels, onMetering)
@@ -168,7 +168,7 @@ internal fun SpeakerLights(report: DownmixReport?, processed: Boolean, modifier:
     Canvas(modifier.clearAndSetSemantics {}) {
         val r = size.minDimension * .085f
         positions.forEach { p ->
-            val (x, y) = location(p)
+            val (x, y) = speakerLocation(p)
             val centre = Offset(r + (size.width - 2 * r) * x, r + (size.height - 2 * r) * y)
             val heard = !frontOnly || p == SpeakerPosition.FL || p == SpeakerPosition.FR
             if (heard) drawCircle(lit, r, centre) else drawCircle(faded, r, centre, style = Stroke(1.dp.toPx()))
@@ -187,7 +187,7 @@ internal fun speakerLabel(p: SpeakerPosition): String = when (p) {
 }
 
 /** 9.1.6-style plan view: front at the top, listener in the middle. Physical left is always on the left. */
-private fun location(p: SpeakerPosition): Pair<Float, Float> = when (p) {
+internal fun speakerLocation(p: SpeakerPosition): Pair<Float, Float> = when (p) {
     SpeakerPosition.FC -> .5f to 0f
     SpeakerPosition.FL -> .2f to .08f; SpeakerPosition.FR -> .8f to .08f
     SpeakerPosition.LFE -> .5f to .2f
@@ -212,7 +212,7 @@ private fun SpeakerMap(channels: List<ChannelLevel>, original: Boolean) {
         Icon(Glyph.Listener, "Listener position", Modifier.size(28.dp).align(Alignment.Center),
             tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .55f))
         SpeakerPosition.entries.forEach { p ->
-            val (x, y) = location(p)
+            val (x, y) = speakerLocation(p)
             val channel = byPosition[p]
             val state = when {
                 channel == null -> NodeState.ABSENT

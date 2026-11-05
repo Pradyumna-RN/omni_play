@@ -92,6 +92,8 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.semantics.text
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withStyle
@@ -115,6 +117,7 @@ import labs.rtensor.dsp.ListeningMode
 import labs.rtensor.music.MusicState
 import labs.rtensor.music.R
 import labs.rtensor.music.data.AccentChoice
+import labs.rtensor.music.data.LookChoice
 import labs.rtensor.music.data.ArtworkUrl
 import labs.rtensor.music.data.Track
 import labs.rtensor.music.data.FeedEntry
@@ -156,15 +159,39 @@ private val Dark = darkColorScheme(
     outline = InkRule, secondaryContainer = SignalAccent, onSecondaryContainer = Ink,
     primaryContainer = SignalAccent, onPrimaryContainer = Ink,
 )
-/** Bordered and filled buttons share one small radius. */
-internal val ButtonShape = RoundedCornerShape(10.dp)
 /** The player's song title: bold Archivo, not the condensed display face. */
 private val PlayerTitleStyle = TextStyle(fontFamily = font, fontWeight = FontWeight.Bold, fontSize = 22.sp, lineHeight = 28.sp)
 /** Sentence-case labels and small headings. Monospace is kept for technical facts only. */
 internal val LabelStyle = TextStyle(fontFamily = font, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, letterSpacing = .01.em)
+/** The look's label style: DM Mono in Classic, sentence-case Archivo in the Listening room. */
+internal val LabelText: TextStyle
+    @Composable @ReadOnlyComposable get() = if (LocalLook.current.classic) MonoLabel else LabelStyle
 internal val MonoLabel = TextStyle(fontFamily = Mono, fontWeight = FontWeight.Medium, fontSize = 13.sp, letterSpacing = .06.em)
 internal val MonoSmall = TextStyle(fontFamily = Mono, fontSize = 12.sp, letterSpacing = .04.em)
 private val DisplayStyle = TextStyle(fontFamily = Display, fontWeight = FontWeight.ExtraBold, letterSpacing = (-.01).em)
+/** Listening room poster type: the condensed face, set uppercase on screen. */
+private val PosterStyle = TextStyle(fontFamily = Display, fontWeight = FontWeight.ExtraBold, letterSpacing = .01.em)
+
+/** The Listening room's Material roles, built from its tokens. */
+private fun roomScheme(look: Look) = if (look.dark) darkColorScheme(
+    primary = look.text, onPrimary = look.background,
+    background = look.background, onBackground = look.text,
+    surface = look.background, onSurface = look.text,
+    surfaceVariant = look.panel, onSurfaceVariant = look.muted,
+    surfaceContainerLowest = look.background, surfaceContainerLow = look.panel, surfaceContainer = look.panel,
+    surfaceContainerHigh = look.panel, surfaceContainerHighest = look.panel,
+    outline = look.line, outlineVariant = look.line,
+    secondaryContainer = SignalAccent, onSecondaryContainer = Ink, primaryContainer = SignalAccent, onPrimaryContainer = Ink,
+) else lightColorScheme(
+    primary = look.text, onPrimary = look.background,
+    background = look.background, onBackground = look.text,
+    surface = look.background, onSurface = look.text,
+    surfaceVariant = look.panel, onSurfaceVariant = look.muted,
+    surfaceContainerLowest = look.background, surfaceContainerLow = look.panel, surfaceContainer = look.panel,
+    surfaceContainerHigh = look.panel, surfaceContainerHighest = look.panel,
+    outline = look.line, outlineVariant = look.line,
+    secondaryContainer = SignalAccent, onSecondaryContainer = Ink, primaryContainer = SignalAccent, onPrimaryContainer = Ink,
+)
 
 /** Material's emphasized curves: quick to respond, gentle to settle. */
 private val EmphasizedDecelerate = CubicBezierEasing(0.05f, 0.7f, 0.1f, 1f)
@@ -191,9 +218,12 @@ private const val AccentMs = 240
  */
 @Composable
 fun MusicTheme(theme: String = "light", darkNavigationBar: Boolean = false, accent: AccentChoice = AccentChoice.SIGNAL,
-    coverAccent: Color? = null, darkStatusBar: Boolean = false, content: @Composable () -> Unit) {
+    coverAccent: Color? = null, darkStatusBar: Boolean = false, look: LookChoice = LookChoice.DEFAULT, content: @Composable () -> Unit) {
     val dark = theme == "dark" || (theme == "system" && isSystemInDarkTheme())
-    val target = remember(accent, dark, coverAccent) { accentColours(accent, dark, coverAccent) }
+    val tokens = remember(look, dark) { lookFor(look, dark) }
+    // Classic is the 0.3.32 Signal look: always the Signal orange, never a cover colour.
+    val chosen = if (tokens.classic) AccentChoice.SIGNAL else accent
+    val target = remember(chosen, dark, coverAccent) { accentColours(chosen, dark, coverAccent.takeIf { !tokens.classic }) }
     // Respect both the app's reduced-motion setting and the system animator duration scale.
     val instant = LocalReducedMotion.current || !android.animation.ValueAnimator.areAnimatorsEnabled()
     val blend = tween<Color>(if (instant) 0 else AccentMs, easing = Standard)
@@ -201,8 +231,8 @@ fun MusicTheme(theme: String = "light", darkNavigationBar: Boolean = false, acce
     val onFill by animateColorAsState(target.onAccent, blend, label = "on accent")
     val onDock by animateColorAsState(target.onDock, blend, label = "dock accent")
     // Material components that use the container roles (selected chips) follow the accent too.
-    val scheme = remember(dark, target) {
-        (if (dark) Dark else Light).copy(primaryContainer = target.accent, onPrimaryContainer = target.onAccent,
+    val scheme = remember(tokens, target) {
+        (if (tokens.room) roomScheme(tokens) else if (dark) Dark else Light).copy(primaryContainer = target.accent, onPrimaryContainer = target.onAccent,
             secondaryContainer = target.accent, onSecondaryContainer = target.onAccent)
     }
     val view = LocalView.current
@@ -215,7 +245,7 @@ fun MusicTheme(theme: String = "light", darkNavigationBar: Boolean = false, acce
         }
     }
     val base = Typography()
-    CompositionLocalProvider(LocalAccent provides AccentColours(fill, onFill, onDock)) { MaterialTheme(
+    CompositionLocalProvider(LocalAccent provides AccentColours(fill, onFill, onDock), LocalLook provides tokens) { MaterialTheme(
         colorScheme = scheme,
         typography = Typography(
             bodyLarge = base.bodyLarge.copy(fontFamily = font),
@@ -231,10 +261,14 @@ fun MusicTheme(theme: String = "light", darkNavigationBar: Boolean = false, acce
             headlineMedium = base.headlineMedium.copy(fontFamily = Display, fontWeight = FontWeight.ExtraBold),
             headlineSmall = base.headlineSmall.copy(fontFamily = Display, fontWeight = FontWeight.ExtraBold),
         ),
-        // Signal is square: menus, dialogs, sheets and fields lose their corners too.
-        shapes = Shapes(
+        // Classic is square: menus, dialogs, sheets and fields lose their corners too. The
+        // Listening room is rounded throughout.
+        shapes = if (tokens.classic) Shapes(
             extraSmall = RoundedCornerShape(0.dp), small = RoundedCornerShape(0.dp), medium = RoundedCornerShape(0.dp),
             large = RoundedCornerShape(0.dp), extraLarge = RoundedCornerShape(0.dp),
+        ) else Shapes(
+            extraSmall = RoundedCornerShape(6.dp), small = RoundedCornerShape(10.dp), medium = RoundedCornerShape(14.dp),
+            large = RoundedCornerShape(18.dp), extraLarge = RoundedCornerShape(26.dp),
         ),
         content = content,
     ) }
@@ -256,6 +290,7 @@ fun MusicApp(
     onSeek: (Long) -> Unit = {}, onSave: (Track) -> Unit = {},
     onTheme: (String) -> Unit = {},
     onAccent: (AccentChoice) -> Unit = {},
+    onLook: (LookChoice) -> Unit = {},
     onOpenLocal: () -> Unit = {},
     onChooseMasters: () -> Unit = {},
     onClearMasters: () -> Unit = {},
@@ -323,13 +358,18 @@ fun MusicApp(
     // Keep the last track while the mini player animates away.
     var lastTrack by remember { mutableStateOf(state.current) }
     if (state.current != null) lastTrack = state.current
-    // Only "From the cover" reads the artwork; other choices never load it for colour.
-    val cover = if (state.accent == AccentChoice.COVER) rememberCoverColours(state.current?.artwork) else null
+    // Only "From the cover" reads the artwork; other choices never load it for colour. Classic
+    // always uses the Signal orange, so it never reads the artwork either.
+    val cover = if (state.accent == AccentChoice.COVER && state.look != LookChoice.CLASSIC) rememberCoverColours(state.current?.artwork) else null
+    // The channel monitor, the room and the level meter can all want live levels; metering runs
+    // while any of them does, so one leaving the screen never switches it off for another.
+    val metering = remember { MeteringClaims() }
+    metering.sink = onMetering
     // The player takes a deep tone from the cover; every other page stays paper/ink.
     val tones = remember(cover) { cover?.let { playerTones(it.deep) } }?.takeIf { page == "now" }
     CompositionLocalProvider(LocalReducedMotion provides reduced, LocalPlayerTones provides tones) {
         MusicTheme(state.theme, darkNavigationBar = page in rootPages + "collection" || tones != null, accent = state.accent,
-            coverAccent = cover?.accent, darkStatusBar = tones != null) {
+            coverAccent = cover?.accent, darkStatusBar = tones != null, look = state.look) {
             Scaffold(
                 topBar = {
                     OnPlayerTones(Modifier.background(tones?.top ?: Color.Transparent)) {
@@ -338,8 +378,8 @@ fun MusicApp(
                 },
                 bottomBar = {
                     if (page in rootPages + "collection") {
-                        // The dock is always the dark Signal panel, in light and dark themes alike.
-                        Column(Modifier.background(Ink).navigationBarsPadding()) {
+                        // The dock is always dark, in light and dark themes alike.
+                        Column(Modifier.background(LocalLook.current.stage).navigationBarsPadding()) {
                             AnimatedVisibility(
                                 visible = state.current != null,
                                 enter = if (reduced) EnterTransition.None else slideInVertically(DockSpring) { it } + fadeIn(tween(EnterMs)),
@@ -347,7 +387,8 @@ fun MusicApp(
                             ) {
                                 lastTrack?.let { MiniPlayer(state.copy(current = it), { navigate("now") }, onToggle, onNext, onPrevious, playbackPosition) }
                             }
-                            AppNavigation(if (page == "collection") root else page, reduced, ::navigate)
+                            if (LocalLook.current.classic) ClassicNavigation(if (page == "collection") root else page, reduced, ::navigate)
+                            else AppNavigation(if (page == "collection") root else page, reduced, ::navigate)
                         }
                     } else Spacer(Modifier.navigationBarsPadding())
                 },
@@ -388,9 +429,9 @@ fun MusicApp(
                             "search" -> SearchResults(state, ::play, onSave)
                             "explore" -> ProviderHome(state.copy(feed = state.explore, feedBusy = state.exploreBusy, feedError = state.exploreError, feedHasMore = false), ::openEntry, onRefreshExplore, {}, "Explore")
                             "library" -> LibraryScreen(state, ::play, onSave, ::focusSearch, onRemovePlay)
-                            "now" -> NowScreen(state, onToggle, onPrevious, onNext, onSeek, onSave, onSkipTo, onProcessing, playbackPosition, onRetryRadio, audioLevels, onMetering)
+                            "now" -> NowScreen(state, onToggle, onPrevious, onNext, onSeek, onSave, onSkipTo, onProcessing, playbackPosition, onRetryRadio, audioLevels, metering)
                             "collection" -> CollectionScreen(state, ::play, onSave, onMoreCollection)
-                            "settings" -> SettingsScreen(state, onTheme, onAccent, onOpenLocal, onChooseMasters, onClearMasters, onClearHistory,
+                            "settings" -> SettingsScreen(state, onTheme, onAccent, onLook, onOpenLocal, onChooseMasters, onClearMasters, onClearHistory,
                                 onConnect, onWebSignIn, onDisconnect, onCancelConnect, onGoogleSignIn, onGoogleSignOut, onCancelGoogle, onCheckUpdates, onDownloadUpdate, onInstallUpdate,
                                 onAutoplay, onTrackHistory, onConnectSource, onRemoveSource, onConnectTidal, onDisconnectTidal, onCancelTidal,
                                 onConnectApple, onNativeApple, onDisconnectApple, onCancelApple, onDeveloperOptions,
@@ -409,10 +450,14 @@ private fun AppHeader(page: String, onHome: () -> Unit, onSettings: () -> Unit, 
     Row(Modifier.fillMaxWidth().statusBarsPadding().padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp).heightIn(min = 48.dp),
         verticalAlignment = Alignment.CenterVertically) {
         if (page in listOf("now", "settings", "collection")) {
-            OutlinedIconButton(onClick = onBack, shape = ButtonShape, border = BorderStroke(2.dp, MaterialTheme.colorScheme.onBackground),
+            val look = LocalLook.current
+            OutlinedIconButton(onClick = onBack, shape = ButtonShape, border = BorderStroke(if (look.classic) 2.dp else 1.dp,
+                if (look.classic) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.onSurfaceVariant),
                 modifier = Modifier.size(48.dp)) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back", Modifier.size(20.dp)) }
             Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                Text(when (page) { "now" -> "Now playing"; "collection" -> "Collection"; else -> "Settings" }, fontFamily = font, fontSize = 14.sp,
+                val caption = when (page) { "now" -> "Now playing"; "collection" -> "Collection"; else -> "Settings" }
+                if (look.classic) Caption(look.label(caption))
+                else Text(caption, fontFamily = font, fontSize = 14.sp,
                     lineHeight = 18.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Spacer(Modifier.width(48.dp))
@@ -423,7 +468,7 @@ private fun AppHeader(page: String, onHome: () -> Unit, onSettings: () -> Unit, 
                 .semantics { contentDescription = "Music, go home"; selected = page == "home" }, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                 Text("M", style = DisplayStyle, fontSize = 24.sp, lineHeight = 22.sp)
                 Spacer(Modifier.height(3.dp))
-                Box(Modifier.width(14.dp).height(4.dp).background(LocalAccent.current.accent))
+                Box(Modifier.width(14.dp).height(4.dp).clip(if (LocalLook.current.classic) RectangleShape else RoundedCornerShape(2.dp)).background(LocalAccent.current.accent))
             }
             Spacer(Modifier.width(6.dp))
             search()
@@ -476,10 +521,11 @@ private val navTabs = listOf(
 private fun AppNavigation(page: String, reduced: Boolean, onSelect: (String) -> Unit) {
     val selectedIndex = navTabs.indexOfFirst { it.id == page }.coerceAtLeast(0)
     val mark = LocalAccent.current.onDock
-    Row(Modifier.fillMaxWidth().height(56.dp).background(Ink)) {
+    val look = LocalLook.current
+    Row(Modifier.fillMaxWidth().height(56.dp).background(look.stage)) {
         navTabs.forEachIndexed { index, tab ->
             val selected = index == selectedIndex
-            val color by animateColorAsState(if (selected) Paper else PaperMuted, tween(if (reduced) 0 else QuickMs), label = "tab colour")
+            val color by animateColorAsState(if (selected) look.stageText else look.stageMuted, tween(if (reduced) 0 else QuickMs), label = "tab colour")
             val lit = animateFloatAsState(if (selected) 1f else 0f, if (reduced) snap() else tween(QuickMs, easing = Standard), label = "tab lights")
             Column(
                 Modifier.weight(1f).fillMaxHeight()
@@ -489,7 +535,12 @@ private fun AppNavigation(page: String, reduced: Boolean, onSelect: (String) -> 
             ) {
                 Canvas(Modifier.size(width = 20.dp, height = 4.dp).graphicsLayer { alpha = lit.value }) {
                     val r = size.height / 2
-                    for (i in 0..2) drawCircle(mark, r, Offset(r + i * (size.width - 2 * r) / 2, r))
+                    for (i in 0..2) {
+                        val c = Offset(r + i * (size.width - 2 * r) / 2, r)
+                        // A soft glow around each light, like the speakers in the room.
+                        drawCircle(Brush.radialGradient(listOf(mark.copy(alpha = .35f), Color.Transparent), c, r * 3.2f), r * 3.2f, c)
+                        drawCircle(mark, r, c)
+                    }
                 }
                 Spacer(Modifier.height(6.dp))
                 // The tab's name is its content description; the label adds nothing for TalkBack.
@@ -497,6 +548,63 @@ private fun AppNavigation(page: String, reduced: Boolean, onSelect: (String) -> 
                     color = color, maxLines = 1, modifier = Modifier.clearAndSetSemantics {})
             }
         }
+    }
+}
+
+/**
+ * Classic's tab bar, as in 0.3.32: a flat mono tab bar on the dark dock. A 3dp accent mark rides
+ * the top edge of the chosen tab and stretches across to the next one, its leading edge first and
+ * the trailing edge catching up. The mark is painted in the draw phase, so switching tabs never
+ * re-measures the bar.
+ */
+@Composable
+private fun ClassicNavigation(page: String, reduced: Boolean, onSelect: (String) -> Unit) {
+    val selectedIndex = navTabs.indexOfFirst { it.id == page }.coerceAtLeast(0)
+    val lead = remember { Animatable(selectedIndex.toFloat()) }
+    val trail = remember { Animatable(selectedIndex.toFloat()) }
+    LaunchedEffect(selectedIndex, reduced) {
+        val target = selectedIndex.toFloat()
+        if (reduced) { lead.snapTo(target); trail.snapTo(target); return@LaunchedEffect }
+        // Springs keep their velocity when a second tap retargets them mid-flight.
+        launch { lead.animateTo(target, spring(dampingRatio = 1f, stiffness = 700f)) }
+        delay(40)
+        trail.animateTo(target, spring(dampingRatio = 1f, stiffness = 420f))
+    }
+    val mark = LocalAccent.current.onDock
+    Row(
+        Modifier.fillMaxWidth().height(56.dp).background(Ink).drawBehind {
+            val slot = size.width / navTabs.size
+            val left = slot * minOf(lead.value, trail.value)
+            val right = slot * (maxOf(lead.value, trail.value) + 1f)
+            drawRect(mark, Offset(left, 0f), Size(right - left, 3.dp.toPx()))
+        },
+    ) {
+        navTabs.forEachIndexed { index, tab ->
+            val selected = index == selectedIndex
+            val color by animateColorAsState(if (selected) Paper else PaperMuted, tween(if (reduced) 0 else QuickMs), label = "tab colour")
+            Box(
+                Modifier.weight(1f).fillMaxHeight()
+                    .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { onSelect(tab.id) }
+                    .semantics { contentDescription = tab.label; role = Role.Tab; this.selected = selected },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(tab.label.uppercase(), style = MonoSmall, fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
+                    color = color, maxLines = 1, modifier = Modifier.padding(top = 3.dp).clearAndSetSemantics {})
+            }
+        }
+    }
+}
+
+/**
+ * Who wants live audio levels right now: the channel monitor, the room on Home and the player's
+ * level meter. Metering runs while any of them asks, so one leaving never turns it off for another.
+ */
+internal class MeteringClaims {
+    var sink: (Boolean) -> Unit = {}
+    private val wanting = mutableSetOf<String>()
+    fun claim(owner: String, wanted: Boolean) {
+        if (wanted) wanting += owner else wanting -= owner
+        sink(wanting.isNotEmpty())
     }
 }
 
@@ -526,13 +634,14 @@ private fun HomeScreen(state: MusicState, onSearch: () -> Unit, onPlay: (Track, 
     }
     val unheard = recommendations.newToYou
     PrefetchArtwork(state.feed.flatMap { it.items.take(10).map(FeedEntry::artwork) } + state.forYou.take(12).map(Track::artwork), 156.dp)
+    val look = LocalLook.current
     PullToRefresh(state.feedBusy, onRefresh) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 24.dp)) {
         item(key = "title") {
             Column(Modifier.padding(bottom = 4.dp)) {
                 PageTitle(if (recent != null) "Back to your music" else if (hasFeed) "For your ears" else "Room to listen")
                 Text("${state.recommendationEngine.label} recommendations", fontSize = 12.sp, maxLines = 1,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp))
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = if (look.classic) 6.dp else 0.dp))
                 Spacer(Modifier.height(8.dp))
                 LoadingLine(state.feedBusy, state.reducedMotion)
             }
@@ -548,25 +657,27 @@ private fun HomeScreen(state: MusicState, onSearch: () -> Unit, onPlay: (Track, 
         if (state.feedError != null) item(key = "feed-error") {
             Row(motionModifier().fillMaxWidth().padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(state.feedError, fontSize = 13.sp, lineHeight = 19.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-                TextButton(onClick = onRefresh, shape = ButtonShape) { Text("Retry", style = LabelStyle) }
+                TextButton(onClick = onRefresh, shape = ButtonShape) { Text(look.label("Retry"), style = LabelText) }
             }
         }
         if (showHero) item(key = "hero") {
             Column(Modifier.fillMaxWidth().signalRule(bottom = true, thickness = 1.dp).padding(vertical = 20.dp)) {
                 if (recent == null) {
-                    Text("Start with a song", style = LabelStyle)
+                    Text(look.label("Start with a song"), style = LabelText)
                     Spacer(Modifier.height(12.dp))
-                    Text("Find your\nnext repeat", style = DisplayStyle, fontSize = 40.sp, lineHeight = 36.sp, maxLines = 2)
+                    Headline(look.headline("Find your\nnext repeat"), 40.sp, 36.sp, maxLines = 2)
                     Spacer(Modifier.height(8.dp))
                     Text("A song, an artist, a familiar feeling.", fontSize = 15.sp, lineHeight = 21.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.height(16.dp))
                     SignalAction("Find music", Icons.Outlined.Search, loading = false, onClick = onSearch)
                 } else {
-                    Text(if (playsToday > 0) "Last played · $playsToday today" else "Last played", style = LabelStyle, modifier = Modifier.padding(bottom = 10.dp))
+                    val label = if (playsToday > 0) "Last played · $playsToday today" else "Last played"
+                    if (look.classic) Text(look.label(label), style = LabelText, modifier = Modifier.padding(bottom = 10.dp))
+                    else SectionTitle(label, Modifier.padding(bottom = 6.dp))
                     // The featured row keeps one line per field, so its control never moves as metadata changes.
                     Row(Modifier.fillMaxWidth().signalRule(thickness = 1.dp, color = MaterialTheme.colorScheme.outline).heightIn(min = 76.dp).padding(vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically) {
-                        Artwork(recent, Modifier.size(52.dp), size = 52.dp)
+                        Artwork(recent, Modifier.size(52.dp).clip(look.art), size = 52.dp)
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
                             ScrollingMetadata(recent.title, DisplayStyle.copy(fontSize = 20.sp, lineHeight = 22.sp))
@@ -580,7 +691,8 @@ private fun HomeScreen(state: MusicState, onSearch: () -> Unit, onPlay: (Track, 
                         }
                     }
                     if (state.history.size > 1) {
-                        Text("Recently played", fontFamily = font, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 14.dp, bottom = 4.dp))
+                        Text("Recently played", style = if (look.classic) MonoSmall else TextStyle(fontFamily = font, fontSize = 13.sp),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 14.dp, bottom = 4.dp))
                         state.history.drop(1).take(4).forEach { track ->
                             val playing = track.libraryKey() == state.current?.libraryKey()
                             LastPlayedRow(track, if (playing) "NOW" else lastPlayedAt[track.libraryKey()]?.let { whenLabel(it, now) }.orEmpty()) {
@@ -594,8 +706,9 @@ private fun HomeScreen(state: MusicState, onSearch: () -> Unit, onPlay: (Track, 
         if (recommendations.fromListening.isNotEmpty() || state.forYouBusy) item(key = "for-you") {
             Column(motionModifier().fillMaxWidth().signalRule(bottom = true, thickness = 1.dp).padding(vertical = 20.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    ScrollingMetadata(if (topArtists.isEmpty()) "From your listening" else "Your sound · ${topArtists.joinToString(" · ")}",
-                        LabelStyle, Modifier.weight(1f))
+                    val title = if (topArtists.isEmpty()) "From your listening" else "Your sound · ${topArtists.joinToString(" · ")}"
+                    if (look.classic) ScrollingMetadata(title.uppercase(Locale.ROOT), MonoLabel, Modifier.weight(1f))
+                    else ScrollingMetadata(title, SectionStyle, Modifier.weight(1f), poster = true)
                     if (state.forYou.isNotEmpty()) {
                         Spacer(Modifier.width(12.dp))
                         SignalOutlineButton("Play mix") { onPlay(state.forYou.first(), state.forYou) }
@@ -603,7 +716,7 @@ private fun HomeScreen(state: MusicState, onSearch: () -> Unit, onPlay: (Track, 
                 }
                 Spacer(Modifier.height(14.dp))
                 if (recommendations.fromListening.isEmpty()) LoadingLine(true, state.reducedMotion)
-                else LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                else LazyRow(horizontalArrangement = Arrangement.spacedBy(if (look.classic) 12.dp else 10.dp)) {
                     itemsIndexed(recommendations.fromListening, key = { i, t -> "$i:${t.id}" }) { i, track ->
                         SignalCard(track, "A-%02d".format(Locale.ROOT, i + 1)) { onPlay(track, listOf(track)) }
                     }
@@ -616,8 +729,8 @@ private fun HomeScreen(state: MusicState, onSearch: () -> Unit, onPlay: (Track, 
             val scheme = MaterialTheme.colorScheme.copy(onSurface = on, onSurfaceVariant = on.copy(alpha = .8f),
                 onBackground = on, primary = on, outline = on.copy(alpha = .25f))
             MaterialTheme(colorScheme = scheme, typography = MaterialTheme.typography, shapes = MaterialTheme.shapes) {
-                Column(motionModifier().padding(vertical = 20.dp).fillMaxWidth().background(accent.accent).padding(16.dp)) {
-                    Text(if (state.trackHistory) "New here" else "Keep exploring", style = LabelStyle, color = on)
+                Column(motionModifier().padding(vertical = 20.dp).fillMaxWidth().clip(look.card).background(accent.accent).padding(16.dp)) {
+                    Text(look.label(if (state.trackHistory) "New here" else "Keep exploring"), style = LabelText, color = on)
                     Text(if (state.trackHistory) "New to your ears" else "Discover more", style = DisplayStyle,
                         fontSize = 32.sp, lineHeight = 36.sp, color = on, modifier = Modifier.padding(top = 8.dp).semantics { heading() })
                     Text(if (state.trackHistory) "Songs outside your recorded listening history."
@@ -661,7 +774,7 @@ private fun whenLabel(at: Long, now: Long): String {
 private fun LastPlayedRow(track: Track, time: String, onClick: () -> Unit) {
     Row(Modifier.fillMaxWidth().signalRule(thickness = 1.dp, color = MaterialTheme.colorScheme.outline).pressable(onClick = onClick)
         .heightIn(min = 64.dp).padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-        Artwork(track, Modifier.size(52.dp), size = 52.dp)
+        Artwork(track, Modifier.size(52.dp).clip(LocalLook.current.art), size = 52.dp)
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(track.title, style = DisplayStyle, fontSize = 18.sp, lineHeight = 21.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -678,7 +791,9 @@ private fun LastPlayedRow(track: Track, time: String, onClick: () -> Unit) {
 @Composable
 private fun SignalAction(label: String, icon: ImageVector, loading: Boolean, modifier: Modifier = Modifier, enabled: Boolean = true, onClick: () -> Unit) {
     val accent = LocalAccent.current
-    Row(modifier.heightIn(min = 48.dp).pressable(enabled = enabled, onClick = onClick).clip(ButtonShape).background(accent.accent).padding(horizontal = 14.dp),
+    val look = LocalLook.current
+    Row(modifier.heightIn(min = 48.dp).pressable(enabled = enabled, onClick = onClick).clip(ButtonShape).background(accent.accent)
+        .padding(horizontal = if (look.classic) 14.dp else 18.dp),
         verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(20.dp), contentAlignment = Alignment.Center) {
             if (loading) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = accent.onAccent)
@@ -689,14 +804,15 @@ private fun SignalAction(label: String, icon: ImageVector, loading: Boolean, mod
     }
 }
 
-/** A 2dp ink-bordered square button with a mono label. */
+/** An ink-bordered button: square with a 2dp edge and a mono label in Classic, a pill otherwise. */
 @Composable
 private fun SignalOutlineButton(label: String, modifier: Modifier = Modifier, enabled: Boolean = true, onClick: () -> Unit) {
+    val classic = LocalLook.current.classic
     OutlinedButton(onClick = onClick, enabled = enabled, shape = ButtonShape, modifier = modifier.heightIn(min = 48.dp),
-        border = BorderStroke(2.dp, if (enabled) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.outline),
+        border = BorderStroke(if (classic) 2.dp else 1.5.dp, if (enabled) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.outline),
         colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onBackground),
         contentPadding = PaddingValues(horizontal = 16.dp)) {
-        Text(label, style = LabelStyle, maxLines = 1)
+        Text(label, style = LabelText, maxLines = 1)
     }
 }
 
@@ -719,6 +835,8 @@ private fun SignalCard(track: Track, code: String, onClick: () -> Unit) {
 
 /** A hairline along the top (or bottom) edge, drawn without taking layout space. */
 private fun Modifier.signalRule(bottom: Boolean = false, thickness: Dp = 2.dp, color: Color = Color.Unspecified): Modifier = composed {
+    // The rules are Classic's; the Listening room separates sections with space instead.
+    if (LocalLook.current.room) return@composed Modifier
     val ink = if (color == Color.Unspecified) MaterialTheme.colorScheme.onBackground else color
     drawBehind {
         val h = thickness.toPx()
@@ -760,7 +878,7 @@ private fun SyncBanner(email: String, onConnect: () -> Unit, modifier: Modifier 
 @Composable
 private fun NoticeBanner(title: String, detail: String, action: String, onAction: () -> Unit, modifier: Modifier = Modifier) {
     val accent = LocalAccent.current
-    Surface(color = accent.accent, shape = RectangleShape, modifier = modifier.fillMaxWidth()) {
+    Surface(color = accent.accent, shape = LocalLook.current.card, modifier = modifier.fillMaxWidth()) {
         Row(Modifier.padding(start = 16.dp, end = 12.dp, top = 14.dp, bottom = 14.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = accent.onAccent)
@@ -818,8 +936,9 @@ private fun LazyListScope.feedSections(sections: List<FeedSection>, onEntry: (Fe
 
 @Composable
 private fun MediaCard(title: String, subtitle: String, art: Track, size: Dp, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    Column(modifier.width(size).clip(RectangleShape).pressable(onClick = onClick)) {
-        Artwork(art, Modifier.size(size).clip(RectangleShape), size = size)
+    val shape = LocalLook.current.art
+    Column(modifier.width(size).clip(shape).pressable(onClick = onClick)) {
+        Artwork(art, Modifier.size(size).clip(shape), size = size)
         ScrollingMetadata(title, TextStyle(fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold), Modifier.padding(top = 8.dp))
         // Keep the artist slot even before metadata arrives, so the next shelf never moves.
         ScrollingMetadata(subtitle, TextStyle(fontSize = 13.sp, lineHeight = 18.sp, color = MaterialTheme.colorScheme.onSurfaceVariant), Modifier.padding(top = 2.dp, bottom = 4.dp))
@@ -829,11 +948,14 @@ private fun MediaCard(title: String, subtitle: String, art: Track, size: Dp, mod
 /** One line per metadata field. Marquee changes drawing, not measurement or gestures. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ScrollingMetadata(text: String, style: TextStyle, modifier: Modifier = Modifier) {
+private fun ScrollingMetadata(text: String, style: TextStyle, modifier: Modifier = Modifier, poster: Boolean = false) {
     val reduced = LocalReducedMotion.current
     val line = remember(text) { text.replace("\r\n", " ").replace('\n', ' ').replace('\r', ' ') }
-    Text(line, style = LocalTextStyle.current.merge(style),
-        modifier = modifier.fillMaxWidth().clipToBounds().then(if (reduced) Modifier else Modifier.basicMarquee(
+    // A poster line is set in capitals on screen; it still reads (and is found) as written.
+    val shown = remember(line, poster) { if (poster) line.uppercase(Locale.getDefault()) else line }
+    Text(shown, style = LocalTextStyle.current.merge(style),
+        modifier = modifier.then(if (poster) Modifier.clearAndSetSemantics { this.text = AnnotatedString(line) } else Modifier)
+            .fillMaxWidth().clipToBounds().then(if (reduced) Modifier else Modifier.basicMarquee(
             iterations = Int.MAX_VALUE, initialDelayMillis = 1_500, repeatDelayMillis = 1_500, velocity = 24.dp)),
         minLines = 1, maxLines = 1, softWrap = false,
         overflow = if (reduced) TextOverflow.Ellipsis else TextOverflow.Clip)
@@ -856,11 +978,11 @@ private fun ProviderHome(state: MusicState, onEntry: (FeedEntry) -> Unit, onRefr
         if (state.feedError != null) item(key = "error") {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(state.feedError, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-                TextButton(onClick = onRefresh, enabled = !state.feedBusy, shape = ButtonShape) { Text("Retry", style = LabelStyle) }
+                TextButton(onClick = onRefresh, enabled = !state.feedBusy, shape = ButtonShape) { Text(LocalLook.current.label("Retry"), style = LabelText) }
             }
         }
         if (state.feed.isEmpty() && !state.feedBusy && state.feedError == null) item(key = "empty") { EmptyState("More music awaits", "Pull down to load discoveries from ${state.recommendationEngine.label}.", Glyph.Compass) }
-        if (state.feedHasMore) item(key = "more") { OutlinedButton(onClick = onMore, enabled = !state.feedBusy, modifier = Modifier.fillMaxWidth()) { Text("More from your feed") } }
+        if (state.feedHasMore) item(key = "more") { OutlinedButton(onClick = onMore, enabled = !state.feedBusy, modifier = Modifier.fillMaxWidth(), shape = ButtonShape) { Text("More from your feed") } }
     }
     }
 }
@@ -873,7 +995,7 @@ private fun CollectionScreen(state: MusicState, onPlay: (Track, List<Track>) -> 
         if (state.collectionBusy && state.collection.isEmpty()) LoadingLine(true, state.reducedMotion)
         else if (state.collection.isEmpty() && state.error == null) {
             EmptyState("Nothing to play here", "This page has no available recordings.", Glyph.MusicNote)
-            if (state.collectionHasMore) OutlinedButton(onClick = onMore, modifier = Modifier.fillMaxWidth()) { Text("Load more songs") }
+            if (state.collectionHasMore) OutlinedButton(onClick = onMore, modifier = Modifier.fillMaxWidth(), shape = ButtonShape) { Text("Load more songs") }
         }
         else {
             Button(onClick = { state.collection.firstOrNull()?.let { onPlay(it, state.collection) } }, enabled = state.collection.isNotEmpty(), shape = ButtonShape) { Icon(Icons.Outlined.PlayArrow, null); Text("Play all") }
@@ -883,7 +1005,7 @@ private fun CollectionScreen(state: MusicState, onPlay: (Track, List<Track>) -> 
                     TrackRow(track, state.saved.any { it.libraryKey() == track.libraryKey() }, state.current?.libraryKey() == track.libraryKey(), { onPlay(track, state.collection) }, { onSave(track) })
                 }
                 if (state.collectionBusy) item { LoadingLine(true, state.reducedMotion) }
-                if (state.collectionHasMore) item { OutlinedButton(onClick = onMore, modifier = Modifier.fillMaxWidth()) { Text("Load more songs") } }
+                if (state.collectionHasMore) item { OutlinedButton(onClick = onMore, modifier = Modifier.fillMaxWidth(), shape = ButtonShape) { Text("Load more songs") } }
             }
         }
     }
@@ -899,7 +1021,7 @@ private fun SearchBar(state: MusicState, onQuery: (String) -> Unit, onSearch: ()
         placeholder = { Text("Songs, artists or a link", fontSize = 13.sp, maxLines = 1) },
         leadingIcon = { IconButton(onClick = submit, enabled = state.query.isNotBlank() && !state.searching) { Icon(Icons.Outlined.Search, "Search YouTube", Modifier.size(20.dp)) } },
         trailingIcon = { if (state.query.isNotEmpty()) IconButton(onClick = { onQuery(""); keyboard?.hide() }) { Icon(Icons.Outlined.Close, "Clear search", Modifier.size(18.dp)) } },
-        shape = RectangleShape,
+        shape = LocalLook.current.field,
         colors = OutlinedTextFieldDefaults.colors(
             unfocusedContainerColor = MaterialTheme.colorScheme.surface, focusedContainerColor = MaterialTheme.colorScheme.surface,
             unfocusedBorderColor = MaterialTheme.colorScheme.outline,
@@ -959,17 +1081,18 @@ private fun LibraryScreen(state: MusicState, onPlay: (Track, List<Track>) -> Uni
 @Composable
 private fun SegmentedTabs(labels: List<String>, position: Float, onSelect: (Int) -> Unit) {
     val scheme = MaterialTheme.colorScheme
-    BoxWithConstraints(Modifier.fillMaxWidth().height(44.dp).background(scheme.surfaceVariant, RectangleShape).padding(4.dp)) {
+    val pill = if (LocalLook.current.classic) RectangleShape else RoundedCornerShape(percent = 50)
+    BoxWithConstraints(Modifier.fillMaxWidth().height(44.dp).background(scheme.surfaceVariant, pill).padding(4.dp)) {
         val slot = maxWidth / labels.size
         Box(Modifier.offset(x = slot * position.coerceIn(0f, labels.lastIndex.toFloat())).width(slot).fillMaxHeight()
-            .graphicsLayer { shadowElevation = 3.dp.toPx(); shape = RectangleShape; clip = true }
-            .background(scheme.surface, RectangleShape))
+            .graphicsLayer { shadowElevation = 3.dp.toPx(); shape = pill; clip = true }
+            .background(scheme.surface, pill))
         Row(Modifier.fillMaxSize()) {
             labels.forEachIndexed { index, label ->
                 val closeness = (1f - abs(position - index)).coerceIn(0f, 1f)
                 val color = androidx.compose.ui.graphics.lerp(scheme.onSurfaceVariant, scheme.primary, closeness)
                 val chosen = abs(position - index) < .5f
-                Box(Modifier.weight(1f).fillMaxHeight().clip(RectangleShape).clickable(role = Role.Tab) { onSelect(index) }
+                Box(Modifier.weight(1f).fillMaxHeight().clip(pill).clickable(role = Role.Tab) { onSelect(index) }
                     .semantics { contentDescription = "$label tab"; selected = chosen }, contentAlignment = Alignment.Center) {
                     Text(label, fontSize = 14.sp, fontWeight = if (closeness > .5f) FontWeight.SemiBold else FontWeight.Medium, color = color)
                 }
@@ -1034,7 +1157,7 @@ private fun HistoryList(state: MusicState, onPlay: (Track, List<Track>) -> Unit,
 
 @Composable
 private fun StatTile(value: String, label: String, modifier: Modifier = Modifier, small: Boolean = false) {
-    Column(modifier.background(MaterialTheme.colorScheme.surfaceVariant, RectangleShape).padding(horizontal = 12.dp, vertical = 12.dp)) {
+    Column(modifier.background(MaterialTheme.colorScheme.surfaceVariant, LocalLook.current.tile).padding(horizontal = 12.dp, vertical = 12.dp)) {
         Text(value, fontSize = if (small) 15.sp else 22.sp, lineHeight = if (small) 22.sp else 26.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text(label, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 2.dp), maxLines = 1)
     }
@@ -1044,7 +1167,7 @@ private fun StatTile(value: String, label: String, modifier: Modifier = Modifier
 private fun HistoryRow(event: PlayEvent, time: String, current: Boolean, onPlay: () -> Unit, onRemove: () -> Unit, modifier: Modifier = Modifier) {
     val track = event.track
     Row(modifier.fillMaxWidth().clip(RectangleShape).clickable(onClick = onPlay).padding(vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
-        Artwork(track, Modifier.size(48.dp).clip(RectangleShape), size = 48.dp)
+        Artwork(track, Modifier.size(48.dp).clip(LocalLook.current.art), size = 48.dp)
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(track.title, fontSize = 14.sp, lineHeight = 19.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis,
@@ -1064,7 +1187,7 @@ private const val SwapMs = 180
 @Composable
 private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () -> Unit, onNext: () -> Unit, onSeek: (Long) -> Unit,
     onSave: (Track) -> Unit, onSkipTo: (Int) -> Unit, onProcessing: (Boolean) -> Unit, playbackPosition: StateFlow<Long>?, onRetryRadio: () -> Unit,
-    audioLevels: StateFlow<labs.rtensor.dsp.AudioLevelFrame?>?, onMetering: (Boolean) -> Unit) {
+    audioLevels: StateFlow<labs.rtensor.dsp.AudioLevelFrame?>?, metering: MeteringClaims) {
     val track = state.loadingTrack ?: state.current
     if (track == null) {
         Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) { Text("Choose a recording to start listening.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -1087,9 +1210,12 @@ private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () ->
         else Modifier.background(MaterialTheme.colorScheme.background)
     OnPlayerTones(ground) {
     val scheme = MaterialTheme.colorScheme
+    val look = LocalLook.current
+    val saved = state.saved.any { it.libraryKey() == track.libraryKey() }
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        // The cover fills the width between the gutters; on a short screen it stops at 45% of the height.
-        val coverSize = minOf(maxWidth - 40.dp, maxHeight * .45f).coerceAtLeast(150.dp)
+        // The cover fills the width between the gutters; on a short screen it stops at 45% of the
+        // height. Classic keeps its smaller 0.3.32 cover.
+        val coverSize = if (look.classic) (maxHeight * .31f).coerceIn(150.dp, 250.dp) else minOf(maxWidth - 40.dp, maxHeight * .45f).coerceAtLeast(150.dp)
         // The queue continues right under the controls, so scrolling down shows what plays next.
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 10.dp, bottom = 32.dp)) {
             item(key = "player") {
@@ -1100,47 +1226,53 @@ private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () ->
                                 canPrevious = canSkip, canNext = canSkip && hasNext, onPrevious = onPrevious, onNext = onNext)
                         }
                     }
-                    Spacer(Modifier.height(20.dp))
-                    // The title rises into place from below while the old one lifts away: a different
-                    // motion from the cover so the two never look like one sliding block.
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    AnimatedContent(track, modifier = Modifier.weight(1f), contentKey = { it.id }, label = "now title", transitionSpec = {
-                        if (reduced) (EnterTransition.None togetherWith ExitTransition.None).using(null)
-                        else ((fadeIn(tween(220, 60, EmphasizedDecelerate)) + slideInVertically(tween(280, easing = EmphasizedDecelerate)) { it / 4 }) togetherWith
-                            (fadeOut(tween(100)) + slideOutVertically(tween(140, easing = EmphasizedAccelerate)) { -it / 8 })).using(SizeTransform(clip = false))
-                    }) { shown ->
-                        Column(Modifier.fillMaxWidth()) {
+                    if (look.classic) {
+                        // Classic, as in 0.3.32: the seek line under the cover, a display title, square
+                        // Previous/Next either side of one wide Play button.
+                        Spacer(Modifier.height(16.dp))
+                        PlaybackTimeline(playbackPosition, position, duration, playing, reduced, pending, null, onSeek)
+                        Spacer(Modifier.height(14.dp))
+                        NowTitle(track, reduced, saved, { onSave(track) }) { shown ->
+                            ScrollingMetadata(shown.title, DisplayStyle.copy(fontSize = 32.sp, lineHeight = 36.sp), Modifier.semantics { heading() })
+                            ScrollingMetadata(shown.artist, TextStyle(fontSize = 16.sp, lineHeight = 22.sp, color = scheme.onSurfaceVariant), Modifier.padding(top = 6.dp))
+                        }
+                        LoadingNote(state, loading, reduced, top = 8.dp)
+                        Spacer(Modifier.height(12.dp))
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            LabelledControl("Previous", Glyph.Previous, onPrevious, enabled = canSkip)
+                            WidePlayButton(if (loading) 0 else if (playing) 1 else 2, enabled = !state.resolving, reduced = reduced, onClick = onToggle, modifier = Modifier.weight(1f))
+                            LabelledControl("Next", Glyph.Next, onNext, enabled = canSkip && hasNext)
+                        }
+                    } else {
+                        Spacer(Modifier.height(20.dp))
+                        // The title rises into place from below while the old one lifts away: a different
+                        // motion from the cover so the two never look like one sliding block.
+                        NowTitle(track, reduced, saved, { onSave(track) }) { shown ->
                             ScrollingMetadata(shown.title, PlayerTitleStyle.copy(color = scheme.onBackground), Modifier.semantics { heading() })
                             ScrollingMetadata(shown.artist, TextStyle(fontFamily = font, fontSize = 16.sp, lineHeight = 22.sp, color = scheme.onSurfaceVariant), Modifier.padding(top = 2.dp))
                         }
-                    }
-                    Spacer(Modifier.width(12.dp))
-                    val saved = state.saved.any { it.libraryKey() == track.libraryKey() }
-                    LabelledControl(if (saved) "Saved" else "Save", if (saved) Icons.Outlined.Favorite else Icons.Outlined.FavoriteBorder,
-                        { onSave(track) }, modifier = Modifier.size(48.dp), highlighted = saved)
-                    }
-                    Spacer(Modifier.height(14.dp))
-                    PlaybackTimeline(playbackPosition, position, duration, playing, reduced, pending, audioBadge(state.routeLabel), onSeek)
-                    // Reserve the line so the controls never jump when loading starts or stops.
-                    Box(Modifier.padding(top = 4.dp).height(16.dp)) {
-                        androidx.compose.animation.AnimatedVisibility(loading, enter = fadeIn(tween(if (reduced) 0 else QuickMs)), exit = fadeOut(tween(if (reduced) 0 else QuickMs))) {
-                            Text(if (state.resolving) "Finding audio…" else "Buffering…", fontFamily = font, fontSize = 12.sp, color = scheme.onSurface, lineHeight = 16.sp)
+                        Spacer(Modifier.height(14.dp))
+                        PlaybackTimeline(playbackPosition, position, duration, playing, reduced, pending, audioBadge(state.routeLabel), onSeek)
+                        LoadingNote(state, loading, reduced, top = 4.dp)
+                        Spacer(Modifier.height(6.dp))
+                        // Symmetric transport keeps Play/Pause on the screen centre.
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+                            TransportButton("Previous", Glyph.Previous, onPrevious, enabled = canSkip)
+                            PlayButton(if (loading) 0 else if (playing) 1 else 2, enabled = !state.resolving, reduced = reduced, onClick = onToggle)
+                            TransportButton("Next", Glyph.Next, onNext, enabled = canSkip && hasNext)
                         }
                     }
-                    Spacer(Modifier.height(6.dp))
-                    // Symmetric transport keeps Play/Pause on the screen centre.
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-                        TransportButton("Previous", Glyph.Previous, onPrevious, enabled = canSkip)
-                        PlayButton(if (loading) 0 else if (playing) 1 else 2, enabled = !state.resolving, reduced = reduced, onClick = onToggle)
-                        TransportButton("Next", Glyph.Next, onNext, enabled = canSkip && hasNext)
-                    }
                     RouteLabel(state.routeLabel)
-                    if (showsAudioComparison(state)) AudioComparison(state, onProcessing)
-                    if (state.developerOptions) ChannelMonitor(state.audioProcessing.report, playing && !loading, track.id, audioLevels, onMetering)
+                    if (showsAudioComparison(state)) {
+                        if (look.classic) ClassicAudioComparison(state, onProcessing) else AudioComparison(state, onProcessing)
+                    }
+                    if (state.developerOptions) ChannelMonitor(state.audioProcessing.report, playing && !loading, track.id, audioLevels) { metering.claim("monitor", it) }
                     Spacer(Modifier.height(30.dp))
                     Row(Modifier.fillMaxWidth().signalRule(bottom = true).padding(bottom = 8.dp), verticalAlignment = Alignment.Bottom) {
-                        Text("Up next", style = DisplayStyle, fontSize = 24.sp, modifier = Modifier.weight(1f).semantics { heading() })
-                        if (upcoming.isNotEmpty()) Text("${upcoming.size} ${if (upcoming.size == 1) "SONG" else "SONGS"}", style = MonoSmall, color = scheme.onSurfaceVariant)
+                        if (look.classic) Text("Up next", style = DisplayStyle, fontSize = 24.sp, modifier = Modifier.weight(1f).semantics { heading() })
+                        else PosterText("Up next", SectionStyle, Modifier.weight(1f), heading = true)
+                        if (upcoming.isNotEmpty()) Text(if (look.classic) "${upcoming.size} ${if (upcoming.size == 1) "SONG" else "SONGS"}"
+                            else "${upcoming.size} ${if (upcoming.size == 1) "song" else "songs"}", style = MonoSmall, color = scheme.onSurfaceVariant)
                     }
                 }
             }
@@ -1163,6 +1295,55 @@ private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () ->
             }
         }
     }
+    }
+}
+
+/** The song's title and artist beside Save. A new title rises into place while the old one lifts away. */
+@Composable
+private fun NowTitle(track: Track, reduced: Boolean, saved: Boolean, onSave: () -> Unit, content: @Composable ColumnScope.(Track) -> Unit) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        AnimatedContent(track, modifier = Modifier.weight(1f), contentKey = { it.id }, label = "now title", transitionSpec = {
+            if (reduced) (EnterTransition.None togetherWith ExitTransition.None).using(null)
+            else ((fadeIn(tween(220, 60, EmphasizedDecelerate)) + slideInVertically(tween(280, easing = EmphasizedDecelerate)) { it / 4 }) togetherWith
+                (fadeOut(tween(100)) + slideOutVertically(tween(140, easing = EmphasizedAccelerate)) { -it / 8 })).using(SizeTransform(clip = false))
+        }) { shown -> Column(Modifier.fillMaxWidth()) { content(shown) } }
+        Spacer(Modifier.width(12.dp))
+        LabelledControl(if (saved) "Saved" else "Save", if (saved) Icons.Outlined.Favorite else Icons.Outlined.FavoriteBorder,
+            onSave, modifier = Modifier.size(48.dp), highlighted = saved)
+    }
+}
+
+/** "Finding audio…" or "Buffering…" in a reserved line, so the controls never jump when loading starts or stops. */
+@Composable
+private fun LoadingNote(state: MusicState, loading: Boolean, reduced: Boolean, top: Dp) {
+    val look = LocalLook.current
+    Box(Modifier.padding(top = top).height(16.dp)) {
+        androidx.compose.animation.AnimatedVisibility(loading, enter = fadeIn(tween(if (reduced) 0 else QuickMs)), exit = fadeOut(tween(if (reduced) 0 else QuickMs))) {
+            Text(look.label(if (state.resolving) "Finding audio…" else "Buffering…"), style = if (look.classic) MonoSmall else TextStyle(fontFamily = font, fontSize = 12.sp),
+                color = MaterialTheme.colorScheme.onSurface, lineHeight = 16.sp)
+        }
+    }
+}
+
+/** Classic's wide accent Play/Pause button with its word. [mode]: 0 loading, 1 playing (shows Pause), 2 paused. */
+@Composable
+private fun WidePlayButton(mode: Int, enabled: Boolean, reduced: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val accent = LocalAccent.current
+    Button(onClick = onClick, enabled = enabled, shape = RectangleShape, modifier = modifier.height(72.dp),
+        contentPadding = PaddingValues(horizontal = 10.dp),
+        colors = ButtonDefaults.buttonColors(containerColor = accent.accent, contentColor = accent.onAccent,
+            disabledContainerColor = accent.accent.copy(alpha = .55f), disabledContentColor = accent.onAccent)) {
+        Crossfade(mode, animationSpec = tween(if (reduced) 0 else QuickMs), label = "play button") { shown ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                when (shown) {
+                    0 -> CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = accent.onAccent)
+                    1 -> Icon(Glyph.Pause, null, Modifier.size(22.dp))
+                    else -> Icon(Icons.Outlined.PlayArrow, null, Modifier.size(24.dp))
+                }
+                Spacer(Modifier.width(10.dp))
+                Text(when (shown) { 0 -> "Loading"; 1 -> "Pause"; else -> "Play" }, style = DisplayStyle, fontSize = 20.sp, maxLines = 1)
+            }
+        }
     }
 }
 
@@ -1238,28 +1419,74 @@ private fun AudioComparison(state: MusicState, onProcessing: (Boolean) -> Unit) 
                 colors = SwitchDefaults.colors(checkedTrackColor = accent.accent, checkedThumbColor = accent.onAccent,
                     checkedBorderColor = accent.accent, disabledCheckedTrackColor = accent.accent.copy(alpha = .4f)))
         }
-        val detail = when {
-            !audio.available -> "Processing unavailable · ${audio.unavailableReason ?: "the DSP library did not load"}"
-            state.loadingTrack != null || report == null -> "Waiting for audio…"
-            !report.comparisonAvailable -> when (report.sourceChannels) {
-                1 -> "Mono · original audio"
-                2 -> "Stereo · original audio"
-                else -> "${report.sourceChannels} channels · original audio" + (report.unavailableReason?.let { " · $it" } ?: "")
-            }
-            audio.comparisonPending -> {
-                val target = when {
-                    !audio.selectedProcessed -> "Original"
-                    else -> "Processed"
-                }
-                if (!state.playing || state.buffering || state.resolving) "$target · ready when you play"
-                else "Switching to ${target.lowercase()}…"
-            }
-            !report.processingEnabled -> if (report.inputPositions.size == 2) "Stereo · original audio" else "Front L/R only · ${report.inputPositions.size}-channel source"
-            report.inputPositions.size == 2 -> "Stereo processing"
-            else -> "${report.inputPositions.size} channels → stereo"
-        }
+        val detail = comparisonDetail(state)
         Text(detail, fontSize = 12.sp, lineHeight = 17.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp))
     }
+}
+
+/** The line under the Original/Processed control: what is playing, or why the control is off. */
+private fun comparisonDetail(state: MusicState): String {
+    val audio = state.audioProcessing
+    val report = audio.report
+    return when {
+        !audio.available -> "Processing unavailable · ${audio.unavailableReason ?: "the DSP library did not load"}"
+        state.loadingTrack != null || report == null -> "Waiting for audio…"
+        !report.comparisonAvailable -> when (report.sourceChannels) {
+            1 -> "Mono · original audio"
+            2 -> "Stereo · original audio"
+            else -> "${report.sourceChannels} channels · original audio" + (report.unavailableReason?.let { " · $it" } ?: "")
+        }
+        audio.comparisonPending -> {
+            val target = when {
+                !audio.selectedProcessed -> "Original"
+                else -> "Processed"
+            }
+            if (!state.playing || state.buffering || state.resolving) "$target · ready when you play"
+            else "Switching to ${target.lowercase()}…"
+        }
+        !report.processingEnabled -> if (report.inputPositions.size == 2) "Stereo · original audio" else "Front L/R only · ${report.inputPositions.size}-channel source"
+        report.inputPositions.size == 2 -> "Stereo processing"
+        else -> "${report.inputPositions.size} channels → stereo"
+    }
+}
+
+/**
+ * Classic's Original/Processed control, as in 0.3.32: two square segments, ink when chosen. Same
+ * state, callbacks and explanation as the Listening room's switch.
+ */
+@Composable
+private fun ClassicAudioComparison(state: MusicState, onProcessing: (Boolean) -> Unit) {
+    val audio = state.audioProcessing
+    val report = audio.report
+    val waiting = audio.available && (state.loadingTrack != null || report == null)
+    val ready = audio.available && report?.comparisonAvailable == true && state.loadingTrack == null
+    val processed = audio.selectedProcessed && (waiting || report?.comparisonAvailable == true)
+    Column(Modifier.fillMaxWidth().padding(top = 14.dp)) {
+        val edge = if (ready) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.outline
+        Row(Modifier.fillMaxWidth().height(52.dp).border(2.dp, edge, RectangleShape).padding(2.dp)) {
+            ModeSegment("ORIGINAL", "Original audio", !processed, ready, Modifier.weight(1f)) { onProcessing(false) }
+            ModeSegment("PROCESSED", "Processed audio", processed, ready, Modifier.weight(1f)) { onProcessing(true) }
+        }
+        Text(comparisonDetail(state), style = MonoSmall, lineHeight = 17.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp))
+    }
+}
+
+/** One half of Classic's listening-mode control: ink when chosen, bare ground otherwise. */
+@Composable
+private fun ModeSegment(text: String, description: String, selected: Boolean, enabled: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    val fill = if (selected) scheme.onBackground else Color.Transparent
+    val ink = when {
+        selected -> scheme.background
+        enabled -> scheme.onBackground
+        else -> scheme.onSurfaceVariant
+    }
+    Box(
+        modifier.fillMaxHeight().background(if (selected && !enabled) fill.copy(alpha = .6f) else fill)
+            .clickable(enabled = enabled, role = Role.Tab, onClick = onClick)
+            .semantics { contentDescription = description; this.selected = selected },
+        contentAlignment = Alignment.Center,
+    ) { Text(text, style = MonoLabel, color = ink, maxLines = 1) }
 }
 
 /** A speaker layout the way people write it: stereo, 5.1, 7.1.4. Null when the source does not say. */
@@ -1390,7 +1617,8 @@ private fun CoverDeck(track: Track, index: Int, previousTrack: Track?, nextTrack
     val previous by rememberUpdatedState(onPrevious)
     val allowNext by rememberUpdatedState(canNext)
     val allowPrevious by rememberUpdatedState(canPrevious)
-    val shape = RoundedCornerShape(14.dp)
+    val shape = LocalLook.current.cover
+    val shadow = LocalLook.current.room
     BoxWithConstraints(Modifier.fillMaxWidth().aspectRatio(1f)) {
         val width = constraints.maxWidth.toFloat().coerceAtLeast(1f)
         val flick = with(LocalDensity.current) { 700.dp.toPx() }
@@ -1437,8 +1665,8 @@ private fun CoverDeck(track: Track, index: Int, previousTrack: Track?, nextTrack
                 rotationZ = x / width * 10f
                 transformOrigin = TransformOrigin(.5f, 1.6f)
                 alpha = if (d < 1f) .25f + .75f * d else 1f
-                // A soft shadow lifts the top card off the ground.
-                shadowElevation = 14.dp.toPx(); ambientShadowColor = Color.Black; spotShadowColor = Color.Black
+                // A soft shadow lifts the top card off the ground (Classic's square cover sits flat).
+                if (shadow) { shadowElevation = 14.dp.toPx(); ambientShadowColor = Color.Black; spotShadowColor = Color.Black }
                 this.shape = shape; clip = true
             }
             .pointerInput(Unit) {
@@ -1518,7 +1746,9 @@ private fun ProgressLine(position: Long, duration: Long, playing: Boolean, reduc
     LaunchedEffect(active) { grow.animateTo(if (active) 1f else 0f, tween(if (reduced) 0 else QuickMs, easing = EmphasizedDecelerate)) }
     val seek by rememberUpdatedState(onSeek)
     val scope = rememberCoroutineScope()
-    val accent = LocalAccent.current.accent
+    val classic = LocalLook.current.classic
+    // Classic's line is ink on a square track; the Listening room's is the accent, rounded, with a thumb.
+    val accent = if (classic) MaterialTheme.colorScheme.onBackground else LocalAccent.current.accent
     val line = MaterialTheme.colorScheme.outline
     fun release() {
         val target = drag.value ?: return
@@ -1547,6 +1777,19 @@ private fun ProgressLine(position: Long, duration: Long, playing: Boolean, reduc
             },
     ) {
         val g = grow.value
+        if (classic) {
+            val h = (8.dp + 4.dp * g).toPx()
+            val y = center.y - h / 2
+            drawRect(line, Offset(0f, y), Size(size.width, h))
+            val played = size.width * fraction()
+            drawRect(accent, Offset(0f, y), Size(played, h))
+            // A square notch marks the playhead while it is being dragged.
+            if (g > 0f) {
+                val w = 4.dp.toPx()
+                drawRect(accent, Offset((played - w / 2).coerceIn(0f, size.width - w), y - 4.dp.toPx() * g), Size(w, h + 8.dp.toPx() * g))
+            }
+            return@Canvas
+        }
         val h = (6.dp + 2.dp * g).toPx()
         val y = center.y - h / 2
         val round = CornerRadius(h / 2)
@@ -1582,7 +1825,7 @@ private val settingsSections = listOf(
 )
 
 @Composable
-private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onAccent: (AccentChoice) -> Unit, onLocal: () -> Unit,
+private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onAccent: (AccentChoice) -> Unit, onLook: (LookChoice) -> Unit, onLocal: () -> Unit,
     onChooseMasters: () -> Unit, onClearMasters: () -> Unit, onClearHistory: () -> Unit,
     onConnect: () -> Unit, onWebSignIn: () -> Unit, onDisconnect: () -> Unit, onCancelConnect: () -> Unit,
     onGoogleSignIn: () -> Unit, onGoogleSignOut: () -> Unit, onCancelGoogle: () -> Unit,
@@ -1658,15 +1901,27 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onAccen
         SettingsGroupHeader(settingsSections[3])
         SettingsCard {
             Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                Text("Look", fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                Text(if (state.look == LookChoice.CLASSIC) "The 0.3.32 Signal look: square controls, monospace labels and Signal orange."
+                    else "Dark first, with your speakers lit in the colour of what is playing.",
+                    fontSize = 12.sp, lineHeight = 17.sp, color = scheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp, bottom = 10.dp))
+                LookSelector(state.look, state.reducedMotion, onLook)
+                Spacer(Modifier.height(18.dp))
                 Text("Theme", fontSize = 16.sp, fontWeight = FontWeight.Medium)
                 Spacer(Modifier.height(10.dp))
                 ThemeSelector(state.theme, state.reducedMotion, onTheme)
                 Spacer(Modifier.height(18.dp))
                 Text("Accent colour", fontSize = 16.sp, fontWeight = FontWeight.Medium)
-                Text(if (state.accent == AccentChoice.COVER) "Taken from the artwork of the song that is playing. Signal is used when there is none."
-                    else "The one strong colour on Play, highlights and the dock.",
-                    fontSize = 12.sp, lineHeight = 17.sp, color = scheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp, bottom = 8.dp))
-                AccentSelector(state.accent, onAccent)
+                if (state.look == LookChoice.CLASSIC) {
+                    // Classic always uses the Signal orange, so there is nothing to choose here.
+                    Text("Classic always uses Signal orange. Choose Listening room to pick an accent colour or take it from the cover.",
+                        fontSize = 12.sp, lineHeight = 17.sp, color = scheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp))
+                } else {
+                    Text(if (state.accent == AccentChoice.COVER) "Taken from the artwork of the song that is playing. Signal is used when there is none."
+                        else "The one strong colour on Play, highlights and the dock.",
+                        fontSize = 12.sp, lineHeight = 17.sp, color = scheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp, bottom = 8.dp))
+                    AccentSelector(state.accent, onAccent)
+                }
             }
         }
 
@@ -1772,7 +2027,8 @@ private fun AccountCard(state: MusicState, onGoogleSignIn: () -> Unit, onGoogleS
     val detail = google?.email ?: if (youtube.connected) "YouTube Music account" else "Choose an account, then connect YouTube Music."
     SettingsCard {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(48.dp).background(if (google != null || youtube.connected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant, RectangleShape), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(48.dp).background(if (google != null || youtube.connected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                if (LocalLook.current.classic) RectangleShape else CircleShape), contentAlignment = Alignment.Center) {
                 if (google != null || youtube.connected) Text(displayName.trim().take(1).uppercase(), fontSize = 20.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onPrimary)
                 else Icon(Icons.Outlined.AccountCircle, null, Modifier.size(26.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
@@ -1847,19 +2103,32 @@ private fun StatusLine(label: String, ok: Boolean, detail: String) {
  * the draw phase from one spring, so changing theme never re-measures the row.
  */
 @Composable
-private fun ThemeSelector(theme: String, reduced: Boolean, onTheme: (String) -> Unit) {
-    val options = listOf("system" to "Device", "light" to "Light", "dark" to "Dark")
-    val index = options.indexOfFirst { it.first == theme }.coerceAtLeast(0)
+private fun ThemeSelector(theme: String, reduced: Boolean, onTheme: (String) -> Unit) =
+    SlidingSelector(listOf("system" to "Device", "light" to "Light", "dark" to "Dark"), theme, reduced, { "$it theme" }, Role.Tab, onTheme)
+
+/** Listening room or Classic, as two radio options on the same sliding control as Theme. */
+@Composable
+private fun LookSelector(look: LookChoice, reduced: Boolean, onLook: (LookChoice) -> Unit) =
+    SlidingSelector(LookChoice.entries.map { it.wire to it.label }, look.wire, reduced, { "$it look" }, Role.RadioButton) { wire ->
+        onLook(LookChoice.parse(wire))
+    }
+
+@Composable
+private fun SlidingSelector(options: List<Pair<String, String>>, chosen: String, reduced: Boolean, describe: (String) -> String,
+    role: Role, onChoose: (String) -> Unit) {
+    val index = options.indexOfFirst { it.first == chosen }.coerceAtLeast(0)
     val slot = remember { Animatable(index.toFloat()) }
     LaunchedEffect(index, reduced) { if (reduced) slot.snapTo(index.toFloat()) else slot.animateTo(index.toFloat(), IndicatorSpring) }
     val highlight = MaterialTheme.colorScheme.surface
     val edge = MaterialTheme.colorScheme.outline
+    val classic = LocalLook.current.classic
     Row(
-        Modifier.fillMaxWidth().height(44.dp).clip(RectangleShape).background(MaterialTheme.colorScheme.surfaceVariant)
+        Modifier.fillMaxWidth().height(44.dp).clip(if (classic) RectangleShape else RoundedCornerShape(percent = 50))
+            .background(MaterialTheme.colorScheme.surfaceVariant).selectableGroup()
             .drawBehind {
                 val pad = 4.dp.toPx()
                 val w = (size.width - pad * 2) / options.size
-                val r = CornerRadius(10.dp.toPx())
+                val r = CornerRadius(if (classic) 10.dp.toPx() else (size.height - pad * 2) / 2)
                 val topLeft = Offset(pad + w * slot.value, pad)
                 val box = Size(w, size.height - pad * 2)
                 drawRoundRect(highlight, topLeft, box, r)
@@ -1869,11 +2138,11 @@ private fun ThemeSelector(theme: String, reduced: Boolean, onTheme: (String) -> 
     ) {
         options.forEachIndexed { i, (id, name) ->
             val selected = i == index
-            val fg by animateColorAsState(if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, tween(if (reduced) 0 else QuickMs), label = "theme fg")
-            Box(Modifier.weight(1f).fillMaxHeight().clip(RectangleShape).clickable { onTheme(id) }
-                .semantics { contentDescription = "$name theme"; this.selected = selected; role = Role.Tab },
+            val fg by animateColorAsState(if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, tween(if (reduced) 0 else QuickMs), label = "selector fg")
+            Box(Modifier.weight(1f).fillMaxHeight().clip(if (classic) RectangleShape else RoundedCornerShape(percent = 50)).clickable { onChoose(id) }
+                .semantics { contentDescription = describe(name); this.selected = selected; this.role = role },
                 contentAlignment = Alignment.Center) {
-                Text(name, fontSize = 14.sp, color = fg, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium)
+                Text(name, fontSize = 14.sp, color = fg, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium, maxLines = 1)
             }
         }
     }
@@ -1889,6 +2158,7 @@ private fun AccentSelector(selected: AccentChoice, onAccent: (AccentChoice) -> U
     val scheme = MaterialTheme.colorScheme
     val dark = scheme.background.luminance() < .5f
     val current = LocalAccent.current.accent
+    val swatch = if (LocalLook.current.classic) RectangleShape else CircleShape
     FlowRow(Modifier.fillMaxWidth().selectableGroup(), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         AccentChoice.entries.forEach { choice ->
             val chosen = choice == selected
@@ -1900,8 +2170,8 @@ private fun AccentSelector(selected: AccentChoice, onAccent: (AccentChoice) -> U
                     .padding(vertical = 4.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Box(Modifier.size(44.dp).border(2.dp, if (chosen) scheme.onBackground else Color.Transparent).padding(5.dp), contentAlignment = Alignment.Center) {
-                    Box(Modifier.fillMaxSize().border(.5.dp, scheme.outline).drawBehind {
+                Box(Modifier.size(44.dp).border(2.dp, if (chosen) scheme.onBackground else Color.Transparent, swatch).padding(5.dp), contentAlignment = Alignment.Center) {
+                    Box(Modifier.fillMaxSize().clip(swatch).border(.5.dp, scheme.outline, swatch).drawBehind {
                         if (colour != null) drawRect(colour)
                         else {
                             // Not chosen yet: the cover's colour is unknown, so show that it varies.
@@ -1928,13 +2198,17 @@ private fun SettingsGroupHeader(section: SettingsSection, modifier: Modifier = M
     Row(modifier.padding(top = 18.dp, start = 4.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
         Icon(section.icon, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
         Spacer(Modifier.width(8.dp))
-        Text(section.label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, letterSpacing = .2.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (LocalLook.current.classic) Text(section.label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, letterSpacing = .2.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        else PosterText(section.label, SectionStyle.copy(fontSize = 18.sp, lineHeight = 20.sp), color = MaterialTheme.colorScheme.onBackground)
     }
 }
 
 @Composable
 private fun SettingsCard(content: @Composable ColumnScope.() -> Unit) {
-    Surface(shape = RectangleShape, color = MaterialTheme.colorScheme.surface, border = BorderStroke(.5.dp, MaterialTheme.colorScheme.outline), modifier = Modifier.fillMaxWidth()) {
+    val look = LocalLook.current
+    // Classic: a hairline-bordered square card. Listening room: a rounded panel.
+    Surface(shape = look.card, color = if (look.classic) MaterialTheme.colorScheme.surface else look.panel, contentColor = MaterialTheme.colorScheme.onSurface,
+        border = if (look.classic) BorderStroke(.5.dp, MaterialTheme.colorScheme.outline) else null, modifier = Modifier.fillMaxWidth()) {
         // Critically damped: the card grows to fit an opened editor without overshooting.
         Column(Modifier.padding(vertical = 4.dp).animateContentSize(animationSpec = if (LocalReducedMotion.current) snap() else spring(dampingRatio = 1f, stiffness = Spring.StiffnessMediumLow)), content = content)
     }
@@ -1969,7 +2243,7 @@ private fun SettingItem(title: String, detail: String? = null, icon: ImageVector
 @Composable
 private fun IconTile(icon: ImageVector) {
     val accent = LocalAccent.current
-    Box(Modifier.size(36.dp).background(accent.accent, RectangleShape), contentAlignment = Alignment.Center) {
+    Box(Modifier.size(36.dp).background(accent.accent, LocalLook.current.tile), contentAlignment = Alignment.Center) {
         Icon(icon, null, Modifier.size(19.dp), tint = accent.onAccent)
     }
 }
@@ -2047,18 +2321,23 @@ private fun MiniPlayer(state: MusicState, onOpen: () -> Unit, onToggle: () -> Un
                 },
             ) { (shown, _) ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(width = 8.dp, height = 40.dp).background(LocalAccent.current.onDock))
+                    val look = LocalLook.current
+                    // The accent bar: square in Classic, a lit pill with a soft glow in the Listening room.
+                    if (look.classic) Box(Modifier.size(width = 8.dp, height = 40.dp).background(LocalAccent.current.onDock))
+                    else Box(Modifier.size(width = 8.dp, height = 40.dp).glow(LocalAccent.current.onDock, spread = 2.4f)
+                        .clip(RoundedCornerShape(4.dp)).background(LocalAccent.current.onDock))
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
-                        ScrollingMetadata(shown.title, DisplayStyle.copy(fontSize = 16.sp, lineHeight = 20.sp, color = Paper))
-                        ScrollingMetadata(shown.artist, TextStyle(fontFamily = font, fontSize = 13.sp, lineHeight = 16.sp, color = PaperMuted), Modifier.padding(top = 2.dp))
+                        ScrollingMetadata(shown.title, DisplayStyle.copy(fontSize = 16.sp, lineHeight = 20.sp, color = look.stageText))
+                        ScrollingMetadata(shown.artist, if (look.classic) MonoSmall.copy(lineHeight = 16.sp, color = PaperMuted)
+                            else TextStyle(fontFamily = font, fontSize = 13.sp, lineHeight = 16.sp, color = look.stageMuted), Modifier.padding(top = 2.dp))
                     }
                 }
             }
             Spacer(Modifier.width(8.dp))
             PlayPauseCircle(state.playing, loading, reduced, enabled = !state.resolving, onClick = onToggle)
             IconButton(onClick = onNext, enabled = hasNext, modifier = Modifier.size(48.dp),
-                colors = IconButtonDefaults.iconButtonColors(contentColor = Paper, disabledContentColor = PaperMuted.copy(alpha = .4f))) {
+                colors = IconButtonDefaults.iconButtonColors(contentColor = LocalLook.current.stageText, disabledContentColor = LocalLook.current.stageMuted.copy(alpha = .4f))) {
                 Icon(Glyph.Next, "Next recording", Modifier.size(20.dp))
             }
         }
@@ -2071,7 +2350,7 @@ private fun PlayPauseCircle(playing: Boolean, loading: Boolean, reduced: Boolean
     val pressed by source.collectIsPressedAsState()
     val scale by animateFloatAsState(if (pressed && !reduced) .92f else 1f, if (reduced) snap<Float>() else PressSpring, label = "play press")
     Box(
-        Modifier.size(48.dp).graphicsLayer { scaleX = scale; scaleY = scale }.clip(ButtonShape).background(Paper)
+        Modifier.size(48.dp).graphicsLayer { scaleX = scale; scaleY = scale }.clip(ButtonShape).background(LocalLook.current.stageText)
             .clickable(interactionSource = source, indication = LocalIndication.current, enabled = enabled, onClick = onClick)
             .semantics { contentDescription = if (playing) "Pause" else "Play" },
         contentAlignment = Alignment.Center,
@@ -2110,7 +2389,7 @@ private fun TrackRow(track: Track, saved: Boolean, current: Boolean, onPlay: () 
         HorizontalDivider(color = MaterialTheme.colorScheme.outline, thickness = .5.dp)
         Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Row(Modifier.weight(1f).clip(RectangleShape).clickable(onClick = onPlay).padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                Artwork(track, Modifier.size(48.dp).clip(RectangleShape), size = 48.dp)
+                Artwork(track, Modifier.size(48.dp).clip(LocalLook.current.art), size = 48.dp)
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
                     val titleColor by animateColorAsState(if (current) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface, tween(if (LocalReducedMotion.current) 0 else QuickMs), label = "row title")
@@ -2133,7 +2412,7 @@ private fun TrackRow(track: Track, saved: Boolean, current: Boolean, onPlay: () 
  * every upload has. A flat colour stands in while loading, so fast scrolling never flashes art.
  */
 @Composable
-private fun Artwork(track: Track?, modifier: Modifier = Modifier, size: Dp = 56.dp) {
+internal fun Artwork(track: Track?, modifier: Modifier = Modifier, size: Dp = 56.dp) {
     val source = track?.artwork?.takeIf { it.isNotBlank() }
     val px = with(LocalDensity.current) { size.roundToPx() }.coerceAtLeast(1)
     var attempt by remember(source) { mutableIntStateOf(0) }
@@ -2165,22 +2444,51 @@ private fun LabelledControl(label: String, image: ImageVector, onClick: () -> Un
     val tint by animateColorAsState(if (highlighted) accent.onAccent else if (enabled) scheme.onBackground else scheme.onSurfaceVariant.copy(alpha = .4f),
         tween(if (reduced) 0 else 180), label = "control tint")
     Box(
-        modifier.size(64.dp, 72.dp).pressable(enabled = enabled, onClick = onClick).clip(ButtonShape).background(fill)
-            .border(2.dp, if (enabled || highlighted) scheme.onBackground else scheme.outline, ButtonShape)
+        modifier.size(64.dp, 72.dp).pressable(enabled = enabled, onClick = onClick).clip(LocalLook.current.control).background(fill)
+            .border(if (LocalLook.current.classic) 2.dp else 1.5.dp, if (enabled || highlighted) scheme.onBackground else scheme.outline, LocalLook.current.control)
             .semantics { contentDescription = label; role = Role.Button },
         contentAlignment = Alignment.Center,
     ) { Icon(image, null, Modifier.size(24.dp), tint = tint) }
 }
 
+/** A page's headline: Classic's full-stop display line over a rule, or a Listening room poster title. */
 @Composable
 private fun PageTitle(text: String) {
-    Column(Modifier.fillMaxWidth().signalRule(bottom = true).padding(top = 8.dp, bottom = 16.dp)) {
-        Text(text, style = DisplayStyle, fontSize = 44.sp, lineHeight = 40.sp, letterSpacing = (-.02).em, modifier = Modifier.semantics { heading() })
+    val look = LocalLook.current
+    if (look.classic) Column(Modifier.fillMaxWidth().signalRule(bottom = true).padding(top = 8.dp, bottom = 16.dp)) {
+        Text(look.headline(text), style = DisplayStyle, fontSize = 44.sp, lineHeight = 40.sp, letterSpacing = (-.02).em, modifier = Modifier.semantics { heading() })
+    } else Column(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 6.dp)) {
+        PosterText(text, PosterStyle.copy(fontSize = 36.sp, lineHeight = 34.sp), heading = true)
     }
 }
 
+/** Listening room section titles: the condensed face in capitals. */
+private val SectionStyle = PosterStyle.copy(fontSize = 24.sp, lineHeight = 25.sp)
+
 @Composable
-private fun SectionTitle(text: String) { Text(text, style = DisplayStyle, fontSize = 24.sp, lineHeight = 26.sp, maxLines = 2, overflow = TextOverflow.Ellipsis) }
+private fun SectionTitle(text: String, modifier: Modifier = Modifier) {
+    if (LocalLook.current.classic) Text(text, style = DisplayStyle, fontSize = 24.sp, lineHeight = 26.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = modifier)
+    else PosterText(text, SectionStyle, modifier, maxLines = 2)
+}
+
+/** A big display line inside a section: as written in Classic, in poster capitals otherwise. */
+@Composable
+private fun Headline(text: String, size: androidx.compose.ui.unit.TextUnit, height: androidx.compose.ui.unit.TextUnit, maxLines: Int = Int.MAX_VALUE) {
+    if (LocalLook.current.classic) Text(text, style = DisplayStyle, fontSize = size, lineHeight = height, maxLines = maxLines)
+    else PosterText(text, PosterStyle.copy(fontSize = size, lineHeight = height), maxLines = maxLines)
+}
+
+/**
+ * Poster type: shown in capitals, but read by TalkBack (and found by tests) exactly as written,
+ * so a screen reader never spells out a shouted title.
+ */
+@Composable
+private fun PosterText(text: String, style: TextStyle, modifier: Modifier = Modifier, color: Color = Color.Unspecified,
+    maxLines: Int = Int.MAX_VALUE, heading: Boolean = false) {
+    val shown = remember(text) { text.uppercase(Locale.getDefault()) }
+    Text(shown, modifier.clearAndSetSemantics { this.text = AnnotatedString(text); if (heading) heading() }, color = color,
+        style = style, maxLines = maxLines, overflow = TextOverflow.Ellipsis)
+}
 
 @Composable
 private fun Caption(text: String, modifier: Modifier = Modifier) { Text(text, style = MonoSmall, lineHeight = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = modifier) }
@@ -2198,7 +2506,7 @@ private fun EmptyState(title: String, detail: String, image: ImageVector) {
 private fun ErrorBanner(message: String, onDismiss: () -> Unit, onRetry: () -> Unit, diagnostic: String = "", videoId: String = "") {
     val context = LocalContext.current
     val accent = LocalAccent.current
-    Surface(color = accent.accent, shape = RectangleShape, modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)) {
+    Surface(color = accent.accent, shape = LocalLook.current.card, modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)) {
         Column(Modifier.fillMaxWidth().padding(start = 14.dp, end = 8.dp, top = 12.dp)) {
             Text(message, fontSize = 14.sp, lineHeight = 20.sp, color = accent.onAccent)
             // The banner sits on the accent, so its actions use the on-accent colour in both themes.

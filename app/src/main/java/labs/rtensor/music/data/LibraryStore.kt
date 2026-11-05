@@ -53,6 +53,10 @@ class LibraryStore(context: Context) {
     var accent: AccentChoice
         get() = AccentChoice.parse(prefs.getString("accent", null))
         set(value) { prefs.edit().putString("accent", value.wire).apply() }
+    /** Listening room or Classic. Reading the default writes nothing. */
+    var look: LookChoice
+        get() = LookChoice.parse(prefs.getString("look", null))
+        set(value) { prefs.edit().putString("look", value.wire).apply() }
     var reducedMotion: Boolean
         get() = prefs.getBoolean("reduced_motion", false)
         set(value) { prefs.edit().putBoolean("reduced_motion", value).apply() }

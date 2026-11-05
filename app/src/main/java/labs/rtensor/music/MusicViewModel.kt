@@ -30,6 +30,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import labs.rtensor.dsp.ListeningMode
 import labs.rtensor.music.data.AccentChoice
+import labs.rtensor.music.data.LookChoice
 import labs.rtensor.music.data.LibraryStore
 import labs.rtensor.music.data.LocalAudioImporter
 import labs.rtensor.music.data.LocalMasters
@@ -87,6 +88,7 @@ data class MusicState(
     val queueIndex: Int = -1,
     val theme: String = "system",
     val accent: AccentChoice = AccentChoice.DEFAULT,
+    val look: LookChoice = LookChoice.DEFAULT,
     val reducedMotion: Boolean = false,
     val developerOptions: Boolean = false,
     val recommendationEngine: RecommendationEngine = RecommendationEngine.YOUTUBE,
@@ -156,7 +158,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private fun route(track: Track) = routes.getOrPut(track.id) { PlaybackRoute.choose(track, masters.entries.filterNot { it.uri in library.removedLocalUris }) }
     private val mutable = MutableStateFlow(MusicState(
         saved = library.tracks("saved"), history = library.tracks("history"), googleProfile = googleProfiles.load(),
-        theme = library.theme, accent = library.accent, reducedMotion = library.reducedMotion, playEvents = initialEvents.filterNot { library.isRemoved(it.track) },
+        theme = library.theme, accent = library.accent, look = library.look, reducedMotion = library.reducedMotion, playEvents = initialEvents.filterNot { library.isRemoved(it.track) },
         developerOptions = library.developerOptions,
         recommendationEngine = library.recommendationEngine,
         spotifyAccount = spotify.state.value,
@@ -880,6 +882,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         library.theme = value; mutable.update { it.copy(theme = value) }
     }
     fun accent(value: AccentChoice) { library.accent = value; mutable.update { it.copy(accent = value) } }
+    fun look(value: LookChoice) { library.look = value; mutable.update { it.copy(look = value) } }
     fun reducedMotion(value: Boolean) { library.reducedMotion = value; mutable.update { it.copy(reducedMotion = value) } }
     fun clearError() { mutable.update { it.copy(error = null, errorDiagnostic = "") } }
     fun clearHistory() {
