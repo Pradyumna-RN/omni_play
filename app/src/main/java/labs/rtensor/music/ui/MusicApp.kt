@@ -1019,53 +1019,12 @@ private fun PersonalScreen(state: MusicState, onSearch: () -> Unit, onPlay: (Tra
         // Home shelves (ui/HomeShelves.kt): "Next up for you", "Play it again" and "Your mixes".
         homeShelves(state, recommendations.fromListening, topArtists, onPlay)
         if (unheard.isNotEmpty()) item(key = "unheard") {
-            // Apple sets these songs as a plain grouped list on the page's surface, so songs
-            // added by "More from your feed" still arrive below.
             Column(motionModifier().padding(top = 20.dp).fillMaxWidth()) {
                 SectionTitle(if (state.trackHistory) "New to your ears" else "Discover more")
                 Text(if (state.trackHistory) "Songs outside your recorded listening history."
-                    else "Individual recommendations from ${state.recommendationEngine.label}.",
+                    else "Individual recommendations.",
                     fontSize = 12.sp, lineHeight = 18.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp, bottom = 8.dp))
                 unheard.forEach { track -> TrackRow(track, false, false, { onPlay(track, listOf(track)) }, null) }
-            }
-        } else if (unheard.isNotEmpty()) item(key = "unheard") {
-            if (look.classic) {
-                val accent = LocalAccent.current
-                val on = accent.onAccent
-                val scheme = MaterialTheme.colorScheme.copy(onSurface = on, onSurfaceVariant = on.copy(alpha = .8f),
-                    onBackground = on, primary = on, outline = on.copy(alpha = .25f))
-                MaterialTheme(colorScheme = scheme, typography = MaterialTheme.typography, shapes = MaterialTheme.shapes) {
-                    Column(motionModifier().padding(vertical = 20.dp).fillMaxWidth().background(accent.accent).padding(16.dp)) {
-                        Text(look.label(if (state.trackHistory) "New here" else "Keep exploring"), style = LabelText, color = on)
-                        Text(if (state.trackHistory) "New to your ears" else "Discover more", style = DisplayStyle,
-                            fontSize = 32.sp, lineHeight = 36.sp, color = on, modifier = Modifier.padding(top = 8.dp).semantics { heading() })
-                        Text(if (state.trackHistory) "Songs outside your recorded listening history."
-                            else "Individual recommendations from ${state.recommendationEngine.label}.",
-                            fontSize = 13.sp, lineHeight = 19.sp, color = on, modifier = Modifier.padding(top = 6.dp, bottom = 8.dp))
-                        unheard.forEach { track ->
-                            TrackRow(track, false, false, { onPlay(track, listOf(track)) }, null)
-                        }
-                    }
-                }
-            } else {
-                // The Listening room shows these songs as a two-column grid of cards.
-                Column(motionModifier().padding(vertical = 20.dp).fillMaxWidth()) {
-                    Text(if (state.trackHistory) "New here" else "Keep exploring", style = LabelText, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    PosterText(if (state.trackHistory) "New to your ears" else "Discover more", SectionStyle.copy(fontSize = 30.sp, lineHeight = 30.sp),
-                        Modifier.padding(top = 4.dp), heading = true)
-                    Text(if (state.trackHistory) "Songs outside your recorded listening history."
-                        else "Individual recommendations from ${state.recommendationEngine.label}.",
-                        fontSize = 13.sp, lineHeight = 19.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp, bottom = 14.dp))
-                    batches.rows(unheard.map { it.libraryKey() }).forEach { row ->
-                        Row(Modifier.fillMaxWidth().padding(bottom = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            row.forEach { index ->
-                                val track = unheard[index]
-                                RoomCard(track, Modifier.weight(1f)) { onPlay(track, listOf(track)) }
-                            }
-                            if (row.size == 1) Spacer(Modifier.weight(1f))
-                        }
-                    }
-                }
             }
         }
         // Add genuine provider shelves without repeating the individual songs already on Home.
@@ -2655,10 +2614,14 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onAccen
                 if (state.recommendationEngine == labs.rtensor.music.recommendations.RecommendationEngine.SPOTIFY) Text("Spotify discovery is experimental.", fontSize = 12.sp, color = scheme.onSurfaceVariant)
                 if (state.recommendationEngine == labs.rtensor.music.recommendations.RecommendationEngine.YOUTUBE_VIDEO) Text("YouTube videos discovery is experimental; playback stays audio-only. Video can be enabled in a later update.", fontSize = 12.sp, color = scheme.onSurfaceVariant)
                 if (state.spotifyAccount.connecting) Text("Connecting Spotify…", fontSize = 12.sp, color = scheme.onSurfaceVariant)
-                if (state.spotifyAccount.connected) Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Spotify · ${state.spotifyAccount.name}", fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        color = scheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-                    TextButton(onClick = onDisconnectSpotify) { Text("Disconnect Spotify", fontSize = 12.sp) }
+                if (state.spotifyAccount.connected) {
+                    CardDivider()
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
+                        Text("Spotify · ${state.spotifyAccount.name}", fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            color = scheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                        Spacer(Modifier.width(8.dp))
+                        OutlinedButton(onClick = onDisconnectSpotify, shape = ButtonShape) { Text("Disconnect", fontSize = 12.sp) }
+                    }
                 }
                 state.spotifyAccount.error?.let { Text(it, fontSize = 12.sp, color = scheme.onSurfaceVariant) }
             }

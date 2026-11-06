@@ -23,11 +23,11 @@ class YouTubeSource(context: Context) {
         return feed(runtime.call("home-videos", JSONObject().put("more", more).put("filter", filter).put("standalone", standalone)))
     }
     /** YouTube Music's radio for a song: the same up-next mix its own player continues with. */
-    suspend fun radio(track: Track, exclude: Collection<String> = emptyList()): List<Track> {
+    suspend fun radio(track: Track, exclude: Collection<String> = emptyList(), videos: Boolean = false): List<Track> {
         if (track.source != Source.YOUTUBE) return emptyList()
         val videoId = track.id.removePrefix("yt:").takeIf { it.matches(Regex("[A-Za-z0-9_-]{11}")) } ?: return emptyList()
         val skip = exclude.toSet() + track.id
-        return tracks(runtime.call("radio", JSONObject().put("videoId", videoId))).filter { it.id !in skip }
+        return tracks(runtime.call("radio", JSONObject().put("videoId", videoId).put("videos", videos))).filter { it.id !in skip }
     }
     suspend fun explore(): HomeFeed = feed(runtime.call("explore"))
     suspend fun browse(entry: FeedEntry, more: Boolean = false): HomeFeed = feed(runtime.call("browse", JSONObject().put("id", entry.browseId).put("params", entry.params).put("more", more)))

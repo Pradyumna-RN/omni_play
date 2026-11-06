@@ -609,7 +609,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
     private suspend fun providerRadio(seed: Track, exclude: Collection<String> = emptyList()): List<Track> =
         if (mutable.value.recommendationEngine == RecommendationEngine.SPOTIFY) spotify.radio(seed, exclude)
-        else youtube.radio(spotifyMatches.resolve(seed), exclude)
+        else youtube.radio(seed, exclude, videos = mutable.value.recommendationEngine == RecommendationEngine.YOUTUBE_VIDEO)
     fun beginSpotifySignIn() { spotify.connecting() }
     /** Every way out of Spotify sign-in leaves a result in Settings: connected, or a reason. */
     fun completeSpotifySignIn(success: Boolean, problem: String? = null) {

@@ -549,7 +549,8 @@ globalThis.musicCall = async (id, method, args) => {
         if (!/^[A-Za-z0-9_-]{11}$/.test(args.videoId)) throw failure('LINK', 'Choose a valid YouTube recording.');
         const panel = await api.music.getUpNext(args.videoId, true);
         const seen = new Set([args.videoId]);
-        result = { tracks: (panel?.contents || []).map(audioVersion).filter(isMusic).map(track).filter(t => t && !seen.has(t.id.slice(3)) && seen.add(t.id.slice(3))).slice(0, 50) }; break;
+        const videos = args.videos === true;
+        result = { tracks: (panel?.contents || []).map(audioVersion).filter(node => videos ? true : isMusic(node)).map(track).filter(t => t && !seen.has(t.id.slice(3)) && seen.add(t.id.slice(3))).slice(0, 50) }; break;
       }
       case 'explore': {
         const page = await fetchBrowsePage(api, 'FEmusic_explore');
