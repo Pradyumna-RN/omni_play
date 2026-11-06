@@ -601,7 +601,7 @@ fun MusicApp(
                                     feedEnded = target == "provider-feed" && state.feedEnded,
                                     homeFilters = if (target == "provider-feed") state.homeFilters else emptyList(), homeFilter = if (target == "provider-feed") state.homeFilter else null),
                                     ::openEntry, when { expandedFromCollection && target == "feed-section" -> onRetryCollection; exploreSection -> onRefreshExplore; else -> onRefreshFeed }, onMoreFeed,
-                                    if (target == "provider-feed") "Your ${state.recommendationEngine.label} feed" else expandedSectionTitle.orEmpty(),
+                                    if (target == "provider-feed") "Your feed" else expandedSectionTitle.orEmpty(),
                                     listState = if (target == "provider-feed") providerScroll else sectionScroll, active = page == target, expanded = target == "feed-section")
                             }
                             "collection" -> collectionStates.SaveableStateProvider(state.collectionEntry?.id ?: "pending") {
@@ -951,7 +951,7 @@ private fun PersonalScreen(state: MusicState, onSearch: () -> Unit, onPlay: (Tra
         item(key = "title") {
             Column(Modifier.padding(bottom = 4.dp)) {
                 PageTitle(if (recent != null) "Back to your music" else if (hasFeed) "For your ears" else "Room to listen")
-                Text("${state.recommendationEngine.label} recommendations", fontSize = 12.sp, maxLines = 1,
+                Text("Recommendations", fontSize = 12.sp, maxLines = 1,
                     color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = if (look.classic) 6.dp else 0.dp))
                 ProviderFilters(state)
                 Spacer(Modifier.height(8.dp))
@@ -1350,7 +1350,7 @@ private fun ExploreScreen(state: MusicState, content: ExploreShelves, tab: Strin
     Column(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 10.dp)) {
             PageTitle("Explore")
-            if (!LocalLook.current.hum) Text("Discoveries from ${state.recommendationEngine.label}.", fontSize = 12.sp, lineHeight = 19.sp,
+            if (!LocalLook.current.hum) Text("Discoveries.", fontSize = 12.sp, lineHeight = 19.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 10.dp, bottom = 16.dp))
             else Spacer(Modifier.height(16.dp))
             SegmentedTabs(tabs.map { it.second }, position.toFloat()) { onTab(tabs[it].first) }
@@ -1397,7 +1397,7 @@ private fun ProviderHome(state: MusicState, onEntry: (FeedEntry) -> Unit, onRefr
                 TextButton(onClick = if (state.feedHasMore && state.feed.isNotEmpty()) onMore else onRefresh, enabled = !state.feedBusy, shape = ButtonShape) { Text(LocalLook.current.label("Retry"), style = LabelText) }
             }
         }
-        if (state.feed.isEmpty() && !state.feedBusy && state.feedError == null) item(key = "empty") { EmptyState("More music awaits", "Pull down to load discoveries from ${state.recommendationEngine.label}.", Glyph.Compass) }
+        if (state.feed.isEmpty() && !state.feedBusy && state.feedError == null) item(key = "empty") { EmptyState("More music awaits", "Pull down to load discoveries.", Glyph.Compass) }
         item(key = "feed-tail") { FeedContinuation(state, active, onMore) }
     }
     }
@@ -1828,10 +1828,10 @@ private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () ->
                     HorizontalDivider(color = scheme.outline, thickness = .5.dp)
                     Text(when {
                         !state.autoplay -> "The queue ends here. Turn on Autoplay radio in Settings to keep going."
-                        state.radioLoading -> "Getting ${state.recommendationEngine.label} recommendations…"
+                        state.radioLoading -> "Getting recommendations…"
                         state.radioError != null -> state.radioError
                         track.source == labs.rtensor.music.data.Source.LOCAL -> "Local recording · choose another song or add recordings to the queue."
-                        else -> "${state.recommendationEngine.label} recommendations continue after this queue."
+                        else -> "Recommendations continue after this queue."
                     },
                         fontSize = 12.sp, lineHeight = 18.sp, color = scheme.onSurfaceVariant, modifier = Modifier.padding(top = 14.dp))
                     if (state.autoplay && state.radioError != null) TextButton(onClick = onRetryRadio) { Text("Retry recommendations") }
