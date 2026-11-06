@@ -114,12 +114,16 @@ data class MusicState(
     val googleError: String? = null,
     val feed: List<FeedSection> = emptyList(),
     val feedBusy: Boolean = false,
+    val feedAppending: Boolean = false,
+    val feedPage: Long = 0,
+    /** Continuations stay below the first page, preserving the opening shelves. */
+    val feedContinuations: List<FeedSection> = emptyList(),
     val homeFilters: List<String> = emptyList(),
     val homeFilter: String? = null,
     val feedHasMore: Boolean = false,
-    /** Songs "More from your feed" added below Home's recommendations, in the order they arrived. */
+    /** All songs appended by continuations, in provider order (also used by Android Auto). */
     val feedMore: List<Track> = emptyList(),
-    /** The last "More from your feed" found nothing new, so the button is gone. */
+    /** The provider has exhausted its continuation. */
     val feedEnded: Boolean = false,
     val feedError: String? = null,
     /** False when an account is connected but YouTube answered the feed as signed out. */
@@ -292,7 +296,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                         playlistsBusy = false, playlistLoading = false, playlistMutating = false, playlistError = null) }
                 }
                 val refresh = changed && mutable.value.recommendationEngine == RecommendationEngine.YOUTUBE
-                mutable.update { it.copy(account = account, homeFilters = if (refresh) emptyList() else it.homeFilters, homeFilter = if (refresh) null else it.homeFilter, feed = if (refresh) emptyList() else it.feed, feedMore = if (refresh) emptyList() else it.feedMore,
+                mutable.update { it.copy(account = account, homeFilters = if (refresh) emptyList() else it.homeFilters, homeFilter = if (refresh) null else it.homeFilter, feed = if (refresh) emptyList() else it.feed, feedContinuations = if (refresh) emptyList() else it.feedContinuations, feedMore = if (refresh) emptyList() else it.feedMore,
                     feedEnded = it.feedEnded && !refresh, explore = if (refresh) emptyList() else it.explore) }
                 if (refresh) { clearCarHome(); refreshFeed(); refreshExplore() }
             }
@@ -401,20 +405,20 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         val filter = mutable.value.homeFilter
         val request = ++feedRevision
         feedJob = viewModelScope.launch {
-            mutable.update { it.copy(feedBusy = true, feedError = null) }
+            mutable.update { it.copy(feedBusy = true, feedAppending = more, feedError = null) }
             try {
                 val fetch: suspend (Boolean) -> HomeFeed = { next -> if (engine == RecommendationEngine.SPOTIFY) spotify.home() else youtube.home(next, filter) }
                 if (more) {
                     val added = loadMoreHomeFeed(mutable.value) { fetch(true) }
-                    if (revision == recommendationRevision && request == feedRevision) mutable.update { it.withMoreHomeFeed(added).copy(feedBusy = false) }
+                    if (revision == recommendationRevision && request == feedRevision) mutable.update { it.withMoreHomeFeed(added).copy(feedBusy = false, feedAppending = false) }
                     return@launch
                 }
                 val feed = fetch(false)
                 if (revision != recommendationRevision || request != feedRevision) return@launch
-                mutable.update { it.withHomeFeed(feed, engine == RecommendationEngine.SPOTIFY || !it.account.connected || feed.personalized).copy(feedBusy = false) }
+                mutable.update { it.withHomeFeed(feed, engine == RecommendationEngine.SPOTIFY || !it.account.connected || feed.personalized).copy(feedBusy = false, feedAppending = false) }
                 if (mutable.value.forYou.isEmpty()) refreshForYou()
             } catch (e: CancellationException) { throw e }
-            catch (e: Exception) { if (revision == recommendationRevision && request == feedRevision) mutable.update { it.copy(feedBusy = false, feedError = catalogueErrorMessage(e, CatalogueMessages.FEED)) } }
+            catch (e: Exception) { if (revision == recommendationRevision && request == feedRevision) mutable.update { it.copy(feedBusy = false, feedAppending = false, feedError = catalogueErrorMessage(e, CatalogueMessages.FEED)) } }
         }
     }
 
@@ -513,7 +517,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         recommendationRevision++
         clearCarHome()
         feedJob?.cancel(); exploreJob?.cancel(); forYouJob?.cancel()
-        mutable.update { it.copy(feed = emptyList(), feedMore = emptyList(), feedEnded = false, homeFilters = emptyList(), homeFilter = null, explore = emptyList(), forYou = emptyList(), feedHasMore = false,
+        mutable.update { it.copy(feed = emptyList(), feedContinuations = emptyList(), feedPage = 0, feedAppending = false, feedMore = emptyList(), feedEnded = false, homeFilters = emptyList(), homeFilter = null, explore = emptyList(), forYou = emptyList(), feedHasMore = false,
             feedError = null, exploreError = null, feedBusy = false, exploreBusy = false, forYouBusy = false) }
         radio?.changeProvider()
         refreshFeed(); refreshExplore(); refreshForYou()

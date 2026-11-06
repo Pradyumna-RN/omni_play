@@ -51,7 +51,7 @@ those features improve.
 
 ## Quick guide
 
-1. **Install or update.** Get the [current preview release](https://github.com/RTensorLabs/music-app/releases/tag/v0.3.36).
+1. **Install or update.** Get the [current preview release](https://github.com/RTensorLabs/music-app/releases/tag/v0.3.37).
    Existing installations can use **Settings → About → Check updates**.
 2. **Choose recommendations.** Open **Settings → Playback → Recommendation source**.
    YouTube Music is the default. Selecting Spotify starts its sign-in; the choice
@@ -60,7 +60,10 @@ those features improve.
    the selected recommendation service. Search uses YouTube, with query and song
    suggestions as you type. Home also shows the provider's available mixes,
    albums, artists and community playlists; open a shelf heading to browse it.
-   YouTube mood filters appear when the provider supplies them.
+   YouTube mood filters appear when the provider supplies them. Keep scrolling
+   to load the next available page automatically; new pages append below what
+   you already see. Opening a song and leaving the player returns you to your
+   browsing position, including horizontal shelves and Library tabs.
 4. **Add your files or playback sources.** Use **Settings → Sources → Import audio**
    for a file or folder. **Playback sources** contains provider and personal-server
    connections. Supported files can be stereo, lossless or multichannel.
@@ -318,7 +321,7 @@ code. The Android installer asks the user to confirm installation.
 
 ## Current release
 
-[Music 0.3.35](https://github.com/RTensorLabs/music-app/releases/tag/v0.3.36)
+[Music 0.3.35](https://github.com/RTensorLabs/music-app/releases/tag/v0.3.37)
 adds a choice of three looks (Listening room, the new default; Soft, the original
 rounded design; and Classic), recommendation shelves on Home, the 0.3.32-style
 "More from your feed", player and notification fixes, and clearer sign-in errors.

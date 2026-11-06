@@ -6,7 +6,7 @@ import labs.rtensor.music.ui.homeRecommendationGroups
 import org.junit.Assert.*
 import org.junit.Test
 
-/** Home's "More from your feed", driven the way MusicViewModel.refreshFeed drives it. */
+/** Home's append-only continuations, driven the way MusicViewModel.refreshFeed drives it. */
 class HomeFeedMoreTest {
     /** Behaves like the YouTube engine's "home" call: a refresh starts over, "more" follows the continuation. */
     class PagedFeed(private val pages: List<List<FeedEntry>>) {
@@ -40,17 +40,17 @@ class HomeFeedMoreTest {
         var state = start(feed)
         state = tap(state, feed); state = tap(state, feed)
         assertEquals(listOf(0, 1, 2), feed.served)
-        // Each tap swaps in the newest batch.
-        assertEquals(listOf(track("p3-0")), homeRecommendationGroups(state).newToYou)
+        // Continuations accumulate in provider order.
+        assertEquals(listOf(track("p2-0"), track("p3-0")), state.feedMore)
     }
 
-    @Test fun moreShowsTheNextPagesSongsInsteadOfTheFirstSet() {
+    @Test fun continuationsKeepTheOpeningShelvesAndAppendTheirSongs() {
         val feed = PagedFeed(listOf(firstPage, (0..3).map { song("p2-$it") }, listOf(song("p3-0"))))
         val before = homeRecommendationGroups(start(feed).also { feed.served.clear() })
         assertEquals((1..5).map { track("p1-$it") }, before.newToYou)
-        val after = homeRecommendationGroups(tap(start(feed), feed))
-        assertEquals(before.fromListening, after.fromListening)
-        assertEquals((0..3).map { track("p2-$it") }, after.newToYou)
+        val after = tap(start(feed), feed)
+        assertEquals(before, homeRecommendationGroups(after))
+        assertEquals((0..3).map { track("p2-$it") }, after.feedMore)
     }
 
     @Test fun songsHomeAlreadyShowsAreNotAddedAgain() {
@@ -59,19 +59,19 @@ class HomeFeedMoreTest {
         val start = start(feed)
         val before = homeRecommendationGroups(start)
         val after = tap(start, feed)
-        assertEquals(listOf(track("p2-0"), track("p2-1")), homeRecommendationGroups(after).newToYou)
+        assertEquals(listOf(track("p2-0"), track("p2-1")), after.feedMore)
         assertTrue(before.newToYou.isNotEmpty())
         assertEquals("Home never shows a recording twice", after.shownKeys().distinct(), after.shownKeys())
     }
 
-    @Test fun eachTapSwapsInTheNextHandfulAndKeepsTheMix() {
+    @Test fun eachContinuationAccumulatesSongsAndKeepsTheOpeningMix() {
         val feed = PagedFeed(listOf(firstPage, (0..7).map { song("p2-$it") }, listOf(song("p3-0"), song("p3-1")), listOf(song("p4-0"))))
         val first = start(feed)
         val second = tap(first, feed)
         val third = tap(second, feed)
-        // Up to six, from the end of the newest page.
-        assertEquals((2..7).map { track("p2-$it") }, homeRecommendationGroups(second).newToYou)
-        assertEquals(listOf(track("p3-0"), track("p3-1")), homeRecommendationGroups(third).newToYou)
+        // Every new song remains available below the opening shelves.
+        assertEquals((0..7).map { track("p2-$it") }, second.feedMore)
+        assertEquals(second.feedMore + listOf(track("p3-0"), track("p3-1")), third.feedMore)
         for (later in listOf(second, third)) assertEquals(homeRecommendationGroups(first).fromListening, homeRecommendationGroups(later).fromListening)
     }
 
@@ -81,7 +81,7 @@ class HomeFeedMoreTest {
         val before = homeRecommendationGroups(start)
         val after = tap(start, feed)
         assertEquals(listOf(0, 1, 2), feed.served)
-        assertEquals(listOf(track("p3-0")), homeRecommendationGroups(after).newToYou)
+        assertEquals(listOf(track("p3-0")), after.feedMore)
         assertTrue(before.newToYou.isNotEmpty())
         assertTrue(after.feedHasMore)
     }
@@ -89,27 +89,28 @@ class HomeFeedMoreTest {
     @Test fun theLastPageHidesTheButton() {
         val feed = PagedFeed(listOf(firstPage, listOf(song("p2-0"))))
         val after = tap(start(feed), feed)
-        assertEquals(track("p2-0"), homeRecommendationGroups(after).newToYou.last())
+        assertEquals(track("p2-0"), after.feedMore.last())
         assertFalse(after.feedHasMore)
     }
 
-    @Test fun pagesWithNothingNewStopAfterThreeAndHideTheButton() {
+    @Test fun duplicateBatchesDoNotInventAnEndWhileTheProviderHasMore() {
         val repeat = listOf(song("f0"), song("p1-4"), playlist)
         val feed = PagedFeed(listOf(firstPage, repeat, repeat, repeat, listOf(song("p5-0"))))
         val start = start(feed)
         val after = tap(start, feed)
         assertEquals("at most three continuations per tap", listOf(0, 1, 2, 3), feed.served)
         assertEquals(homeRecommendationGroups(start), homeRecommendationGroups(after))
-        assertFalse(after.feedHasMore)
-        assertTrue(after.feedEnded)
+        assertTrue(after.feedHasMore)
+        assertFalse(after.feedEnded)
+        assertEquals(listOf(track("p5-0")), tap(after, feed).feedMore)
     }
 
     @Test fun onlyIndividualSongsAreAdded() {
         val video = FeedEntry("noVideo", "An entry without a recording", "", "", "song", "", "")
         val feed = PagedFeed(listOf(firstPage, listOf(playlist, video, song("p2-0")), listOf(song("p3-0"))))
-        val after = homeRecommendationGroups(tap(start(feed), feed))
-        assertEquals(track("p2-0"), after.newToYou.last())
-        assertTrue(after.newToYou.none { it.title == playlist.title || it.title == video.title })
+        val after = tap(start(feed), feed).feedMore
+        assertEquals(track("p2-0"), after.last())
+        assertTrue(after.none { it.title == playlist.title || it.title == video.title })
     }
 
     @Test fun pullToRefreshStartsOverInsteadOfAppending() {
@@ -118,7 +119,7 @@ class HomeFeedMoreTest {
         val refreshed = runBlocking { tap(start, feed).withHomeFeed(feed.home(false), personalized = true) }
         assertEquals(homeRecommendationGroups(start), homeRecommendationGroups(refreshed))
         assertTrue(refreshed.feedHasMore)
-        assertEquals(track("p2-0"), homeRecommendationGroups(tap(refreshed, feed)).newToYou.last())
+        assertEquals(track("p2-0"), tap(refreshed, feed).feedMore.last())
     }
 
     @Test fun anAddedSongLaterMixedForYouStillAppearsOnce() {
@@ -137,7 +138,8 @@ class HomeFeedMoreTest {
         val before = start(feed)
         val after = tap(before, feed)
         assertEquals(listOf(0, 1), feed.served)
-        assertEquals(before.feed + FeedSection("Page 1", listOf(newList)), after.feed)
+        assertEquals(before.feed, after.feed)
+        assertEquals(listOf(FeedSection("Page 1", listOf(newList))), after.feedContinuations)
         assertTrue(after.feedHasMore)
         assertFalse(after.feedEnded)
         assertEquals(before.feedMore, after.feedMore)

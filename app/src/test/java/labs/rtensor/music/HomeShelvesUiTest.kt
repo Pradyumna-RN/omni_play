@@ -66,7 +66,7 @@ class HomeShelvesUiTest {
             }
             compose.onNodeWithText("Your mix").assertIsDisplayed()
             compose.onNodeWithText("Tonight").assertExists()
-            // "New to your ears" stays one shelf, with More from your feed under it.
+            // The opening discovery shelf stays in place.
             home().performScrollToKey("unheard"); compose.onNodeWithText("New to your ears").assertIsDisplayed()
         }
     }
@@ -143,11 +143,15 @@ class HomeShelvesUiTest {
         compose.onNodeWithText("Replay 1").assertDoesNotExist()
     }
 
-    @Test fun moreFromYourFeedStaysUnderNewToYourEars() {
+    @Test fun reachingTheFeedEndLoadsAutomaticallyWithoutDuplicateButtons() {
         var more = 0
-        compose.setContent { MusicApp(fixture(), onMoreFeed = { more++ }) }
-        home().performScrollToKey("more")
-        compose.onNodeWithText("More from your feed").assertIsDisplayed().performClick()
+        val state = mutableStateOf(fixture())
+        compose.setContent { MusicApp(state.value, onMoreFeed = { more++; state.value = state.value.copy(feedBusy = true, feedAppending = true) }) }
+        compose.onNodeWithText("More from your feed").assertDoesNotExist()
+        compose.onNodeWithText("Your YouTube Music feed").assertDoesNotExist()
+        home().performScrollToKey("feed-tail")
+        compose.waitUntil(5_000) { more == 1 }
+        compose.mainClock.advanceTimeBy(1_000)
         compose.runOnIdle { assertEquals(1, more) }
     }
 

@@ -15,6 +15,8 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -372,6 +374,16 @@ fun MusicApp(
     var expandedFromExplore by rememberSaveable { mutableStateOf(false) }
     var back by rememberSaveable { mutableStateOf("home") }
     var root by rememberSaveable { mutableStateOf(startPage.takeIf { it in rootPages } ?: "home") }
+    val browserStates = rememberSaveableStateHolder()
+    // Opening the player must not repartition the shelves when the selected song enters history.
+    val homeRecommendations = remember(state.feed, state.forYou, state.trackHistory) { homeRecommendationGroups(state) }
+    val homeShown = remember(state.feed, state.forYou, state.trackHistory) {
+        (homeRecommendations.fromListening + homeRecommendations.newToYou + state.history).mapTo(HashSet()) { it.libraryKey() }
+    }
+    val homeScroll = rememberLazyListState()
+    val exploreScroll = rememberLazyListState()
+    val providerScroll = rememberLazyListState()
+    val sectionScroll = key(expandedSectionTitle, expandedFromExplore) { rememberLazyListState() }
     val searchFocus = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
     val reduced = state.reducedMotion
@@ -490,21 +502,24 @@ fun MusicApp(
                         },
                         label = "screen", modifier = Modifier.weight(1f),
                     ) { target ->
+                        RetainedBrowserScreen(browserStates, target) {
                         when (target) {
                             "search" -> if (!state.searched) SearchSuggestionList(state, onSuggestion, { play(it, listOf(it)) }) else SearchResults(state, ::play, onSave)
-                            "explore" -> ProviderHome(state.copy(feed = state.explore, feedBusy = state.exploreBusy, feedError = state.exploreError, feedHasMore = false, homeFilters = emptyList(), homeFilter = null), ::openEntry, onRefreshExplore, {}, "Explore")
+                            "explore" -> ProviderHome(state.copy(feed = state.explore, feedBusy = state.exploreBusy, feedError = state.exploreError, feedHasMore = false, homeFilters = emptyList(), homeFilter = null, feedEnded = false), ::openEntry, onRefreshExplore, {}, "Explore", listState = exploreScroll, active = page == "explore" && !showResults)
                             "library" -> LibraryScreen(state, ::play, onSave, ::focusSearch, onRemovePlay)
                             "now" -> NowScreen(state, onToggle, onPrevious, onNext, onSeek, onSave, onSkipTo, onProcessing, playbackPosition, onRetryRadio, audioLevels, metering)
                             "provider-feed", "feed-section" -> {
                                 val exploreSection = target == "feed-section" && expandedFromExplore
-                                val sections = if (exploreSection) state.explore else state.feed
+                                val sections = if (exploreSection) state.explore else state.feed + state.feedContinuations
                                 ProviderHome(state.copy(feed = if (target == "provider-feed") sections else sections.filter { it.title == expandedSectionTitle },
                                     feedBusy = if (exploreSection) state.exploreBusy else state.feedBusy,
                                     feedError = if (exploreSection) state.exploreError else state.feedError,
-                                    feedHasMore = !exploreSection && state.feedHasMore,
+                                    feedHasMore = target == "provider-feed" && state.feedHasMore,
+                                    feedEnded = target == "provider-feed" && state.feedEnded,
                                     homeFilters = if (target == "provider-feed") state.homeFilters else emptyList(), homeFilter = if (target == "provider-feed") state.homeFilter else null),
                                     ::openEntry, if (exploreSection) onRefreshExplore else onRefreshFeed, onMoreFeed,
-                                    if (target == "provider-feed") "Your ${state.recommendationEngine.label} feed" else expandedSectionTitle.orEmpty())
+                                    if (target == "provider-feed") "Your ${state.recommendationEngine.label} feed" else expandedSectionTitle.orEmpty(),
+                                    listState = if (target == "provider-feed") providerScroll else sectionScroll, active = page == target)
                             }
                             "collection" -> CollectionScreen(state, ::play, onSave, onMoreCollection)
                             "settings" -> SettingsScreen(state, onTheme, onAccent, onLook, onOpenLocal, onChooseMasters, onClearMasters, onClearHistory,
@@ -513,7 +528,8 @@ fun MusicApp(
                                 onConnectApple, onNativeApple, onDisconnectApple, onCancelApple, onDeveloperOptions,
                                 onRecommendationEngine, onConnectSpotify, onDisconnectSpotify)
                             else -> HomeScreen(state, ::focusSearch, ::play, onToggle, ::openEntry, { onRefreshFeed(); onRefreshForYou() }, onMoreFeed, onConnect,
-                                onOpenPlayer = { navigate("now") }, audioLevels = audioLevels, metering = metering)
+                                onOpenPlayer = { navigate("now") }, audioLevels = audioLevels, metering = metering, listState = homeScroll, active = page == "home" && !showResults, recommendations = homeRecommendations, shownKeys = homeShown)
+                        }
                         }
                     }
                 }
@@ -741,7 +757,8 @@ internal class MeteringClaims {
 @Composable
 private fun HomeScreen(state: MusicState, onSearch: () -> Unit, onPlay: (Track, List<Track>) -> Unit, onToggle: () -> Unit,
     onEntry: (FeedEntry) -> Unit, onRefresh: () -> Unit, onMore: () -> Unit, onConnect: () -> Unit,
-    onOpenPlayer: () -> Unit = {}, audioLevels: StateFlow<labs.rtensor.dsp.AudioLevelFrame?>? = null, metering: MeteringClaims? = null) {
+    onOpenPlayer: () -> Unit = {}, audioLevels: StateFlow<labs.rtensor.dsp.AudioLevelFrame?>? = null, metering: MeteringClaims? = null, listState: LazyListState = rememberLazyListState(), active: Boolean = true,
+    recommendations: HomeRecommendationGroups = homeRecommendationGroups(state), shownKeys: Set<String>? = null) {
     val recent = state.history.firstOrNull()
     val recentIsCurrent = recent != null && recent.libraryKey() == state.current?.libraryKey()
     val recentLoading = recentIsCurrent && (state.resolving || state.buffering)
@@ -760,17 +777,14 @@ private fun HomeScreen(state: MusicState, onSearch: () -> Unit, onPlay: (Track, 
         Recommender.artistAffinity(state.playEvents, now).filterValues { it > 0 }.entries
             .sortedByDescending { it.value }.take(2).mapNotNull { names[it.key] }
     }
-    val recommendations = remember(state.forYou, state.feed, state.feedMore, state.playEvents, state.history, state.current, state.trackHistory) {
-        homeRecommendationGroups(state)
-    }
     val unheard = recommendations.newToYou
     // Only the songs Home actually shows (collections stay in Explore), and only to disk.
     PrefetchArtwork((recommendations.fromListening + recommendations.newToYou + state.history.take(12)).map(Track::artwork), 156.dp, diskOnly = true)
     val look = LocalLook.current
     // Rows of the song grid that already show stay as they are when "More from your feed" adds songs.
     val batches = remember(state.feed) { GridBatches() }
-    PullToRefresh(state.feedBusy, onRefresh) {
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 24.dp)) {
+    PullToRefresh(state.feedBusy && !state.feedAppending, onRefresh) {
+    LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 24.dp)) {
         // The Listening room opens on your room: the speakers you are hearing, lit by what plays.
         if (look.room) item(key = "room") {
             ListeningRoom(state, audioLevels, metering, onOpenPlayer, Modifier.padding(top = 4.dp, bottom = 6.dp))
@@ -782,7 +796,7 @@ private fun HomeScreen(state: MusicState, onSearch: () -> Unit, onPlay: (Track, 
                     color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = if (look.classic) 6.dp else 0.dp))
                 ProviderFilters(state)
                 Spacer(Modifier.height(8.dp))
-                LoadingLine(state.feedBusy, state.reducedMotion)
+                LoadingLine(state.feedBusy && !state.feedAppending, state.reducedMotion)
             }
         }
         val google = state.googleProfile
@@ -793,7 +807,7 @@ private fun HomeScreen(state: MusicState, onSearch: () -> Unit, onPlay: (Track, 
             NoticeBanner("Your YouTube Music feed isn’t coming through",
                 "YouTube answered as signed out, so this is the general feed. Reconnecting your account usually fixes it.", "Reconnect", onConnect, motionModifier().padding(top = 16.dp))
         }
-        if (state.feedError != null) item(key = "feed-error") {
+        if (state.feedError != null && (state.feed.isEmpty() || !state.feedHasMore)) item(key = "feed-error") {
             Row(motionModifier().fillMaxWidth().padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(state.feedError, fontSize = 13.sp, lineHeight = 19.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
                 TextButton(onClick = onRefresh, shape = ButtonShape) { Text(look.label("Retry"), style = LabelText) }
@@ -898,25 +912,13 @@ private fun HomeScreen(state: MusicState, onSearch: () -> Unit, onPlay: (Track, 
             }
         }
         // Add genuine provider shelves without repeating the individual songs already on Home.
-        val shown = (recommendations.fromListening + recommendations.newToYou + state.history + state.feedMore).map { it.libraryKey() }.toSet()
-        val providerSections = state.feed.map { section -> section.copy(items = section.items.filter { entry ->
+        val shown = shownKeys ?: (recommendations.fromListening + recommendations.newToYou + state.history).map { it.libraryKey() }.toSet()
+        val providerSections = (state.feed + state.feedContinuations).map { section -> section.copy(items = section.items.filter { entry ->
             if (entry.videoId.isNotBlank() || entry.kind == "spotify_track") entry.asTrack().libraryKey() !in shown else true
         }) }.filter { it.items.isNotEmpty() }
         providerShelves(providerSections, onEntry, 24.dp)
-        if (state.feed.isNotEmpty()) item(key = "full-provider-feed") {
-            val open = LocalFeedSectionOpen.current
-            OutlinedButton(onClick = { open(null) }, modifier = Modifier.fillMaxWidth().padding(top = 20.dp), shape = ButtonShape) {
-                Text("Your ${state.recommendationEngine.label} feed")
-            }
-        }
-        if (state.feedHasMore) item(key = "more") {
-            if (look.soft) OutlinedButton(onClick = onMore, enabled = !state.feedBusy, shape = RoundedCornerShape(14.dp),
-                modifier = Modifier.fillMaxWidth().padding(top = 20.dp).heightIn(min = 48.dp)) { Text("More from your feed") }
-            else SignalOutlineButton("More from your feed", Modifier.fillMaxWidth().padding(top = 20.dp), enabled = !state.feedBusy, onClick = onMore)
-        } else if (state.feedEnded) item(key = "more") {
-            Text("Nothing new in your feed right now. Pull down to refresh.", fontSize = 13.sp, lineHeight = 19.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.fillMaxWidth().padding(top = 20.dp))
-        }
+        item(key = "feed-tail") { FeedContinuation(state, active, onMore) }
+
     }
     }
 }
@@ -1240,27 +1242,27 @@ private fun ScrollingMetadata(text: String, style: TextStyle, modifier: Modifier
 }
 
 @Composable
-private fun ProviderHome(state: MusicState, onEntry: (FeedEntry) -> Unit, onRefresh: () -> Unit, onMore: () -> Unit, title: String = "For your ears") {
+private fun ProviderHome(state: MusicState, onEntry: (FeedEntry) -> Unit, onRefresh: () -> Unit, onMore: () -> Unit, title: String = "For your ears", listState: LazyListState = rememberLazyListState(), active: Boolean = true) {
     PrefetchArtwork(state.feed.flatMap { it.items.take(4).map(FeedEntry::artwork) }.take(12), 140.dp, diskOnly = true)
-    PullToRefresh(state.feedBusy, onRefresh) {
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 10.dp, bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(22.dp)) {
+    PullToRefresh(state.feedBusy && !state.feedAppending, onRefresh) {
+    LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 10.dp, bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(22.dp)) {
         item(key = "title") {
             Column {
                 PageTitle(title)
                 if (title == "Explore") Text("Discoveries from ${state.recommendationEngine.label}.", fontSize = 12.sp, lineHeight = 19.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 10.dp))
                 Spacer(Modifier.height(16.dp))
-                LoadingLine(state.feedBusy, state.reducedMotion)
+                LoadingLine(state.feedBusy && !state.feedAppending, state.reducedMotion)
             }
         }
         feedSections(state.feed, onEntry)
-        if (state.feedError != null) item(key = "error") {
+        if (state.feedError != null && (state.feed.isEmpty() || !state.feedHasMore)) item(key = "error") {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(state.feedError, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-                TextButton(onClick = onRefresh, enabled = !state.feedBusy, shape = ButtonShape) { Text(LocalLook.current.label("Retry"), style = LabelText) }
+                TextButton(onClick = if (state.feedHasMore && state.feed.isNotEmpty()) onMore else onRefresh, enabled = !state.feedBusy, shape = ButtonShape) { Text(LocalLook.current.label("Retry"), style = LabelText) }
             }
         }
         if (state.feed.isEmpty() && !state.feedBusy && state.feedError == null) item(key = "empty") { EmptyState("More music awaits", "Pull down to load discoveries from ${state.recommendationEngine.label}.", Glyph.Compass) }
-        if (state.feedHasMore) item(key = "more") { OutlinedButton(onClick = onMore, enabled = !state.feedBusy, modifier = Modifier.fillMaxWidth(), shape = ButtonShape) { Text("More from your feed") } }
+        item(key = "feed-tail") { FeedContinuation(state, active, onMore) }
     }
     }
 }

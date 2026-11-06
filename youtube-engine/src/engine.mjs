@@ -1,3 +1,4 @@
+import { advanceHomeCursor } from './feed-cursor.mjs';
 import { Innertube, Player, Platform, Log, Constants, ClientType } from 'youtubei.js/web';
 import { track, sections, safeError, largestArtwork, isMusic, audioVersion } from './mapping.mjs';
 import { createLibraryActions, libraryMethods, searchSuggestions } from './library-actions.mjs';
@@ -454,6 +455,7 @@ function sharedResolve(api, id, forceProof, rejectedPaths, requiredFormat) {
   return resolving.get(key);
 }
 const libraryActions = createLibraryActions();
+const homeCursors = new Set();
 globalThis.musicCancelSuggestions = id => {
   if (desiredSuggestions?.id === id) desiredSuggestions = null;
   transportFetch.cancel('suggestions:' + id);
@@ -490,6 +492,9 @@ globalThis.musicCall = async (id, method, args) => {
       }
       case 'verify-session': result = await accountProfile(api); break;
       case 'home': {
+        if (args.more && !homeFeed?.has_continuation) {
+          result = { sections: [], hasMore: false, filters: homeFilters, selectedFilter: activeHomeFilter }; break;
+        }
         const request = ++feedRequest;
         let page, filters = homeFilters, selected = activeHomeFilter;
         if (args.more && homeFeed?.has_continuation) page = await homeFeed.getContinuation();
@@ -500,7 +505,7 @@ globalThis.musicCall = async (id, method, args) => {
             page = await page.applyFilter(selected);
           }
         }
-        if (request === feedRequest) { homeFeed = page; homeFilters = filters; activeHomeFilter = selected; }
+        if (request === feedRequest) { advanceHomeCursor(homeCursors, page, !!args.more); homeFeed = page; homeFilters = filters; activeHomeFilter = selected; }
         const signedIn = !!api.session.logged_in;
         result = { sections: sections(page), hasMore: !!page.has_continuation, signedIn, filters, selectedFilter: selected,
           personalized: signedIn && lastMusicLoggedOut !== true }; break;

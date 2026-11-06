@@ -1,3 +1,28 @@
+# Music 0.3.37 / continuous feeds and retained browsing position
+
+- Home loads genuine provider continuations automatically near the bottom, until
+  YouTube reports no continuation. Both full-feed/More buttons are removed; all
+  provider shelves remain on Home. Pull to refresh remains an explicit reset.
+- Continuations append below the first page, without replacing New to your ears,
+  rebuilding the opening mixes or dropping previous pages. Duplicate-content
+  batches retain the provider's continuation instead of ending after three pages.
+- The YouTube engine stops on the actual end without refetching the first page.
+  Repeated server cursors raise a recoverable error to prevent automatic loops.
+  Failed page requests wait for Retry loading more and retain loaded content.
+- Home and Explore retain their vertical position through player navigation;
+  nested shelves and Library tabs retain their saved state. Starting a song does
+  not remove that song from the visible provider shelf when it enters history.
+- Pagination uses a bottom loading indicator rather than the pull-to-refresh
+  spinner, and pauses while the browsing screen is inactive. Existing looks,
+  playback providers, playlists and audio engine are retained.
+
+Host/fixture tests cover provider end/repeat cursors, append-only pages, automatic
+loading/retry, and returning from playback after content is inserted above the
+scroll anchor. No phone or live signed-in YouTube account was used. Release checks
+and exact counts are in decoder-validation.json attached to the release.
+
+## Previous release baseline
+
 # Music 0.3.36 / song actions, playlists and player motion
 
 - Long-press songs or use their menu for Play next, Add to queue, Start radio,
