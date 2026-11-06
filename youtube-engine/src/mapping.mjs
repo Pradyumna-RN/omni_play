@@ -51,6 +51,57 @@ export function audioVersion(node) {
   if (node?.type !== 'PlaylistPanelVideoWrapper') return node;
   return [node.primary, ...(node.counterpart || [])].find(v => v && videoType(v) === 'MUSIC_VIDEO_TYPE_ATV') || node.primary;
 }
+const timeToSeconds = text => String(text || '').trim().split(':').reduce((total, part) => total * 60 + (parseInt(part.replace(/\D/g, ''), 10) || 0), 0);
+const lockupArtwork = image => {
+  if (!image) return '';
+  const target = image.primary_thumbnail ?? image;
+  return largestArtwork(target.image ?? target.thumbnails ?? []);
+};
+/** A regular YouTube home-feed item: full videos and movies only; no Shorts, playlists or channels. */
+export function videoEntry(node) {
+  if (!node) return null;
+  const type = node.type || '';
+  let id = '', title = '', channel = '', artwork = '', durationSec = 0;
+  if (type === 'LockupView') {
+    if (node.content_type !== 'VIDEO' && node.content_type !== 'MOVIE' && node.content_type !== 'PODCAST') return null;
+    id = node.content_id || '';
+    title = text(node.metadata?.title?.toString?.());
+    const rows = node.metadata?.metadata?.metadata_rows || [];
+    const firstRow = (rows[0]?.metadata_parts || []).map(part => part.text?.toString()).filter(Boolean).join(' ');
+    channel = firstRow;
+    artwork = lockupArtwork(node.content_image);
+    durationSec = node.duration?.seconds || 0;
+  } else if (type === 'Video' || type === 'GridVideo' || type === 'CompactVideo' || type === 'PlaylistVideo') {
+    id = node.video_id || '';
+    title = text(node.title?.toString?.());
+    channel = text(node.author?.name || node.byline_text?.toString?.());
+    artwork = largestArtwork(node.thumbnails || []);
+    durationSec = node.duration?.seconds ?? (typeof node.duration === 'object' && node.duration?.text ? timeToSeconds(node.duration.text) : 0);
+  } else return null;
+  if (!videoPattern.test(id) || !title) return null;
+  return { id: `yt:${id}`, title, subtitle: channel, artist: channel, artwork,
+    kind: 'song', browseId: '', videoId: id, durationMs: Math.max(0, durationSec) * 1000 };
+}
+/** The YouTube (videos) home feed, kept in the provider's order; videos only. */
+export function videoSections(feed) {
+  const shelves = feed.shelves || [];
+  const inShelves = new Set();
+  const sections = [];
+  for (const shelf of shelves) {
+    const items = (shelf.contents || []).map(node => { inShelves.add(node); return videoEntry(node); }).filter(Boolean);
+    const title = text(shelf.title?.toString?.()) || 'More on YouTube';
+    if (items.length) sections.push({ title, items });
+  }
+  const loose = (feed.videos || []).filter(node => !inShelves.has(node)).map(videoEntry).filter(Boolean);
+  if (loose.length) sections.unshift({ title: 'From YouTube', items: loose });
+  return sections;
+}
+/** Track-shaped mapping for WEB search results (same shape as [track]). */
+export function videoTrack(node) {
+  const item = videoEntry(node);
+  return item ? { id: item.id, title: item.title, artist: item.artist, artwork: item.artwork,
+    durationMs: item.durationMs, source: 'YOUTUBE', url: `https://www.youtube.com/watch?v=${item.videoId}` } : null;
+}
 export function sections(feed) {
   // Keep the provider's section, item and duplicate order. No app ranking; music only.
   return (feed.sections || []).map(section => ({ title: text(section.header?.title || section.title) || 'From YouTube Music',

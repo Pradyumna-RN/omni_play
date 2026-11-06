@@ -12,10 +12,15 @@ class YouTubeSource(context: Context) {
         val data = runtime.call("suggestions", JSONObject().put("query", query)).getJSONArray("suggestions")
         return (0 until data.length()).map { i -> data.getJSONObject(i).let { SearchSuggestion(it.getString("text"), it.optJSONObject("track")?.let(Track::fromJson)) } }
     }
-    suspend fun search(query: String): List<Track> = tracks(runtime.call("search", JSONObject().put("query", query)))
-    suspend fun collection(entry: FeedEntry): List<Track> = tracks(runtime.call("collection", JSONObject().put("id", entry.browseId).put("kind", entry.kind)))
+    suspend fun search(query: String, videos: Boolean = false): List<Track> = tracks(runtime.call("search", JSONObject().put("query", query).put("videos", videos)))
+    suspend fun collection(entry: FeedEntry): List<Track> = tracks(runtime.call("collection",
+        JSONObject().put("id", entry.browseId.ifBlank { entry.id }).put("kind", entry.kind)))
     suspend fun home(more: Boolean = false, filter: String? = null): HomeFeed {
         return feed(runtime.call("home", JSONObject().put("more", more).put("filter", filter)))
+    }
+    /** Regular YouTube's personalised Home feed; audio of a tapped video plays, no video surface. */
+    suspend fun homeVideos(more: Boolean = false, filter: String? = null, standalone: Boolean = false): HomeFeed {
+        return feed(runtime.call("home-videos", JSONObject().put("more", more).put("filter", filter).put("standalone", standalone)))
     }
     /** YouTube Music's radio for a song: the same up-next mix its own player continues with. */
     suspend fun radio(track: Track, exclude: Collection<String> = emptyList()): List<Track> {

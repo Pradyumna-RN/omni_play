@@ -36,6 +36,8 @@ internal fun ProviderFilters(state: MusicState) {
     val filters = state.homeFilters.filterNot { it.contains("podcast", ignoreCase = true) }
     if (filters.isEmpty()) return
     val select = LocalHomeFilterSelect.current
+    // YouTube may already return an "All" chip — filter it out so we show exactly one "All".
+    val filters = state.homeFilters.filter { it.lowercase() != "all" }
     LazyRow(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         item { FilterChip(state.homeFilter == null, { select(null) }, label = { Text("All") }) }
         itemsIndexed(filters, key = { i, title -> "$i:$title" }) { _, title ->

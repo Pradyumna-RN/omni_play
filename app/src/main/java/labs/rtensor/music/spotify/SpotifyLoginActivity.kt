@@ -8,6 +8,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -170,13 +171,13 @@ internal fun SpotifyLoginScreen(pageUrl: String, message: String, busy: Boolean,
             }
             Text(runCatching { android.net.Uri.parse(pageUrl).host }.getOrNull() ?: "Spotify sign-in",
                 fontSize = 14.sp, modifier = Modifier.padding(horizontal = 16.dp))
-            Text(message, fontSize = 14.sp, lineHeight = 18.sp, modifier = Modifier.padding(16.dp))
+            Text(message, fontSize = 14.sp, lineHeight = 18.sp, maxLines = 4, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.padding(16.dp))
             Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
                 TextButton(onClick = onSignIn, enabled = !busy) { Text("Sign in") }
                 TextButton(onClick = onReload, enabled = !busy) { Text("Reload") }
             }
             if (busy || loading) LinearProgressIndicator(Modifier.fillMaxWidth())
-            Box(Modifier.weight(1f).fillMaxWidth()) { browser() }
+            Box(Modifier.weight(1f).fillMaxWidth().background(androidx.compose.ui.graphics.Color.White)) { browser() }
         }
     }
 }

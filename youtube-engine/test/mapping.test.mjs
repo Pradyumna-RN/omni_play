@@ -14,6 +14,13 @@ test('album and playlist recommendations retain their browse identity', () => {
   assert.equal(p.browseId, 'VLPL1234567890');
   assert.equal(track({ id: 'MPREb_test', title: 'Album' }), null);
 });
+test('an MPR album id is an album even when its home card reports browse', () => {
+  const browse = entry({ title: 'Album', item_type: 'browse', endpoint: { payload: { browseId: 'MPREb_homecard' } } });
+  assert.equal(browse.kind, 'album');
+  assert.equal(browse.browseId, 'MPREb_homecard');
+  assert.equal(entry({ title: 'Album', item_type: 'endpoint', endpoint: { payload: { browseId: 'MPREb_endpoint' } } }).kind, 'album');
+  assert.equal(entry({ title: 'Mix', item_type: 'browse', endpoint: { payload: { browseId: 'VLPL1234567890' } } }).kind, 'browse');
+});
 test('playback mapping keeps the original provider video id', () => {
   const song = track({ id: 'jNQXAC9IVRw', title: 'Recording', artists: [{ name: 'Artist' }], duration: { seconds: 19 } });
   assert.equal(song.url, 'https://www.youtube.com/watch?v=jNQXAC9IVRw');
@@ -105,4 +112,35 @@ test('music videos, podcasts and episodes never reach feeds or radio', () => {
   assert.equal(isMusic(omv), false);
   assert.equal(audioVersion({ type: 'PlaylistPanelVideoWrapper', primary: omv, counterpart: [song] }), song);
   assert.equal(isMusic({ title: 'Unlabelled', endpoint: { payload: { videoId: 'fffffffffff' } } }), true);
+});
+test('WEB search mapping keeps video identity and drops non-videos', async () => {
+  const { videoTrack } = await import('../src/mapping.mjs');
+  const trackLike = videoTrack({ type: 'Video', video_id: 'jNQXAC9IVRw', title: { toString: () => 'Video' },
+    author: { name: 'Channel' }, thumbnails: [{ url: 'https://i/x', width: 640, height: 360 }], duration: { seconds: 19 } });
+  assert.equal(trackLike.id, 'yt:jNQXAC9IVRw');
+  assert.equal(trackLike.url, 'https://www.youtube.com/watch?v=jNQXAC9IVRw');
+  assert.equal(trackLike.durationMs, 19000);
+  assert.equal(videoTrack({ type: 'ShortsLockupView' }), null);
+});
+test('youtube videos feed keeps provider order and drops shorts and lockups', async () => {
+  const { videoSections } = await import('../src/mapping.mjs');
+  const video = (id, title, extra = {}) => ({ type: 'Video', video_id: id, title: { toString: () => title },
+    author: { name: 'Channel' }, thumbnails: [{ url: 'https://i/' + id, width: 640, height: 360 }], duration: { seconds: 120 }, ...extra });
+  const shelf = { type: 'Shelf', title: { toString: () => 'Shelf title' }, contents: [video('bbbbbbbbbbb', 'In shelf')] };
+  const fakeFeed = {
+    shelves: [shelf],
+    videos: [
+      video('aaaaaaaaaaa', 'First'),
+      ...shelf.contents,
+      { type: 'LockupView', content_type: 'SHORT', content_id: 'ccccccccccc', metadata: { title: { toString: () => 'Short' } } },
+      { type: 'LockupView', content_type: 'VIDEO', content_id: 'ddddddddddd', content_image: { image: [{ url: 'https://i/ddddddddddd', width: 640, height: 360 }] },
+        metadata: { title: { toString: () => 'Lockup' }, metadata: { metadata_rows: [{ metadata_parts: [{ text: { toString: () => 'Lockup channel' } }] }] } }, duration: { seconds: 200 } },
+    ],
+  };
+  const out = videoSections(fakeFeed);
+  assert.deepEqual(out.map(s => s.title), ['From YouTube', 'Shelf title']);
+  assert.deepEqual(out[0].items.map(i => i.id), ['yt:aaaaaaaaaaa', 'yt:ddddddddddd']);
+  assert.equal(out[0].items[1].artist, 'Lockup channel');
+  assert.equal(out[0].items[1].durationMs, 200000);
+  assert.equal(out[1].items[0].id, 'yt:bbbbbbbbbbb');
 });

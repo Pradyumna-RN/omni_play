@@ -127,6 +127,9 @@ data class MusicState(
     /** The provider has exhausted its continuation. */
     val feedEnded: Boolean = false,
     val feedError: String? = null,
+    /** YouTube videos only: the "Music" and "Podcasts" rows under the FYP rail, fetched via YouTube's own chips. */
+    val videoMusicRow: List<Track> = emptyList(),
+    val videoPodcastRow: List<Track> = emptyList(),
     /** False when an account is connected but YouTube answered the feed as signed out. */
     val feedPersonalized: Boolean = true,
     val playEvents: List<PlayEvent> = emptyList(),
@@ -219,6 +222,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private var feedRevision = 0L
     private var collectionJob: Job? = null
     private var exploreJob: Job? = null
+    private var videoRowsJob: Job? = null
     private var radio: RadioQueue? = null
     private var forYouJob: Job? = null
     private var mastersJob: Job? = null
@@ -318,10 +322,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                         playlistsBusy = false, playlistLoading = false, playlistMutating = false, playlistError = null) }
                 }
                 if (changed) collectionHistory.clear()
-                val refresh = changed && mutable.value.recommendationEngine == RecommendationEngine.YOUTUBE
-                mutable.update { it.copy(account = account, homeFilters = if (refresh) emptyList() else it.homeFilters, homeFilter = if (refresh) null else it.homeFilter, feed = if (refresh) emptyList() else it.feed, feedContinuations = if (refresh) emptyList() else it.feedContinuations, feedMore = if (refresh) emptyList() else it.feedMore,
-                    feedEnded = it.feedEnded && !refresh, explore = if (refresh) emptyList() else it.explore) }
-                if (refresh) { clearCarHome(); refreshFeed(); refreshExplore() }
+                val wantsYouTube = changed && mutable.value.recommendationEngine != RecommendationEngine.SPOTIFY
+                mutable.update { it.copy(account = account, homeFilters = if (wantsYouTube) emptyList() else it.homeFilters, homeFilter = if (wantsYouTube) null else it.homeFilter, feed = if (wantsYouTube) emptyList() else it.feed, feedContinuations = if (wantsYouTube) emptyList() else it.feedContinuations, feedMore = if (wantsYouTube) emptyList() else it.feedMore,
+                    feedEnded = it.feedEnded && !wantsYouTube, explore = if (wantsYouTube) emptyList() else it.explore) }
+                if (wantsYouTube) { clearCarHome(); refreshFeed(); refreshExplore() }
             }
         }
         viewModelScope.launch {
@@ -430,7 +434,11 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         feedJob = viewModelScope.launch {
             mutable.update { it.copy(feedBusy = true, feedAppending = more, feedError = null) }
             try {
-                val fetch: suspend (Boolean) -> HomeFeed = { next -> if (engine == RecommendationEngine.SPOTIFY) spotify.home() else youtube.home(next, filter) }
+                val fetch: suspend (Boolean) -> HomeFeed = { next -> when (engine) {
+                    RecommendationEngine.SPOTIFY -> spotify.home()
+                    RecommendationEngine.YOUTUBE_VIDEO -> youtube.homeVideos(next, filter)
+                    else -> youtube.home(next, filter)
+                } }
                 if (more) {
                     val added = loadMoreHomeFeed(mutable.value) { fetch(true) }
                     if (revision == recommendationRevision && request == feedRevision) mutable.update { it.withMoreHomeFeed(added).copy(feedBusy = false, feedAppending = false) }
@@ -439,14 +447,36 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 val feed = fetch(false)
                 if (revision != recommendationRevision || request != feedRevision) return@launch
                 mutable.update { it.withHomeFeed(feed, engine == RecommendationEngine.SPOTIFY || !it.account.connected || feed.personalized).copy(feedBusy = false, feedAppending = false) }
+                if (engine == RecommendationEngine.YOUTUBE_VIDEO) refreshVideoRows(revision, feed)
                 if (mutable.value.forYou.isEmpty()) refreshForYou()
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { if (revision == recommendationRevision && request == feedRevision) mutable.update { it.copy(feedBusy = false, feedAppending = false, feedError = catalogueErrorMessage(e, CatalogueMessages.FEED)) } }
         }
     }
 
+    /** The videos Home's Music and Podcasts rails: separate, stateless fetches of YouTube's own chip-filtered pages. */
+    private fun refreshVideoRows(revision: Long, feed: HomeFeed) {
+        videoRowsJob?.cancel()
+        videoRowsJob = viewModelScope.launch {
+            val musicChip = feed.filters.firstOrNull { it.equals("music", ignoreCase = true) }
+                ?: feed.filters.firstOrNull { it.contains("music", ignoreCase = true) }
+            val podcastChip = feed.filters.firstOrNull { it.contains("podcast", ignoreCase = true) }
+            suspend fun load(chip: String?) = chip?.let {
+                try { youtube.homeVideos(filter = it, standalone = true) }
+                catch (e: CancellationException) { throw e }
+                catch (_: Exception) { null }
+            }
+            val music = load(musicChip)
+            val podcasts = load(podcastChip)
+            if (revision != recommendationRevision) return@launch
+            fun rows(page: HomeFeed?) = page?.sections.orEmpty().flatMap { it.items }
+                .filter { it.videoId.isNotBlank() }.map(FeedEntry::asTrack).distinctBy { it.libraryKey() }.take(30)
+            mutable.update { it.copy(videoMusicRow = rows(music), videoPodcastRow = rows(podcasts)) }
+        }
+    }
     fun homeFilter(value: String?) {
-        if (mutable.value.recommendationEngine != RecommendationEngine.YOUTUBE || value != null && value !in mutable.value.homeFilters) return
+        if (mutable.value.recommendationEngine != RecommendationEngine.YOUTUBE && mutable.value.recommendationEngine != RecommendationEngine.YOUTUBE_VIDEO) return
+        if (value != null && value !in mutable.value.homeFilters) return
         mutable.update { it.copy(homeFilter = value) }
         refreshFeed()
     }
@@ -465,8 +495,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         exploreJob = viewModelScope.launch {
             mutable.update { it.copy(exploreBusy = true, exploreError = null) }
             try {
-                if (engine == RecommendationEngine.SPOTIFY) {
-                    val feed = spotify.home()
+                if (engine == RecommendationEngine.SPOTIFY || engine == RecommendationEngine.YOUTUBE_VIDEO) {
+                    val feed = if (engine == RecommendationEngine.SPOTIFY) spotify.home() else youtube.homeVideos()
                     if (revision == recommendationRevision) mutable.update { it.copy(explore = feed.sections, exploreBusy = false) }
                     return@launch
                 }
@@ -572,7 +602,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         clearCarHome()
         feedJob?.cancel(); exploreJob?.cancel(); forYouJob?.cancel()
         mutable.update { it.copy(feed = emptyList(), feedContinuations = emptyList(), feedPage = 0, feedAppending = false, feedMore = emptyList(), feedEnded = false, homeFilters = emptyList(), homeFilter = null, explore = emptyList(), forYou = emptyList(), feedHasMore = false,
-            feedError = null, exploreError = null, feedBusy = false, exploreBusy = false, forYouBusy = false) }
+            feedError = null, exploreError = null, feedBusy = false, exploreBusy = false, forYouBusy = false,
+            videoMusicRow = emptyList(), videoPodcastRow = emptyList()) }
         radio?.changeProvider()
         refreshFeed(); refreshExplore(); refreshForYou()
     }
@@ -587,7 +618,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             if (spotify.verify()) {
                 // The account collector may still be queued when verify returns on the main thread.
                 mutable.update { it.copy(spotifyAccount = spotify.state.value) }
-                recommendationEngine(RecommendationEngine.SPOTIFY)
+                // Reconnecting while Spotify is already the chosen source leaves the old feed in
+                // place, because switching to the source it already is would do nothing.
+                if (mutable.value.recommendationEngine == RecommendationEngine.SPOTIFY) reloadRecommendations()
+                else recommendationEngine(RecommendationEngine.SPOTIFY)
             }
         }
     }
@@ -757,7 +791,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         searchJob = viewModelScope.launch {
             mutable.update { it.copy(searching = true, searched = true, error = null, errorDiagnostic = "", results = emptyList()) }
             try {
-                val results = youtube.search(query)
+                val results = youtube.search(query, videos = mutable.value.recommendationEngine == RecommendationEngine.YOUTUBE_VIDEO)
                 mutable.update { it.copy(results = results, searching = false) }
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {

@@ -1,7 +1,7 @@
 import { fetchBrowsePage, fetchBrowseContinuation } from './browse-pages.mjs';
 import { advanceHomeCursor } from './feed-cursor.mjs';
 import { Innertube, Player, Platform, Log, Constants, ClientType, Utils } from 'youtubei.js/web';
-import { track, sections, safeError, largestArtwork, isMusic, audioVersion } from './mapping.mjs';
+import { track, sections, safeError, largestArtwork, isMusic, audioVersion, videoSections, videoTrack } from './mapping.mjs';
 import { createLibraryActions, libraryMethods, searchSuggestions } from './library-actions.mjs';
 import { evaluatePlayer } from './evaluator.mjs';
 import { nativeTransport } from './transport.mjs';
@@ -54,7 +54,7 @@ const nativeFetch = async (input, init = {}) => {
   return response;
 };
 let homeFilters = [], activeHomeFilter = null;
-let tubePromise, homeFeed, feedRequest = 0, playerPromise, playerScript = '', webConfigPromise, challengePromise, challengeExpires = 0, dataSyncId = '', accountProfilePromise;
+let tubePromise, homeFeed, feedRequest = 0, videoFeed, videoFeedRequest = 0, playerPromise, playerScript = '', webConfigPromise, challengePromise, challengeExpires = 0, dataSyncId = '', accountProfilePromise;
 let contentBoundGvs = { YTMUSIC: false, WEB: false };
 // The last path confirmed by native playback, never a speculative/preloaded URL.
 let preferredPath = null;
@@ -177,18 +177,20 @@ async function tube() {
   return tubePromise;
 }
 
-async function search(api, query) {
+async function search(api, query, videos = false) {
   const url = (() => { try { return new URL(query); } catch { return null; } })();
   if (url) {
     if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password || !['youtube.com', 'www.youtube.com', 'm.youtube.com', 'music.youtube.com', 'youtu.be', 'www.youtu.be', 'www.youtube-nocookie.com'].includes(url.hostname)) throw failure('LINK', 'Choose a valid YouTube link.');
     const id = url.hostname.endsWith('youtu.be') ? url.pathname.slice(1) : url.searchParams.get('v') || (/^\/(shorts|embed|live)\//.test(url.pathname) ? url.pathname.split('/')[2] : null);
     if (id && /^[A-Za-z0-9_-]{11}$/.test(id)) {
-      const info = await api.getBasicInfo(id, { client: 'YTMUSIC' });
+      const info = await api.getBasicInfo(id, { client: videos ? 'WEB' : 'YTMUSIC' });
       const b = info.basic_info;
       return [{ id: `yt:${id}`, title: b.title || 'YouTube recording', artist: b.author || b.channel?.name || 'Unknown artist', url: `https://www.youtube.com/watch?v=${id}`, artwork: largestArtwork(b.thumbnail), durationMs: (b.duration || 0) * 1000, source: 'YOUTUBE' }];
     }
     const list = url.searchParams.get('list');
-    if (list && /^[A-Za-z0-9_-]{10,100}$/.test(list)) return (await api.music.getPlaylist(list)).contents?.map(track).filter(Boolean) || [];
+    if (list && /^[A-Za-z0-9_-]{10,100}$/.test(list)) return videos
+      ? (await api.getPlaylist(list)).items.map(videoTrack).filter(Boolean)
+      : (await api.music.getPlaylist(list)).contents?.map(track).filter(Boolean) || [];
     throw failure('LINK', 'Choose a YouTube video or playlist link.');
   }
   const result = await api.music.search(query, { type: 'song' });
@@ -458,6 +460,7 @@ function sharedResolve(api, id, forceProof, rejectedPaths, requiredFormat) {
 const libraryActions = createLibraryActions();
 const homeCursors = new Set();
 const browsePages = new Map();
+const videoCursors = new Set();
 globalThis.musicCancelSuggestions = id => {
   if (desiredSuggestions?.id === id) desiredSuggestions = null;
   transportFetch.cancel('suggestions:' + id);
@@ -476,7 +479,14 @@ globalThis.musicCall = async (id, method, args) => {
       case 'suggestions':
         if (desiredSuggestions?.id !== id) throw new DOMException('Stale suggestions', 'AbortError');
         result = await searchSuggestions(api, args.query); break;
-      case 'search': result = { tracks: await search(api, args.query) }; break;
+      case 'search': {
+        if (args.videos === true) {
+          // Regular YouTube search (WEB client); videos only, playable audio.
+          const feed = await api.search(String(args.query || '').trim().slice(0, 200));
+          result = { tracks: (feed.results || []).map(videoTrack).filter(Boolean) }; break;
+        }
+        result = { tracks: await search(api, args.query, args.videos === true) }; break;
+      }
       case 'resolve': {
         const rejected = Array.isArray(args.rejectedPaths) ? [...new Set(args.rejectedPaths.filter(p => PLAYBACK_PATHS.includes(p)))].sort() : [];
         const required = args.requiredFormat || null;
@@ -493,6 +503,29 @@ globalThis.musicCall = async (id, method, args) => {
         result = emitMetadata(args.videoId, info); break;
       }
       case 'verify-session': result = await accountProfile(api); break;
+      case 'home-videos': {
+        // Regular YouTube (WEB client) Home: the listener's own recommended videos.
+        // Audio of a tapped video plays through the existing pipeline; no video surface yet.
+        // `standalone` fetches a category page (Music / Podcasts) without touching the main feed.
+        const standalone = args.standalone === true;
+        if (args.more && (standalone || !videoFeed?.has_continuation)) {
+          result = { sections: [], hasMore: false, filters: [], selectedFilter: null }; break;
+        }
+        const request = ++videoFeedRequest;
+        let page, filters = [], selected = null;
+        if (args.more && videoFeed?.has_continuation) page = await videoFeed.getContinuation();
+        else {
+          page = await api.getHomeFeed(); filters = page.filters || []; selected = args.filter || null;
+          if (selected) {
+            if (!filters.includes(selected)) throw failure('FEED_FILTER', 'This YouTube category is no longer available. Choose All to load the current categories.');
+            page = await page.applyFilter(selected);
+          }
+        }
+        if (!standalone && request === videoFeedRequest) { advanceHomeCursor(videoCursors, page, !!args.more); videoFeed = page; }
+        const signedIn = !!api.session.logged_in;
+        result = { sections: videoSections(page), hasMore: !standalone && !!page.has_continuation, signedIn, filters, selectedFilter: selected,
+          personalized: signedIn && lastMusicLoggedOut !== true }; break;
+      }
       case 'home': {
         if (args.more && !homeFeed?.has_continuation) {
           result = { sections: [], hasMore: false, filters: homeFilters, selectedFilter: activeHomeFilter }; break;
@@ -554,7 +587,10 @@ globalThis.musicCall = async (id, method, args) => {
         break;
       }
       case 'collection': {
-        const page = args.kind === 'album' ? await api.music.getAlbum(args.id) : await api.music.getPlaylist(args.id);
+        // A Home album card's URL is an MPR album id even when its card kind reads
+        // "browse" or "endpoint"; the id is the authoritative signal.
+        const album = args.kind === 'album' || /^MPR/.test(args.id || '');
+        const page = album ? await api.music.getAlbum(args.id) : await api.music.getPlaylist(args.id);
         result = { tracks: (page.contents || []).map(track).filter(Boolean) }; break;
       }
       default: throw failure('OPERATION', 'Unsupported YouTube operation.');
