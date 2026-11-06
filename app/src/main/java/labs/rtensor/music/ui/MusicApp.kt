@@ -937,13 +937,6 @@ private fun PersonalScreen(state: MusicState, onSearch: () -> Unit, onPlay: (Tra
             .sortedByDescending { it.value }.take(2).mapNotNull { names[it.key] }
     }
     val unheard = recommendations.newToYou
-    val ytVideos = state.recommendationEngine == labs.rtensor.music.recommendations.RecommendationEngine.YOUTUBE_VIDEO
-    // Everything the videos Home shows comes from the provider feed; one flattened rail, in provider order.
-    val videoRail = remember(state.feed, state.feedContinuations) {
-        (state.feed + state.feedContinuations).flatMap { it.items }
-            .filter { it.videoId.isNotBlank() || it.kind == "spotify_track" }
-            .map(FeedEntry::asTrack).distinctBy { it.libraryKey() }
-    }
     // Only the songs Home actually shows (collections stay in Explore), and only to disk.
     PrefetchArtwork((recommendations.fromListening + recommendations.newToYou + state.history.take(12)).map(Track::artwork), 156.dp, diskOnly = true)
     val look = LocalLook.current
@@ -957,19 +950,12 @@ private fun PersonalScreen(state: MusicState, onSearch: () -> Unit, onPlay: (Tra
         }
         item(key = "title") {
             Column(Modifier.padding(bottom = 4.dp)) {
-                PageTitle(if (ytVideos) "Your YouTube feed" else if (recent != null) "Back to your music" else if (hasFeed) "For your ears" else "Room to listen")
+                PageTitle(if (recent != null) "Back to your music" else if (hasFeed) "For your ears" else "Room to listen")
                 Text("${state.recommendationEngine.label} recommendations", fontSize = 12.sp, maxLines = 1,
                     color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = if (look.classic) 6.dp else 0.dp))
                 ProviderFilters(state)
                 Spacer(Modifier.height(8.dp))
                 LoadingLine(state.feedBusy && !state.feedAppending, state.reducedMotion)
-            }
-        }
-        if (ytVideos) {
-            item(key = "fyp") { InfiniteVideoRow(if (state.homeFilter == null) "For you" else state.homeFilter, videoRail, state, onPlay, onMore) }
-            if (state.homeFilter == null) {
-                if (state.videoMusicRow.isNotEmpty()) item(key = "video-music") { VideoRowShelf("Music", state.videoMusicRow, onPlay) }
-                if (state.videoPodcastRow.isNotEmpty()) item(key = "video-podcasts") { VideoRowShelf("Podcasts", state.videoPodcastRow, onPlay) }
             }
         }
         val google = state.googleProfile
@@ -986,7 +972,6 @@ private fun PersonalScreen(state: MusicState, onSearch: () -> Unit, onPlay: (Tra
                 TextButton(onClick = onRefresh, shape = ButtonShape) { Text(look.label("Retry"), style = LabelText) }
             }
         }
-        if (!ytVideos) {
         if (showHero && !(look.hum && recent == null)) item(key = "hero") {
             Column(Modifier.fillMaxWidth().signalRule(bottom = true, thickness = 1.dp).padding(vertical = 20.dp)) {
                 if (recent == null) {
@@ -1090,88 +1075,8 @@ private fun PersonalScreen(state: MusicState, onSearch: () -> Unit, onPlay: (Tra
         }) }.filter { it.items.isNotEmpty() }
         providerShelves(providerSections, onEntry, 24.dp)
         item(key = "feed-tail") { FeedContinuation(state, active, onMore) }
-        } // !ytVideos
 
     }
-    }
-}
-
-/** A 16:9 video card for the YouTube Home rails: immersive artwork, bold title, channel name. */
-@Composable
-private fun VideoCard(track: Track, cardWidth: Dp, artHeight: Dp, onClick: () -> Unit) {
-    val scheme = MaterialTheme.colorScheme
-    Column(Modifier.width(cardWidth).then(if (track.url.isNotBlank()) Modifier.songClickable(track, onClick = onClick) else Modifier.pressable(onClick = onClick))) {
-        Box(
-            Modifier.width(cardWidth)
-                .height(artHeight)
-                .clip(RoundedCornerShape(12.dp))
-                .background(scheme.surfaceVariant)
-        ) {
-            Artwork(track, Modifier.fillMaxSize(), size = cardWidth)
-        }
-        Spacer(Modifier.height(8.dp))
-        Text(track.title, fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium,
-            maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth())
-        Spacer(Modifier.height(2.dp))
-        Text(track.artist, fontSize = 13.sp, lineHeight = 18.sp,
-            color = scheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth())
-    }
-}
-
-/** The videos Home's infinite FYP rail: horizontal, in provider order, fetches more near the end. */
-@Composable
-private fun InfiniteVideoRow(title: String, tracks: List<Track>, state: MusicState,
-    onPlay: (Track, List<Track>) -> Unit, onMore: () -> Unit) {
-    Column(Modifier.fillMaxWidth().padding(top = 20.dp)) {
-        SectionTitle(title)
-        if (tracks.isEmpty()) {
-            if (state.feedBusy || state.feedAppending) Box(Modifier.fillMaxWidth().height(140.dp), Alignment.Center) {
-                CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
-            } else Text("Pull down to load your YouTube feed.", fontSize = 13.sp, lineHeight = 19.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp))
-            return
-        }
-        Spacer(Modifier.height(12.dp))
-        BoxWithConstraints(Modifier.fillMaxWidth()) {
-            val cardWidth = 210.dp
-            val artHeight = 118.dp
-            val listState = rememberLazyListState()
-            val load by rememberUpdatedState(onMore)
-            LaunchedEffect(listState, tracks.size) {
-                snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }.collect { last ->
-                    if (last >= tracks.size - 5 && state.feedHasMore && !state.feedBusy && !state.feedAppending && state.feedError == null) load()
-                }
-            }
-            LazyRow(state = listState, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                itemsIndexed(tracks, key = { i, t -> "$i:${t.libraryKey()}" }) { _, track ->
-                    VideoCard(track, cardWidth, artHeight) { onPlay(track, tracks) }
-                }
-                if (state.feedHasMore || state.feedAppending) item(key = "more") {
-                    Box(Modifier.height(artHeight + 64.dp).width(cardWidth), Alignment.Center) {
-                        CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
-                    }
-                }
-            }
-        }
-    }
-}
-
-/** A short horizontal rail below the FYP rail (Music / Podcasts), same card language. */
-@Composable
-private fun VideoRowShelf(title: String, tracks: List<Track>, onPlay: (Track, List<Track>) -> Unit) {
-    BoxWithConstraints(Modifier.fillMaxWidth().padding(top = 22.dp)) {
-        val cardWidth = 210.dp
-        val artHeight = 118.dp
-        Column(Modifier.fillMaxWidth()) {
-            SectionTitle(title)
-            Spacer(Modifier.height(12.dp))
-            if (tracks.isEmpty()) return@BoxWithConstraints
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                itemsIndexed(tracks, key = { i, t -> "$i:${t.libraryKey()}" }) { _, track ->
-                    VideoCard(track, cardWidth, artHeight) { onPlay(track, tracks) }
-                }
-            }
-        }
     }
 }
 

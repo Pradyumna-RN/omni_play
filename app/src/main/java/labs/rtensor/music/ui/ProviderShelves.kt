@@ -36,6 +36,7 @@ internal fun ProviderFilters(state: MusicState) {
     val filters = state.homeFilters
         .filterNot { it.contains("podcast", ignoreCase = true) }
         .filter { it.lowercase() != "all" }
+        .sortedByDescending { it.equals("music", ignoreCase = true) }
     if (filters.isEmpty()) return
     val select = LocalHomeFilterSelect.current
     LazyRow(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
