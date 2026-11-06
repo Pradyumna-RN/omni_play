@@ -76,7 +76,7 @@ class PlayerCoverUiTest {
             CoverAccent.prime(url, bitmap)
             Track("fixture:$name", "Afterimage ($name)", "Serein", "https://www.youtube.com/watch?v=jNQXAC9IVRw", artwork = url, durationMs = 224000) to name
         }
-        val state = mutableStateOf(MusicState(look = labs.rtensor.music.data.LookChoice.ROOM, current = tracks[0].first, saved = listOf(tracks[0].first), durationMs = 224000, positionMs = 72000,
+        val state = mutableStateOf(MusicState(accent = AccentChoice.COVER, look = labs.rtensor.music.data.LookChoice.ROOM, current = tracks[0].first, saved = listOf(tracks[0].first), durationMs = 224000, positionMs = 72000,
             reducedMotion = true, theme = "light", routeLabel = "YouTube · AAC compressed 48.0 kHz · stereo · unchanged"))
         assertEquals(AccentChoice.COVER, state.value.accent)
         compose.setContent { MusicApp(state.value, initialPage = "now") }

@@ -2,6 +2,7 @@ import { track, isMusic } from './mapping.mjs';
 
 const video = /^[A-Za-z0-9_-]{11}$/;
 const playlist = /^[A-Za-z0-9_-]{2,160}$/;
+const LIST_PROBE = 'jNQXAC9IVRw';
 const fail = (code, message) => Object.assign(new Error(message), { code });
 const text = value => typeof value === 'string' ? value : value?.simpleText || value?.runs?.map(r => r.text || '').join('') || '';
 export const libraryMethods = new Set(['playlists', 'playlist-create', 'playlist-add', 'playlist-remove', 'playlist-rename', 'playlist-delete', 'playlist-tracks', 'rate-song']);
@@ -64,11 +65,19 @@ export function createLibraryActions() {
   const pages = new Map(), owned = new Set();
   let pageSession, pageSignedIn;
   async function choices(api, selected) {
-    const response = await api.actions.execute('/playlist/get_add_to_playlist', {
-      client: 'YTMUSIC', videoIds: selected ? [videoId(selected)] : [], excludeWatchLater: true,
-    });
-    if (!response.success) throw fail('PLAYLIST', 'YouTube could not load your playlists. Reconnect or retry.');
-    const options = playlistOptions(response.data);
+    const ask = ids => api.actions.execute('/playlist/get_add_to_playlist', { client: 'YTMUSIC', videoIds: ids, excludeWatchLater: true });
+    let response;
+    if (selected) response = await ask([videoId(selected)]);
+    else {
+      // Listing the library without a song: YouTube may refuse an empty song list. Any public song
+      // lists the same playlists, and with no selection its membership flags are ignored below.
+      try { response = await ask([]); } catch { response = null; }
+      if (!response?.success || !playlistOptions(response.data).length) {
+        try { const again = await ask([LIST_PROBE]); if (again?.success) response = again; } catch { /* keep the first answer */ }
+      }
+    }
+    if (!response?.success) throw fail('PLAYLIST', 'YouTube could not load your playlists. Reconnect or retry.');
+    const options = playlistOptions(response.data).map(option => selected ? option : { ...option, contains: false });
     owned.clear(); options.forEach(option => owned.add(option.id));
     return options;
   }

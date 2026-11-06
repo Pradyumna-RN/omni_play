@@ -7,9 +7,11 @@ const nextToken = continuations => (continuations || []).map(item => item.nextCo
 const itemToken = items => (items || []).map(item => item.continuationItemRenderer?.continuationEndpoint?.continuationCommand?.token).find(Boolean) || null;
 
 /** Read content containers, not menus or unrelated response metadata. Continuations need no Home tab. */
-export function readBrowsePage(data) {
+export function readBrowsePage(data, { continuation: following = false } = {}) {
   let contents, cursor;
-  const continuation = data?.continuationContents?.sectionListContinuation;
+  const shelfContinuation = data?.continuationContents?.musicShelfContinuation || data?.continuationContents?.gridContinuation;
+  const continuation = data?.continuationContents?.sectionListContinuation
+    || (shelfContinuation && { contents: [{ musicShelfRenderer: { contents: shelfContinuation.contents || shelfContinuation.items || [] } }], continuations: shelfContinuation.continuations });
   if (continuation) {
     contents = continuation.contents || [];
     cursor = nextToken(continuation.continuations) || itemToken(contents);
@@ -24,6 +26,8 @@ export function readBrowsePage(data) {
       const tabs = root?.singleColumnBrowseResultsRenderer?.tabs || root?.twoColumnBrowseResultsRenderer?.tabs || [];
       const tab = tabs.map(node => node.tabRenderer).find(tab => tab?.selected) || (tabs.length === 1 ? tabs[0].tabRenderer : null);
       const list = tab?.content?.sectionListRenderer || root?.sectionListRenderer;
+      // A page that follows another and carries no content is where the feed ends, not a failure.
+      if (!list && following) return { sections: [], has_continuation: false, page: { continuation_contents: { continuation: null } } };
       if (!list || !Array.isArray(list.contents)) throw fail('BROWSE_RESPONSE', 'YouTube returned a page Music could not read. Your loaded music is kept. Retry or check for an update.', 'browse response has no supported content container');
       contents = list.contents;
       cursor = nextToken(list.continuations) || itemToken(contents);
@@ -63,5 +67,5 @@ export async function fetchBrowseContinuation(api, page) {
   if (!cursor) return { sections: [], has_continuation: false, page: { continuation_contents: { continuation: null } } };
   const response = await api.actions.execute('/browse', { client: 'YTMUSIC', continuation: cursor });
   if (!response.success) throw fail('FEED_REQUEST', 'YouTube Music could not load the next page. Your loaded music is kept.');
-  return readBrowsePage(response.data);
+  return readBrowsePage(response.data, { continuation: true });
 }

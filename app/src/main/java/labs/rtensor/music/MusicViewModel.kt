@@ -458,6 +458,22 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     suspend fun lyrics(track: Track): labs.rtensor.music.data.Lyrics =
         lyricsCache[track.id] ?: youtube.lyrics(track).also { lyricsCache[track.id] = it }
 
+    private val syncedSource = labs.rtensor.music.data.SyncedLyricsSource()
+    private val syncedCache = object : LinkedHashMap<String, List<labs.rtensor.music.data.LyricLine>>(16, .75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<labs.rtensor.music.data.LyricLine>>) = size > 24
+    }
+    /** Time-synced lyrics for the player's animated view; empty when the song has none or the lookup fails. */
+    suspend fun syncedLyrics(track: Track): List<labs.rtensor.music.data.LyricLine> =
+        syncedCache[track.id] ?: syncedSource.find(track).also { syncedCache[track.id] = it }
+
+    private val translator = labs.rtensor.music.data.LyricsTranslator()
+    private val translationCache = object : LinkedHashMap<String, labs.rtensor.music.data.TranslatedLyrics>(16, .75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, labs.rtensor.music.data.TranslatedLyrics>) = size > 12
+    }
+    /** An English version of lyrics, with the language they were written in; kept for the last few songs. */
+    suspend fun translateLyrics(trackId: String, text: String): labs.rtensor.music.data.TranslatedLyrics =
+        translationCache[trackId] ?: translator.toEnglish(text).also { translationCache[trackId] = it }
+
     fun refreshExplore() {
         exploreJob?.cancel()
         val revision = recommendationRevision

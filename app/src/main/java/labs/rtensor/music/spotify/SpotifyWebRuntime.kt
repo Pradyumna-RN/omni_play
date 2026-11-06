@@ -93,6 +93,7 @@ internal class SpotifyWebRuntime private constructor(private val context: Contex
                 if (view !== browser) return
                 if (!playerOrigin(url)) {
                     loginObserver?.pageChanged(url.orEmpty(), true)
+                    if (loginObserver != null && SpotifySignInNavigation.spotifyLogin(url)) view.evaluateJavascript(SpotifySignInNavigation.HIDE_EMBEDDED_PROVIDERS, null)
                     if (SpotifySignInNavigation.refusedByGoogle(url)) loginObserver?.failed(SpotifySignInProblem.GOOGLE_REFUSED)
                     return
                 }

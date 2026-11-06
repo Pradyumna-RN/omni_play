@@ -162,7 +162,7 @@ class MainActivity : ComponentActivity() {
                 onCheckUpdates = model::checkUpdates, onDownloadUpdate = model::downloadUpdate,
                 onInstallUpdate = { state.update.apkPath?.let(::requestInstall) },
                 onAutoplay = model::autoplay, onTrackHistory = model::trackHistory,
-                onRetryRadio = model::retryRadio, onLyrics = model::lyrics,
+                onRetryRadio = model::retryRadio, onLyrics = model::lyrics, onTranslateLyrics = model::translateLyrics, onSyncedLyrics = model::syncedLyrics,
                 onProcessing = model::processing,
                 playbackPosition = model.playbackPosition,
                 audioLevels = model.audioLevels, onMetering = model::setMetering,

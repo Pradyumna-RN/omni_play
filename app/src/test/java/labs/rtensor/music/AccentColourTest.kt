@@ -49,19 +49,19 @@ class AccentColourTest {
         }
     }
 
-    @Test fun unknownOrMissingStoredAccentFallsBackToTheCoverDefault() {
-        // Nobody chose: new installs and earlier users both get "From the cover".
-        assertEquals(AccentChoice.COVER, AccentChoice.DEFAULT)
-        assertEquals(AccentChoice.COVER, LibraryStore(context).accent)
-        assertEquals(AccentChoice.COVER, MusicState().accent)
-        prefs.edit().putString("accent", "teal").commit()
-        assertEquals(AccentChoice.COVER, LibraryStore(context).accent)
-        prefs.edit().putString("accent", "").commit()
-        assertEquals(AccentChoice.COVER, LibraryStore(context).accent)
-        assertEquals(AccentChoice.COVER, AccentChoice.parse(null))
-        // An explicit choice, Signal included, is kept.
-        prefs.edit().putString("accent", "signal").commit()
+    @Test fun unknownOrMissingStoredAccentFallsBackToTheBerryDefault() {
+        // Nobody chose: new installs and earlier users both get Berry.
+        assertEquals(AccentChoice.SIGNAL, AccentChoice.DEFAULT)
         assertEquals(AccentChoice.SIGNAL, LibraryStore(context).accent)
+        assertEquals(AccentChoice.SIGNAL, MusicState().accent)
+        prefs.edit().putString("accent", "teal").commit()
+        assertEquals(AccentChoice.SIGNAL, LibraryStore(context).accent)
+        prefs.edit().putString("accent", "").commit()
+        assertEquals(AccentChoice.SIGNAL, LibraryStore(context).accent)
+        assertEquals(AccentChoice.SIGNAL, AccentChoice.parse(null))
+        // An explicit choice is kept.
+        prefs.edit().putString("accent", "cobalt").commit()
+        assertEquals(AccentChoice.COBALT, LibraryStore(context).accent)
     }
 
     @Test fun playerTonesFromTheCoverKeepTextAndAccentReadable() {

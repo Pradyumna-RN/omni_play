@@ -316,6 +316,7 @@ fun MusicTheme(theme: String = "light", darkNavigationBar: Boolean = false, acce
         }
     }
     val base = Typography()
+    val press = remember(scheme.onSurface, instant) { RoundedPress(scheme.onSurface, instant) }
     val reading = if (tokens.soft || tokens.hum) SoftFont else ArchivoFont
     CompositionLocalProvider(LocalAccent provides AccentColours(fill, onFill, onDock), LocalLook provides tokens) { MaterialTheme(
         colorScheme = scheme,
@@ -342,7 +343,7 @@ fun MusicTheme(theme: String = "light", darkNavigationBar: Boolean = false, acce
             extraSmall = RoundedCornerShape(6.dp), small = RoundedCornerShape(10.dp), medium = RoundedCornerShape(14.dp),
             large = RoundedCornerShape(18.dp), extraLarge = RoundedCornerShape(26.dp),
         ),
-        content = content,
+        content = { CompositionLocalProvider(LocalIndication provides press, content = content) },
     ) }
 }
 
@@ -389,6 +390,8 @@ fun MusicApp(
     onCheckUpdates: () -> Unit = {}, onDownloadUpdate: () -> Unit = {}, onInstallUpdate: () -> Unit = {},
     onAutoplay: (Boolean) -> Unit = {}, onTrackHistory: (Boolean) -> Unit = {}, onRemovePlay: (PlayEvent) -> Unit = {}, onRefreshForYou: () -> Unit = {},
     onRetryRadio: () -> Unit = {}, onLyrics: suspend (Track) -> labs.rtensor.music.data.Lyrics? = { null },
+    onTranslateLyrics: suspend (String, String) -> labs.rtensor.music.data.TranslatedLyrics? = { _, _ -> null },
+    onSyncedLyrics: suspend (Track) -> List<labs.rtensor.music.data.LyricLine> = { emptyList() },
     onProcessing: (Boolean) -> Unit = {},
     playbackPosition: StateFlow<Long>? = null,
     audioLevels: StateFlow<labs.rtensor.dsp.AudioLevelFrame?>? = null,
@@ -476,7 +479,7 @@ fun MusicApp(
     // The player takes a deep tone from the cover; every other page stays paper/ink.
     val tones = remember(cover) { cover?.let { playerTones(it.deep) } }?.takeIf { page == "now" }
     CompositionLocalProvider(LocalReducedMotion provides reduced, LocalPlayerTones provides tones,
-        LocalHomeFilterSelect provides onHomeFilter, LocalPlaySongs provides ::play,
+        LocalHomeFilterSelect provides onHomeFilter, LocalPlaySongs provides ::play, LocalLyricsTranslate provides onTranslateLyrics, LocalSyncedLyrics provides onSyncedLyrics,
         LocalFeedSectionOpen provides { section ->
             if (page != "feed-section") {
                 expandedFromExplore = page == "explore" && exploreTab != "for-you"
@@ -1389,7 +1392,9 @@ private fun ExploreScreen(state: MusicState, content: ExploreShelves, tab: Strin
         }
         // Clip the shelves to their own area: scrolled up, they were drawn over the title and the tabs.
         Box(Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
-            pages.SaveableStateProvider(tab) {
+            // key(tab) builds each tab's list from scratch: reusing one LazyColumn for two tabs left the
+            // previous tab's rows drawn while the new tab's rows were in the semantics tree.
+            pages.SaveableStateProvider(tab) { key(tab) {
                 if (tab == "for-you") personal()
                 else {
                     val sections = if (tab == "browse") content.browse else content.discover
@@ -1402,7 +1407,7 @@ private fun ExploreScreen(state: MusicState, content: ExploreShelves, tab: Strin
                         listState = if (tab == "browse") browseScroll else discoverScroll,
                         active = active, showTitle = false)
                 }
-            }
+            } }
         }
     }
 }
@@ -1767,7 +1772,7 @@ private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () ->
                         }
                     }
                     if (state.developerOptions) ChannelMonitor(state.audioProcessing.report, playing && !loading, track.id, audioLevels) { metering.claim("monitor", it) }
-                    LyricsPanel(track, onLyrics, reduced, Modifier.padding(top = 16.dp))
+                    LyricsPanel(track, onLyrics, reduced, Modifier.padding(top = 16.dp), positions = playbackPosition, onSeek = onSeek)
                     Spacer(Modifier.height(30.dp))
                     Row(Modifier.fillMaxWidth().signalRule(bottom = true).padding(bottom = 8.dp), verticalAlignment = Alignment.Bottom) {
                         when (look.choice) {
@@ -1859,8 +1864,15 @@ private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () ->
                 }
         }
         val queueItems: LazyListScope.() -> Unit = {
-            items(upcoming, key = { (index, item) -> "q$index:${item.id}" }) { (index, item) ->
-                TrackRow(item, false, false, { onSkipTo(index) }, null, motionModifier(), SongMenuTarget(item, queueIndex = index))
+            // Keyed by song (plus its repeat number), never by position: a position in the key changes
+            // for every row each time the track advances, so the whole list faded out and in on top of
+            // itself and drew across the controls.
+            val seen = HashMap<String, Int>()
+            val queueKeys = upcoming.map { (_, item) -> "q:${item.id}:${seen.merge(item.id, 1, Int::plus)}" }
+            items(upcoming.size, key = { queueKeys[it] }) { slot ->
+                val (index, item) = upcoming[slot]
+                TrackRow(item, false, false, { onSkipTo(index) }, null,
+                    if (reduced) Modifier else Modifier.animateItem(fadeOutSpec = null), SongMenuTarget(item, queueIndex = index))
             }
             item(key = "save-queue") {
                 val menus = LocalSongMenus.current
@@ -2666,7 +2678,7 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onAccen
                         else "Soft always uses its raspberry. Choose Listening room to pick an accent colour or take it from the cover.",
                         fontSize = 12.sp, lineHeight = 17.sp, color = scheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp))
                 } else {
-                    Text(if (state.accent == AccentChoice.COVER) "Taken from the artwork of the song that is playing. Signal is used when there is none."
+                    Text(if (state.accent == AccentChoice.COVER) "Taken from the artwork of the song that is playing. Berry is used when there is none."
                         else "The one strong colour on Play, highlights and the dock.",
                         fontSize = 12.sp, lineHeight = 17.sp, color = scheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp, bottom = 8.dp))
                     AccentSelector(state.accent, onAccent)
@@ -2912,7 +2924,7 @@ private fun AccentSelector(selected: AccentChoice, onAccent: (AccentChoice) -> U
     FlowRow(Modifier.fillMaxWidth().selectableGroup(), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         AccentChoice.entries.forEach { choice ->
             val chosen = choice == selected
-            val colour = fixedAccent(choice, dark) ?: current.takeIf { chosen }
+            val colour = (if (choice == AccentChoice.SIGNAL && LocalLook.current.hum) (if (dark) HumPink else HumPinkDay) else fixedAccent(choice, dark)) ?: current.takeIf { chosen }
             Column(
                 Modifier.width(48.dp).heightIn(min = 48.dp)
                     .selectable(chosen, role = Role.RadioButton) { onAccent(choice) }

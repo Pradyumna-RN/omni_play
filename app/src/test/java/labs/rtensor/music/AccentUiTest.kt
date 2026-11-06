@@ -69,17 +69,17 @@ class AccentUiTest {
             assertTrue("${choice.label} target is at least 48dp", (size.right - size.left).value >= 48f && (size.bottom - size.top).value >= 48f)
             node.assert(SemanticsMatcher.expectValue(androidx.compose.ui.semantics.SemanticsProperties.Role, androidx.compose.ui.semantics.Role.RadioButton))
         }
-        // Nobody has chosen yet, so the default "From the cover" is selected.
-        compose.onNodeWithContentDescription("From the cover accent colour").assertIsSelected()
-        compose.onNodeWithContentDescription("Signal accent colour").assertIsNotSelected()
+        // Nobody has chosen yet, so the default Berry is selected.
+        compose.onNodeWithContentDescription("Berry accent colour").assertIsSelected()
+        compose.onNodeWithContentDescription("Cover accent colour").assertIsNotSelected()
         compose.onNodeWithContentDescription("Cobalt accent colour").assertIsNotSelected().performClick()
         compose.runOnIdle { assertEquals(listOf(AccentChoice.COBALT), chosen) }
         compose.onNodeWithContentDescription("Cobalt accent colour").assertIsSelected()
-        compose.onNodeWithContentDescription("Signal accent colour").assertIsNotSelected()
+        compose.onNodeWithContentDescription("Berry accent colour").assertIsNotSelected()
         save(snapshot(), "settings-accent-cobalt")
-        compose.onNodeWithContentDescription("From the cover accent colour").performClick()
+        compose.onNodeWithContentDescription("Cover accent colour").performClick()
         compose.runOnIdle { assertEquals(AccentChoice.COVER, state.value.accent) }
-        compose.onNodeWithText("Taken from the artwork of the song that is playing. Signal is used when there is none.").assertExists()
+        compose.onNodeWithText("Taken from the artwork of the song that is playing. Berry is used when there is none.").assertExists()
     }
 
     /** Renders the player for each fixed accent in both themes and checks the Play fill, label and heart. */

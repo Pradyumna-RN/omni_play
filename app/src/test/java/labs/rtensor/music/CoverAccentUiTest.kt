@@ -150,7 +150,7 @@ class CoverAccentUiTest {
             "local file" to track("local:g", local.toURI().toString(), Source.LOCAL),
             "local content" to track("local:h", content.toString(), Source.LOCAL),
         )
-        val state = mutableStateOf(MusicState(look = labs.rtensor.music.data.LookChoice.ROOM, current = songs[0].second, durationMs = 200_000, reducedMotion = true, theme = "light"))
+        val state = mutableStateOf(MusicState(accent = AccentChoice.COVER, look = labs.rtensor.music.data.LookChoice.ROOM, current = songs[0].second, durationMs = 200_000, reducedMotion = true, theme = "light"))
         assertEquals(AccentChoice.COVER, state.value.accent)
         compose.setContent { MusicApp(state.value, initialPage = "now") }
         for ((label, song) in songs) {
@@ -173,7 +173,7 @@ class CoverAccentUiTest {
 
     @Test fun theDockAndMiniPlayerTakeTheCoverAccent() {
         val song = track("spotify:dock", "https://i.scdn.co/image/ab67616d0000b273blue")
-        val state = mutableStateOf(MusicState(look = labs.rtensor.music.data.LookChoice.ROOM, current = song, durationMs = 200_000, reducedMotion = true, theme = "light"))
+        val state = mutableStateOf(MusicState(accent = AccentChoice.COVER, look = labs.rtensor.music.data.LookChoice.ROOM, current = song, durationMs = 200_000, reducedMotion = true, theme = "light"))
         compose.setContent { MusicApp(state.value) }
         val url = accentUrl(song.artwork)
         settle { CoverAccent.cached(url) != null }
@@ -196,7 +196,7 @@ class CoverAccentUiTest {
         online = false
         val song = track("yt:offline", "https://yt3.googleusercontent.com/amber=w544-h544-l90-rj")
         val url = accentUrl(song.artwork)
-        val state = mutableStateOf(MusicState(look = labs.rtensor.music.data.LookChoice.ROOM, current = song, durationMs = 200_000, reducedMotion = true, theme = "light"))
+        val state = mutableStateOf(MusicState(accent = AccentChoice.COVER, look = labs.rtensor.music.data.LookChoice.ROOM, current = song, durationMs = 200_000, reducedMotion = true, theme = "light"))
         compose.setContent { MusicApp(state.value, initialPage = "now") }
         settle { requested.contains(url) }
         settle()
@@ -215,7 +215,7 @@ class CoverAccentUiTest {
     /** Skipping to a song whose cover cannot load keeps the last colour instead of flashing to Signal. */
     @Test fun aCoverThatKeepsFailingKeepsThePreviousColour() {
         val first = track("yt:first", "https://yt3.googleusercontent.com/amber=w544-h544-l90-rj")
-        val state = mutableStateOf(MusicState(look = labs.rtensor.music.data.LookChoice.ROOM, current = first, durationMs = 200_000, reducedMotion = true, theme = "light"))
+        val state = mutableStateOf(MusicState(accent = AccentChoice.COVER, look = labs.rtensor.music.data.LookChoice.ROOM, current = first, durationMs = 200_000, reducedMotion = true, theme = "light"))
         compose.setContent { MusicApp(state.value, initialPage = "now") }
         settle { CoverAccent.cached(accentUrl(first.artwork)) != null }
         val colours = CoverAccent.cached(accentUrl(first.artwork))!!
@@ -245,7 +245,7 @@ class CoverAccentUiTest {
             "art-track-thumbnail" to "https://i.ytimg.com/vi/atv00000001/sddefault.jpg",
             "spotify" to "https://i.scdn.co/image/ab67616d0000b273blue",
         )
-        val state = mutableStateOf(MusicState(look = labs.rtensor.music.data.LookChoice.ROOM, durationMs = 224_000, positionMs = 72_000, reducedMotion = true, theme = "light",
+        val state = mutableStateOf(MusicState(accent = AccentChoice.COVER, look = labs.rtensor.music.data.LookChoice.ROOM, durationMs = 224_000, positionMs = 72_000, reducedMotion = true, theme = "light",
             routeLabel = "YouTube · AAC compressed 48.0 kHz · stereo · unchanged"))
         compose.setContent { MusicApp(state.value, initialPage = "now") }
         for ((name, artwork) in covers) {
@@ -264,20 +264,20 @@ class CoverAccentUiTest {
         }
     }
 
-    @Test fun anUpgradedInstallShowsFromTheCoverSelected() {
+    @Test fun anUpgradedInstallShowsBerrySelected() {
         // What 0.3.32 left behind: other settings, but no accent (it had no accent setting).
         val prefs = context.getSharedPreferences("music_library", Context.MODE_PRIVATE)
         prefs.edit().clear().putString("theme", "dark").putBoolean("reduced_motion", true).putBoolean("autoplay", true).commit()
         val store = LibraryStore(context)
-        assertEquals(AccentChoice.COVER, store.accent)
+        assertEquals(AccentChoice.SIGNAL, store.accent)
         assertNull("reading the default writes nothing", prefs.getString("accent", null))
         val state = mutableStateOf(MusicState(look = labs.rtensor.music.data.LookChoice.ROOM, theme = store.theme, accent = store.accent, reducedMotion = true))
         compose.setContent { MusicApp(state.value, initialPage = "settings", onAccent = { state.value = state.value.copy(accent = it) }) }
         compose.settingsTab("Appearance")
-        compose.onNodeWithContentDescription("From the cover accent colour").performScrollTo().assertIsSelected()
-        compose.onNodeWithContentDescription("Signal accent colour").assertIsNotSelected()
+        compose.onNodeWithContentDescription("Berry accent colour").performScrollTo().assertIsSelected()
+        compose.onNodeWithContentDescription("Cover accent colour").assertIsNotSelected()
         // A value this build does not know (a later build's colour) also means "nobody chose".
         prefs.edit().putString("accent", "teal").commit()
-        assertEquals(AccentChoice.COVER, LibraryStore(context).accent)
+        assertEquals(AccentChoice.SIGNAL, LibraryStore(context).accent)
     }
 }

@@ -27,6 +27,24 @@ internal object SpotifySignInNavigation {
         return regional.matches(host) && (host.startsWith("accounts.") || uri.path.orEmpty().startsWith("/accounts/"))
     }
 
+    /** Spotify's own sign-in host, where its provider buttons live. */
+    fun spotifyLogin(url: String?): Boolean = runCatching { Uri.parse(url).let { secure(it) && it.host?.lowercase(Locale.ROOT) == "accounts.spotify.com" } }.getOrDefault(false)
+
+    /**
+     * Google, Facebook and Apple refuse to sign in inside an app's browser ("this browser or app may
+     * not be secure"), so their buttons only lead to a dead end here. They are hidden on Spotify's
+     * page, leaving the email / phone number and one-time-code routes that do work. Spotify's page
+     * draws its buttons late, so the hiding is repeated as the page changes.
+     */
+    const val HIDE_EMBEDDED_PROVIDERS = """(function(){
+if(window.__humHide)return;window.__humHide=true;
+var re=/(continue|sign|log)\s*(in\s*)?(up\s*)?(with|using)\s+(google|facebook|apple)|^\s*(google|facebook|apple)\s*$/i;
+function hide(){document.querySelectorAll('button,a,[role=button]').forEach(function(e){
+var t=(e.innerText||e.getAttribute('aria-label')||'').trim();
+var id=(e.getAttribute('data-testid')||'')+' '+(e.id||'');
+if((t.length<40&&re.test(t))||/(google|facebook|apple)[-_ ]?(login|signin|sign-in|button)/i.test(id)){var n=e.closest('li')||e;n.style.display='none';}});}
+hide();new MutationObserver(hide).observe(document.documentElement,{childList:true,subtree:true});})();"""
+
     fun allowedSubframe(uri: Uri): Boolean = when (uri.scheme) {
         "https" -> secure(uri)
         "about" -> uri.toString() in setOf("about:blank", "about:srcdoc")

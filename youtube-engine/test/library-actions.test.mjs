@@ -21,6 +21,14 @@ function fixture() {
 test('playlist picker preserves provider order and membership, excluding duplicate and system lists', () => {
   assert.deepEqual(playlistOptions({ contents: [choice('PLown'), choice('PLalready', 'ALL'), choice('PLown'), choice('WL'), choice('LL')] }).map(p => [p.id, p.contains]), [['PLown', false], ['PLalready', true]]);
 });
+test('listing the library works when YouTube refuses an empty song list', async () => {
+  const { api, requests, call } = fixture(); const ok = api.actions.execute;
+  api.actions.execute = async (path, body) => { if (path.endsWith('get_add_to_playlist') && !body.videoIds.length) throw new Error('Request failed with status code 400'); return ok(path, body); };
+  const { playlists } = await call(api, 'playlists');
+  assert.deepEqual(playlists.map(p => [p.id, p.contains]), [['PLown', false], ['PLalready', false]]);
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].body.videoIds.length, 1);
+});
 test('account operations require sign-in before making any request', async () => {
   const { api, requests, call } = fixture(); api.session.logged_in = false;
   for (const method of ['playlists', 'playlist-create', 'playlist-add', 'playlist-remove', 'playlist-rename', 'playlist-delete', 'rate-song'])

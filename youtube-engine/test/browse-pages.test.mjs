@@ -37,6 +37,13 @@ test('an explicit empty continuation ends the feed; an unknown response reports 
   assert.equal(readBrowsePage({ continuationContents: { sectionListContinuation: { contents: [] } } }).has_continuation, false);
   assert.throws(() => readBrowsePage({ responseContext: {} }), e => e.code === 'BROWSE_RESPONSE' && !e.message.includes('responseContext'));
 });
+test('a follow-on page with no content ends the feed instead of failing, and shelf continuations are read', async () => {
+  assert.deepEqual(readBrowsePage({ responseContext: {} }, { continuation: true }), { sections: [], has_continuation: false, page: { continuation_contents: { continuation: null } } });
+  const api = { actions: { execute: async () => ({ success: true, data: { responseContext: {} } }) } };
+  assert.equal((await fetchBrowseContinuation(api, { page: { continuation_contents: { continuation: 'CURRENT' } } })).has_continuation, false);
+  const more = readBrowsePage({ continuationContents: { musicShelfContinuation: { contents: [song('bbbbbbbbbbb', 'Second')] } } }, { continuation: true });
+  assert.equal(sections(more)[0].items[0].videoId, 'bbbbbbbbbbb');
+});
 test('continuation fetches use the Music client and the existing token, without calling the initial browse', async () => {
   const calls = []; const api = { actions: { execute: async (...args) => { calls.push(args); return { success: true, data: sparse }; } } };
   await fetchBrowseContinuation(api, { page: { continuation_contents: { continuation: 'CURRENT' } } });
