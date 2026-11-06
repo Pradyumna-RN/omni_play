@@ -550,8 +550,9 @@ globalThis.musicCall = async (id, method, args) => {
         const videos = args.videos === true;
         let panel;
         if (videos) {
-          // Regular YouTube's "Related" videos — related to the seed, not music-only.
-          panel = await api.getRelated(args.videoId);
+          // YouTube's autoplay "next" endpoint — related videos that play after the current one.
+          const info = await api.getInfo(args.videoId, { client: 'WEB' });
+          panel = { contents: info.watch_next_feed || [] };
         } else {
           panel = await api.music.getUpNext(args.videoId, true);
         }
