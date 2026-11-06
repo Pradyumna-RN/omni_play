@@ -99,6 +99,12 @@ class ControlInventoryTest {
             onRecommendationEngine = { rec("onRecommendationEngine", it) },
             onConnectSpotify = { rec("onConnectSpotify") }, onDisconnectSpotify = { rec("onDisconnectSpotify") },
             onMoreCollection = { rec("onMoreCollection") },
+            songActions = labs.rtensor.music.ui.SongActionCallbacks(
+            showPlaylistImport = { rec("showPlaylistImport"); update { it.copy(playlistImport = labs.rtensor.music.imports.PlaylistImportState(visible = true)) } },
+            dismissPlaylistImport = { rec("dismissPlaylistImport"); update { it.copy(playlistImport = labs.rtensor.music.imports.PlaylistImportState()) } },
+            importPlaylistAccount = { rec("importPlaylistAccount", it) }, importPlaylistLink = { rec("importPlaylistLink", it) },
+            choosePlaylistFile = { rec("choosePlaylistFile") }, choosePlaylistFolder = { rec("choosePlaylistFolder") },
+            selectPlaylistImport = { rec("selectPlaylistImport", it.id) }, confirmPlaylistImport = { rec("confirmPlaylistImport") }),
         )
     }
 

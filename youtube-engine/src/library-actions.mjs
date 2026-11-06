@@ -62,6 +62,7 @@ export async function searchSuggestions(api, query) {
 /** One instance per web session: account changes discard all playlist cursors and permissions. */
 export function createLibraryActions() {
   const pages = new Map(), owned = new Set();
+  let pageSession, pageSignedIn;
   async function choices(api, selected) {
     const response = await api.actions.execute('/playlist/get_add_to_playlist', {
       client: 'YTMUSIC', videoIds: selected ? [videoId(selected)] : [], excludeWatchLater: true,
@@ -84,7 +85,11 @@ export function createLibraryActions() {
     return { success: true };
   }
   return async (api, method, args = {}) => {
-    if (!api.session.logged_in) throw fail('AUTH_REQUIRED', 'Sign in to YouTube Music to sync playlists and likes.');
+    const signedIn = !!api.session.logged_in;
+    if (pageSession !== api.session || pageSignedIn !== signedIn) {
+      pages.clear(); owned.clear(); pageSession = api.session; pageSignedIn = signedIn;
+    }
+    if (!api.session.logged_in && method !== 'playlist-tracks') throw fail('AUTH_REQUIRED', 'Sign in to YouTube Music to sync playlists and likes.');
     if (method === 'playlists') return { playlists: await choices(api, args.videoId) };
     if (method === 'rate-song') {
       const id = videoId(args.videoId);
@@ -105,16 +110,23 @@ export function createLibraryActions() {
     }
     const id = playlistId(args.id);
     if (method === 'playlist-tracks') {
-      const page = args.more && pages.get(id)?.has_continuation
-        ? await pages.get(id).getContinuation() : await api.music.getPlaylist(id);
-      pages.set(id, page);
-      return { tracks: (page.contents || []).map(node => {
+      const session = args.importSession || '';
+      if (typeof session !== 'string' || session.length > 36 || session && !/^[a-f0-9-]+$/.test(session)) throw fail('PLAYLIST', 'Choose a valid import session.');
+      const key = session ? `${id}:${session}` : id;
+      const previous = pages.get(key);
+      if (args.more && !previous) throw fail('PLAYLIST_CURSOR', 'Reopen the playlist before loading more.');
+      if (args.more && !previous.has_continuation) return {tracks: [], hasMore: false, skipped: 0};
+      const page = args.more ? await previous.getContinuation() : await api.music.getPlaylist(id);
+      pages.set(key, page);
+      if (pages.size > 24) pages.delete(pages.keys().next().value);
+      const tracks = (page.contents || []).map(node => {
         const song = track(node);
         if (!song) return null;
         const remove = node.menu?.items?.find(item => item.endpoint?.payload?.actions?.some(a => a.setVideoId));
         const setId = remove?.endpoint?.payload?.actions?.find(a => a.setVideoId)?.setVideoId || node.set_video_id || '';
         return { ...song, playlistItemId: setId };
-      }).filter(Boolean), hasMore: !!page.has_continuation, editable: owned.has(id) };
+      }).filter(Boolean);
+      return {tracks, skipped: Math.max(0, (page.contents || []).length - tracks.length), title: String(page.title || page.header?.title || ''), hasMore: !!page.has_continuation, editable: owned.has(id)};
     }
     if (method === 'playlist-add') return edit(api, id, { action: 'ACTION_ADD_VIDEO', addedVideoId: videoId(args.videoId) });
     if (method === 'playlist-remove') {

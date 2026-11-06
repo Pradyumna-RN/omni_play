@@ -79,3 +79,31 @@ test('suggestions preserve server order, include playable songs and ignore links
   await searchSuggestions(api, ''); await searchSuggestions(api, 'https://youtu.be/aaaaaaaaaaa');
   assert.deepEqual(calls, ['the wee']);
 });
+test('public playlist import reads do not require sign-in; writes remain authenticated', async () => {
+  const {api, call} = fixture(); api.session.logged_in = false;
+  assert.equal((await call(api, 'playlist-tracks', {id: 'PLpublic'})).hasMore, false);
+  await assert.rejects(call(api, 'playlist-add', {id: 'PLpublic', videoId: 'aaaaaaaaaaa'}), e => e.code === 'AUTH_REQUIRED');
+});
+test('import sessions do not consume the playlist browser cursor and exhausted reads do not reload', async () => {
+  const {api, call} = fixture(); let initial = 0;
+  api.music.getPlaylist = async () => {
+    const title = `Page ${++initial}`;
+    return {title, contents: [], has_continuation: true, getContinuation: async () => ({title: title + ' continued', contents: [], has_continuation: false})};
+  };
+  await call(api, 'playlist-tracks', {id: 'PLpublic'});
+  await call(api, 'playlist-tracks', {id: 'PLpublic', importSession: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'});
+  assert.equal((await call(api, 'playlist-tracks', {id: 'PLpublic', more: true})).title, 'Page 1 continued');
+  assert.equal((await call(api, 'playlist-tracks', {id: 'PLpublic', more: true, importSession: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'})).title, 'Page 2 continued');
+  assert.equal((await call(api, 'playlist-tracks', {id: 'PLpublic', more: true})).hasMore, false);
+  assert.equal(initial, 2);
+  await assert.rejects(call(api, 'playlist-tracks', {id: 'PLmissing', more: true}), e => e.code === 'PLAYLIST_CURSOR');
+});
+
+test('sign-out invalidates private playlist continuation state before allowing public reads', async () => {
+  const {api, call} = fixture(); let continued = false;
+  api.music.getPlaylist = async () => ({contents: [], has_continuation: true, getContinuation: async () => { continued = true; return {contents: [], has_continuation: false}; }});
+  await call(api, 'playlist-tracks', {id: 'PLprivate'});
+  api.session.logged_in = false;
+  await assert.rejects(call(api, 'playlist-tracks', {id: 'PLprivate', more: true}), e => e.code === 'PLAYLIST_CURSOR');
+  assert.equal(continued, false);
+});

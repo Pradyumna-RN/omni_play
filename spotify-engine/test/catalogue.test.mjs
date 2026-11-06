@@ -9,7 +9,7 @@ const seed = 'a'.repeat(22), next = 'b'.repeat(22), playlist = 'c'.repeat(22);
 const music = id => ({uri: `spotify:track:${id}`, name: 'Afterimage', artists: {items: [{profile: {name: 'Mira'}}]},
   duration: {totalMilliseconds: 180000}, albumOfTrack: {coverArt: {sources: [
     {url: 'https://i.scdn.co/image/small', width: 64}, {url: 'https://i.scdn.co/image/large', width: 640}]}}});
-function page({anonymous = false, failure = false, origin = 'https://open.spotify.com', topFrame = true, assetFailureOnce = false} = {}) {
+function page({anonymous = false, failure = false, origin = 'https://open.spotify.com', topFrame = true, assetFailureOnce = false, missingFlag = false, currentRoot = false, missingUserId = false, meUnauthorized = false, repeatedSongs = false} = {}) {
   const events = new Map(), calls = [], messages = [], fetches = [];
   const catalogue = {
     home: {data: {home: {sectionContainer: {sections: {items: [
@@ -23,8 +23,8 @@ function page({anonymous = false, failure = false, origin = 'https://open.spotif
     searchTracks: {data: {searchV2: {tracksV2: {items: [{item: {data: music(seed)}}]}}}}
   };
   const registry = new Map();
-  registry.set(Symbol('TokenProvider'), {getToken: async () => ({accessToken: 'PRIVATE_BEARER', isAnonymous: anonymous})});
-  registry.set(Symbol('UserAPI'), {getUser: async () => ({displayName: 'Listener', username: 'private-user'})});
+  registry.set(Symbol('TokenProvider'), {getToken: async () => ({accessToken: 'PRIVATE_BEARER', ...(missingFlag ? {} : {isAnonymous: anonymous})})});
+  registry.set(Symbol('UserAPI'), {getUser: async () => ({displayName: 'Listener', ...(missingUserId ? {} : {username: 'private-user'})})});
   const platform = {getRegistry: () => ({_map: registry, resolve: key => registry.get(key)}),
     getGraphQLLoader: () => async (definition, variables) => {
       calls.push({definition, variables});
@@ -32,6 +32,8 @@ function page({anonymous = false, failure = false, origin = 'https://open.spotif
       return catalogue[definition.name];
     }};
   const root = {__reactContainer$test: {memoizedProps: {value: platform}}, querySelectorAll: () => []};
+  if (currentRoot) { const active = root.__reactContainer$test; root.__reactContainer$test = {stateNode: {current: active}, alternate: active}; active.alternate = root.__reactContainer$test; }
+  if (repeatedSongs) catalogue.fetchPlaylistContents.data.playlistV2.content.items.splice(1, 0, {itemV2: {data: music(seed)}});
   const bundle = 'https://open.spotifycdn.com/cdn/build/web-player/web-player.test.js';
   const searchBundle = 'https://open.spotifycdn.com/cdn/build/web-player/xpui-routes-search.test.js';
   const declarations = Buffer.from(JSON.stringify({search: searchBundle})).toString('base64');
@@ -40,6 +42,8 @@ function page({anonymous = false, failure = false, origin = 'https://open.spotif
     getElementById: id => id === 'main' ? root : id === '__CDN_FILE_URLS__' ? {textContent: declarations} : null};
   const fetch = async (url, options) => {
     fetches.push({url, options});
+    if (url === 'https://api.spotify.com/v1/me') return {ok: !meUnauthorized, status: meUnauthorized ? 401 : 200, json: async () => ({id: 'verified-self', display_name: 'Listener'})};
+    if (url.startsWith('https://api.spotify.com/v1/me/playlists?')) return {ok: true, json: async () => ({items: [{uri: `spotify:playlist:${playlist}`, name: 'My library playlist'}], next: 'opaque next URL must not be fetched'})};
     if (url.startsWith('https://spclient.wg.spotify.com/inspiredby-mix/')) return {ok: true, json: async () => ({mediaItems: [{uri: `spotify:playlist:${playlist}`}]})};
     assert(url === bundle || url === searchBundle, 'Only published Spotify build assets may be inspected');
     assert(options.signal instanceof AbortSignal, 'Asset fetches have a bounded abort deadline');
@@ -57,7 +61,7 @@ function page({anonymous = false, failure = false, origin = 'https://open.spotif
     const id = randomUUID(); await port.onmessage({data: JSON.stringify({id, operation, args})});
     const result = messages.find(message => message.id === id); assert(result); return result;
   };
-  return {port, bind, events, request, calls, fetches, messages};
+  return {port, bind, events, request, calls, fetches, messages, root};
 }
 
 test('profile returns no cookie, token or player-control surface', async () => {
@@ -121,4 +125,34 @@ test('track details combine firstArtist and otherArtists without losing recordin
   assert.equal(result.result.items.length,1);
   assert.equal(result.result.items[0].artist,'Mira, Guest');
   assert.equal(result.result.items[0].durationMs,180000);
+});
+
+test('sign-in discovers the current React root and tolerates root alternates without cycling', async () => {
+  const p = page({currentRoot: true}); assert.equal((await p.request('profile')).result.name, 'Listener');
+});
+test('missing anonymity flag requires successful canonical self-profile verification', async () => {
+  const p = page({missingFlag: true}); assert.equal((await p.request('profile')).result.name, 'Listener');
+  assert.equal(p.fetches[0].url, 'https://api.spotify.com/v1/me');
+  assert(!JSON.stringify(p.messages).includes('PRIVATE_BEARER'));
+  assert.equal((await page({missingFlag: true, meUnauthorized: true}).request('profile')).error, 'AUTH_REQUIRED');
+});
+test('a display name alone cannot confirm an account', async () => {
+  assert.equal((await page({missingUserId: true, meUnauthorized: true}).request('profile')).error, 'AUTH_REQUIRED');
+});
+test('profile refresh follows a replacement post-login page context', async () => {
+  const p = page({anonymous: true}); assert.equal((await p.request('profile')).error, 'AUTH_REQUIRED');
+  const registry = new Map([[Symbol('TokenProvider'), {getToken: async () => ({accessToken: 'PRIVATE_BEARER', isAnonymous: false})}],
+    [Symbol('UserAPI'), {getUser: async () => ({username: 'confirmed-user', displayName: 'Connected listener'})}]]);
+  p.root.__reactContainer$test.memoizedProps.value = {getRegistry: () => ({_map: registry, resolve: k => registry.get(k)}), getGraphQLLoader: () => {}};
+  assert.equal((await p.request('profile')).result.name, 'Connected listener');
+});
+test('playlist import preserves repeated occurrences and uses consumed rows for pagination', async () => {
+  const p = page({repeatedSongs: true}); const result = await p.request('collection', {uri: `spotify:playlist:${playlist}`, preserveOccurrences: true});
+  assert.deepEqual(result.result.items.map(i => i.id), [seed, seed, next]); assert.equal(result.result.nextOffset, -1);
+});
+test('account playlist reads use a bounded native offset without following remote next URLs', async () => {
+  const p = page(); const result = await p.request('playlists', {offset: 50});
+  assert.equal(result.result.items[0].title, 'My library playlist'); assert.equal(result.result.nextOffset, 51);
+  assert.equal(p.fetches.length, 1); assert(p.fetches[0].url.endsWith('limit=50&offset=50'));
+  assert.equal((await p.request('playlists', {offset: -1})).error, 'BAD_REQUEST');
 });

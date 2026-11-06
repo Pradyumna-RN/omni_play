@@ -49,6 +49,10 @@ class SongActionCallbacks(
     val deletePlaylist: (UserPlaylist) -> Unit = {},
     val removeFromPlaylist: (UserPlaylist, Track, Int) -> Unit = { _, _, _ -> },
     val rate: (Track, String) -> Unit = { _, _ -> }, val connectYouTube: () -> Unit = {},
+    val showPlaylistImport: () -> Unit = {}, val dismissPlaylistImport: () -> Unit = {},
+    val importPlaylistAccount: (String) -> Unit = {}, val importPlaylistLink: (String) -> Unit = {},
+    val selectPlaylistImport: (labs.rtensor.music.imports.PlaylistImportChoice) -> Unit = {},
+    val choosePlaylistFile: () -> Unit = {}, val choosePlaylistFolder: () -> Unit = {}, val confirmPlaylistImport: () -> Unit = {},
     val dismissMessage: () -> Unit = {},
 )
 
@@ -108,6 +112,7 @@ internal fun SongActionsHost(state: MusicState, actions: SongActionCallbacks, on
             content()
             SnackbarHost(snack, Modifier.align(Alignment.BottomCenter).navigationBarsPadding())
         }
+        PlaylistImportSheet(state.playlistImport, actions)
         target?.let { selected ->
             val track = selected.track
             val saved = state.saved.any { it.libraryKey() == track.libraryKey() }
@@ -273,8 +278,9 @@ internal fun PlaylistLibrary(state: MusicState, onPlay: (Track, List<Track>) -> 
         }
         state.playlistError?.let { error -> item { PlaylistError(error) { if (selected == null) actions.loadPlaylists(null) else actions.openPlaylist(selected, false) } } }
         if (selected == null) {
+            item { OutlinedButton(onClick = actions.showPlaylistImport, enabled = !state.playlistBusy, modifier = Modifier.fillMaxWidth()) { Text("Import playlist") } }
             items(state.playlists, key = { it.id }) { playlist ->
-                MenuAction(playlist.title, Glyph.Library, detail = if (playlist.remote) "YouTube Music" else "On this device") { actions.openPlaylist(playlist, false) }
+                MenuAction(playlist.title, Glyph.Library, detail = if (playlist.remote) "YouTube Music" else playlist.importedFrom.takeIf(String::isNotBlank)?.let { "$it · On this device" } ?: "On this device") { actions.openPlaylist(playlist, false) }
             }
             if (state.playlists.isEmpty() && !state.playlistsBusy) item { Text("Create a playlist or add a song from its options menu.", Modifier.padding(vertical = 24.dp), fontSize = 14.sp) }
             if (!state.account.connected) item { TextButton(onClick = actions.connectYouTube) { Text("Connect YouTube Music") } }

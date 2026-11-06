@@ -103,6 +103,12 @@ internal class SpotifyRecommendations(context: Context,
         return items(fetch("radio", JSONObject().put("id", id)).getJSONArray("items"))
             .filter { it.kind == "track" && it.id != id }.map { it.track() }.filter { it.id !in ignored }
     }
+    suspend fun importPlaylists(offset: Int = 0): JSONObject = fetch("playlists", JSONObject().put("offset", offset))
+    suspend fun importPage(uri: String, offset: Int = 0): JSONObject = fetch("collection", JSONObject().put("uri", uri).put("offset", offset).put("preserveOccurrences", true))
+    internal fun importTracks(page: JSONObject): List<Track> {
+        val data = page.getJSONArray("items")
+        return (0 until data.length()).mapNotNull { runCatching { SpotifyItem.parse(data.getJSONObject(it)) }.getOrNull()?.takeIf { it.kind == "track" }?.track() }
+    }
     fun close() { api.close() }
     companion object {
         private const val CACHE_MS = 10 * 60 * 1000L

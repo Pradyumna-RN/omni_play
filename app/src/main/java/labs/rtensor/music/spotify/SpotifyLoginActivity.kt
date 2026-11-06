@@ -53,7 +53,7 @@ class SpotifyLoginActivity : ComponentActivity() {
             SavedMusicTheme {
                 SpotifyLoginScreen(pageUrl, message, busy, loading,
                     onCancel = ::cancelLogin, onConnect = ::connectOrContinue,
-                    onSignIn = { restartLogin() }, onReload = { restartLogin() }) {
+                    onSignIn = { restartLogin() }, onReload = ::reloadLogin) {
                     browser?.let { view -> key(view) {
                         AndroidView(modifier = Modifier.fillMaxSize(), factory = {
                             (view.parent as? ViewGroup)?.removeView(view)
@@ -87,6 +87,12 @@ class SpotifyLoginActivity : ComponentActivity() {
         problem = null; message = INSTRUCTIONS; loading = true
         openLogin(fresh = true)
     }
+    private fun reloadLogin() {
+        confirmationJob?.cancel(); busy = false; attemptedAutoConnect = false
+        problem = null; message = INSTRUCTIONS; loading = true
+        try { browser = engine?.reloadLogin(observer, this) ?: return openLogin(fresh = false) }
+        catch (_: Exception) { loading = false; show(SpotifySignInProblem.NO_WEBVIEW) }
+    }
     private fun connectOrContinue() {
         val runtime = engine ?: return
         if (!SpotifySignInNavigation.player(pageUrl)) {
@@ -102,7 +108,18 @@ class SpotifyLoginActivity : ComponentActivity() {
         busy = true; message = "Checking your Spotify account…"
         confirmationJob = lifecycleScope.launch {
             try {
-                withTimeout(30_000) { runtime.call("profile", JSONObject()) }
+                withTimeout(30_000) {
+                    var attempt = 0
+                    while (true) {
+                        try { runtime.call("profile", JSONObject()); break }
+                        catch (e: CancellationException) { throw e }
+                        catch (e: Exception) {
+                            // The cookie can arrive before Spotify replaces its guest page context.
+                            if (!runtime.hasSessionHint() || ++attempt >= 5) throw e
+                            delay(1_000)
+                        }
+                    }
+                }
                 ensureActive()
                 setResult(RESULT_OK); finish()
             } catch (_: TimeoutCancellationException) {
@@ -123,7 +140,7 @@ class SpotifyLoginActivity : ComponentActivity() {
     }
     override fun onDestroy() {
         confirmationJob?.cancel()
-        browser?.let { (it.parent as? ViewGroup)?.removeView(it) }
+        // The runtime checks ownership before detaching: a recreated activity may already own it.
         engine?.hideLogin(observer); browser = null
         super.onDestroy()
     }

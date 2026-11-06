@@ -99,6 +99,15 @@ class MainActivity : ComponentActivity() {
                     model.importLocal(uri)
                 }
             }
+            val playlistFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+                uri?.let { model.importPlaylistFile(it) }
+            }
+            val playlistAudioFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+                if (uri != null) {
+                    runCatching { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+                    model.importPlaylistFolder(uri)
+                }
+            }
             val mastersFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
                 if (uri != null) {
                     runCatching { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
@@ -112,6 +121,10 @@ class MainActivity : ComponentActivity() {
                     loadPlaylists = model::loadPlaylists, openPlaylist = model::openPlaylist, closePlaylist = model::closePlaylist,
                     createPlaylist = model::createPlaylist, addToPlaylist = model::addToPlaylist, renamePlaylist = model::renamePlaylist,
                     deletePlaylist = model::deletePlaylist, removeFromPlaylist = model::removeFromPlaylist, rate = model::rateSong,
+                    showPlaylistImport = model::showPlaylistImport, dismissPlaylistImport = model::dismissPlaylistImport,
+                    importPlaylistAccount = model::importPlaylistAccount, importPlaylistLink = model::importPlaylistLink,
+                    selectPlaylistImport = model::importPlaylistChoice, confirmPlaylistImport = model::confirmPlaylistImport,
+                    choosePlaylistFile = { playlistFile.launch(arrayOf("*/*")) }, choosePlaylistFolder = { playlistAudioFolder.launch(null) },
                     connectYouTube = ::connectYouTube, dismissMessage = { model.actionMessage(null) }) },
                 onSuggestion = model::selectSuggestion, onHomeFilter = model::homeFilter,
                 onBrowseNavigation = { entry, nested -> model.browse(entry, nested) }, onCollectionBack = model::backCollection,

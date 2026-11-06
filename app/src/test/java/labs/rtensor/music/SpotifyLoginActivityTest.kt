@@ -106,4 +106,16 @@ class SpotifyLoginActivityTest {
         compose.onNodeWithText("Android closed the sign-in page", substring = true).assertDoesNotExist()
         compose.runOnIdle { assertSame(before, page) }
     }
+    @Test fun reloadReplacesTheBlankBrowserAndKeepsItsSession() {
+        val before = compose.runOnIdle { page }
+        compose.runOnUiThread { CookieManager.getInstance().setCookie(SpotifySignInNavigation.PLAYER, "sp_dc=session") }
+        compose.onNodeWithText("Reload").performClick()
+        compose.runOnIdle {
+            assertNotSame(before, page)
+            assertTrue(runtime.hasSessionHint())
+            assertEquals(SpotifySignInNavigation.PLAYER, shadowOf(page).lastLoadedUrl)
+            assertNotNull(page.parent)
+        }
+    }
+
 }

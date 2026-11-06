@@ -17,7 +17,7 @@
     const visited = new Set(), todo = [];
     for (const el of [document.getElementById('main'), document.getElementById('root'), document.body].filter(Boolean)) {
       for (const node of [el, ...el.querySelectorAll('*')].slice(0, 1200)) {
-        for (const key of Object.keys(node)) if (key.startsWith('__reactContainer$')) todo.push(node[key]);
+        for (const key of Object.keys(node)) if (key.startsWith('__reactContainer$') || key.startsWith('__reactFiber$')) todo.push(node[key]);
       }
     }
     let cursor = 0;
@@ -25,15 +25,20 @@
       const fiber = todo[cursor++];
       if (!fiber || visited.has(fiber)) continue;
       visited.add(fiber);
+      if (fiber.stateNode?.current && fiber.stateNode.current !== fiber) { todo.push(fiber.stateNode.current); continue; }
       const value = fiber.memoizedProps?.value;
       if (value && typeof value.getRegistry === 'function' && typeof value.getGraphQLLoader === 'function') return value;
       if (fiber.child) todo.push(fiber.child);
       if (fiber.sibling) todo.push(fiber.sibling);
+      if (fiber.stateNode?.current) todo.push(fiber.stateNode.current);
+
     }
     return null;
   }
   async function platform() {
-    if (provider) return provider;
+    const current = discover();
+    if (current) { provider = current; return current; }
+
     const until = Date.now() + 22000;
     do {
       const found = discover();
@@ -49,7 +54,7 @@
   }
   async function auth() {
     const token = await (await service('TokenProvider')).getToken();
-    if (!token?.accessToken || token.isAnonymous !== false) throw Error('AUTH_REQUIRED');
+    if (typeof token?.accessToken !== 'string' || !token.accessToken || token.isAnonymous === true) throw Error('AUTH_REQUIRED');
     return token;
   }
   const path = (object, keys) => keys.split('.').reduce((value, key) => value?.[key], object);
@@ -136,24 +141,33 @@
     if (response?.errors?.length) throw Error('CATALOGUE_UNAVAILABLE');
     return response?.data || response;
   }
-  async function collection(uri, offset = 0) {
+  async function collection(uri, offset = 0, preserveOccurrences = false) {
     if (!uriPattern.test(uri)) throw Error('BAD_REQUEST');
     const kind = uri.split(':')[1];
     const name = kind === 'playlist' ? 'fetchPlaylistContents' : kind === 'album' ? 'getAlbum' : 'getTrack';
     const data = await query(name, {uri, offset, limit: 40, locale: '', includeEpisodeContentRatingsV2: true,
       enableWatchFeedEntrypoint: false});
     const source = kind === 'playlist' ? data?.playlistV2?.content : kind === 'album' ? data?.albumUnion?.tracksV2 : null;
-    const items = collect(kind === 'track' ? data?.trackUnion : source?.items, ['track']).slice(0, 40);
+    const items = preserveOccurrences && kind !== 'track'
+      ? (source?.items || []).flatMap(row => collect(row, ['track']).slice(0, 1)).slice(0, 40)
+      : collect(kind === 'track' ? data?.trackUnion : source?.items, ['track']).slice(0, 40);
     if (!items.length && !source) throw Error('CATALOGUE_UNAVAILABLE');
     const consumed = Array.isArray(source?.items) ? source.items.length : 0;
-    return {items, nextOffset: consumed > 0 && Number(source?.totalCount || 0) > offset + consumed ? offset + consumed : -1};
+    return {items, title: data?.playlistV2?.name || data?.albumUnion?.name || '', skipped: Math.max(0, consumed - items.length), nextOffset: consumed > 0 && Number(source?.totalCount || 0) > offset + consumed ? offset + consumed : -1};
   }
   async function request(operation, args) {
     if (operation === 'profile') {
-      await auth();
-      const user = await (await service('UserAPI')).getUser();
-      const name = user?.displayName || user?.display_name || user?.username;
-      if (typeof name !== 'string' || !name) throw Error('AUTH_REQUIRED');
+      const token = await auth();
+      let user;
+      try { user = await (await service('UserAPI')).getUser(); } catch {}
+      if (token.isAnonymous !== false || (!user?.username && !user?.id)) {
+        const response = await fetch('https://api.spotify.com/v1/me', {credentials: 'omit', headers: {Authorization: `Bearer ${token.accessToken}`}});
+        if (!response.ok) throw Error(response.status === 401 ? 'AUTH_REQUIRED' : 'CATALOGUE_UNAVAILABLE');
+        user = await response.json();
+      }
+      const id = user?.username || user?.id;
+      const name = user?.displayName || user?.display_name || id;
+      if (typeof id !== 'string' || !id.trim() || typeof name !== 'string' || !name.trim()) throw Error('AUTH_REQUIRED');
       return {name: name.slice(0, 120)};
     }
     if (operation === 'home') {
@@ -166,7 +180,20 @@
       if (!sections.length) throw Error('CATALOGUE_UNAVAILABLE');
       return {sections};
     }
-    if (operation === 'collection') return collection(args.uri, args.offset || 0);
+    if (operation === 'collection') {
+      if (!Number.isSafeInteger(args.offset || 0) || (args.offset || 0) < 0 || (args.offset || 0) > 100000) throw Error('BAD_REQUEST');
+      return collection(args.uri, args.offset || 0, args.preserveOccurrences === true);
+    }
+    if (operation === 'playlists') {
+      const offset = args.offset || 0;
+      if (!Number.isSafeInteger(offset) || offset < 0 || offset > 100000) throw Error('BAD_REQUEST');
+      const token = await auth();
+      const response = await fetch(`https://api.spotify.com/v1/me/playlists?limit=50&offset=${offset}`, {credentials: 'omit', headers: {Authorization: `Bearer ${token.accessToken}`}});
+      if (!response.ok) throw Error(response.status === 401 ? 'AUTH_REQUIRED' : 'CATALOGUE_UNAVAILABLE');
+      const data = await response.json();
+      if (!Array.isArray(data.items)) throw Error('CATALOGUE_UNAVAILABLE');
+      return {items: data.items.map(item).filter(value => value?.kind === 'playlist'), nextOffset: data.next && data.items.length ? offset + data.items.length : -1};
+    }
     if (operation === 'search') {
       if (typeof args.query !== 'string' || !args.query.trim() || args.query.length > 400) throw Error('BAD_REQUEST');
       const data = await query('searchTracks', {searchTerm: args.query, offset: 0, limit: 10,

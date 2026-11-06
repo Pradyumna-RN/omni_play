@@ -151,4 +151,37 @@ class SpotifySignInTest {
             assertTrue(host.baseContext is Application)
         } finally { runtime.hideLogin(observer); runtime.close() }
     }
+    @Test fun staleLoginOwnersCannotDetachTheNewOwnersView() {
+        val runtime = SpotifyWebRuntime.get(context); val old = Observer(); val next = Observer()
+        val view = runtime.showLogin(old, fresh = true)
+        val parent = android.widget.FrameLayout(context); parent.addView(view)
+        try {
+            assertSame(view, runtime.showLogin(next, fresh = false))
+            runtime.hideLogin(old)
+            assertSame(parent, view.parent)
+            runtime.hideLogin(next)
+            assertNull(view.parent)
+        } finally { runtime.hideLogin(next); runtime.close() }
+    }
+    @Test fun reloadRecreatesABlankViewWithoutClearingTheSessionCookie() {
+        val runtime = SpotifyWebRuntime.get(context); val observer = Observer()
+        val activity = Robolectric.buildActivity(ComponentActivity::class.java).setup().get()
+        val cookie = CookieManager.getInstance()
+        try {
+            val before = runtime.showLogin(observer, fresh = true, window = activity)
+            cookie.setCookie(SpotifySignInNavigation.PLAYER, "sp_dc=session")
+            val after = runtime.reloadLogin(observer, activity)
+            assertNotSame(before, after)
+            val currentUrl = observer.url
+            before.webViewClient.onPageStarted(before, "https://accounts.spotify.com/stale", null)
+            assertEquals(currentUrl, observer.url)
+            assertTrue(runtime.hasSessionHint())
+            assertEquals(SpotifySignInNavigation.PLAYER, shadowOf(after).lastLoadedUrl)
+        } finally { runtime.hideLogin(observer); runtime.close(); cookie.removeAllCookies(null) }
+    }
+    @Test fun signInSubframesMayUseBlankOrSpotifyBlobDocumentsButNotLocalFiles() {
+        for (url in listOf("about:blank", "about:srcdoc", "blob:https://accounts.spotify.com/session", "https://challenge.spotify.com/")) assertTrue(url, SpotifySignInNavigation.allowedSubframe(Uri.parse(url)))
+        for (url in listOf("file:///private/data", "content://private/data", "javascript:alert(1)", "blob:https://attacker.test/payload")) assertFalse(url, SpotifySignInNavigation.allowedSubframe(Uri.parse(url)))
+    }
+
 }

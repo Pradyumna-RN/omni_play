@@ -27,6 +27,13 @@ internal object SpotifySignInNavigation {
         return regional.matches(host) && (host.startsWith("accounts.") || uri.path.orEmpty().startsWith("/accounts/"))
     }
 
+    fun allowedSubframe(uri: Uri): Boolean = when (uri.scheme) {
+        "https" -> secure(uri)
+        "about" -> uri.toString() in setOf("about:blank", "about:srcdoc")
+        "blob" -> runCatching { allowed(Uri.parse(uri.schemeSpecificPart), false) }.getOrDefault(false)
+        else -> false
+    }
+
     /**
      * Google answers an embedded sign-in it will not complete with its "rejected" or OAuth error
      * page (for example "This browser or app may not be secure" or disallowed_useragent). The
@@ -62,6 +69,8 @@ internal class SpotifySignInProblem(val page: String, val summary: String) {
         val GOOGLE_REFUSED = SpotifySignInProblem("Google won't finish signing in inside another app. Tap Sign in, then choose " +
             "Continue with email or phone number. Spotify sends a code to the email or phone on your account.",
             "Google won't sign in inside another app. Next time, choose Continue with email or phone number on Spotify's page")
+        val EMPTY_PAGE = SpotifySignInProblem("Spotify's page stayed blank. Tap Reload to open a fresh browser view. If it stays blank, update Android System WebView or Chrome and check your connection.",
+            "Spotify's sign-in page stayed blank")
         val NOT_SIGNED_IN = SpotifySignInProblem("Finish signing in to Spotify, then tap Connect. Tap Sign in to reopen the login page.",
             "Spotify hadn't signed you in yet")
         val SLOW = SpotifySignInProblem("Spotify is still opening your account. Wait for the page, then tap Connect.",

@@ -84,6 +84,7 @@ data class MusicState(
     val results: List<Track> = emptyList(),
     val suggestions: List<labs.rtensor.music.data.SearchSuggestion> = emptyList(),
     val suggestionsBusy: Boolean = false,
+    val playlistImport: labs.rtensor.music.imports.PlaylistImportState = labs.rtensor.music.imports.PlaylistImportState(),
     val playlists: List<labs.rtensor.music.data.UserPlaylist> = emptyList(),
     val playlistsBusy: Boolean = false,
     val playlistLoading: Boolean = false,
@@ -270,6 +271,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             spotify.state.collect { account ->
                 val changed = account.connected != mutable.value.spotifyAccount.connected || account.revision != mutable.value.spotifyAccount.revision
                 mutable.update { it.copy(spotifyAccount = account) }
+                if (changed && mutable.value.playlistImport.visible) playlistImporter.accountChanged()
                 if (changed && mutable.value.recommendationEngine == RecommendationEngine.SPOTIFY) reloadRecommendations()
             }
         }
@@ -295,6 +297,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 val changed = account.connected != mutable.value.account.connected || account.revision != mutable.value.account.revision
                 if (changed) {
                     playlistEpoch++; playlistsJob?.cancel(); playlistJob?.cancel(); playlistMutation?.cancel()
+                    if (mutable.value.playlistImport.visible) playlistImporter.accountChanged()
                     mutable.update { it.copy(playlists = devicePlaylists.lists(), playlistSelection = null, playlistTracks = emptyList(),
                         playlistsBusy = false, playlistLoading = false, playlistMutating = false, playlistError = null) }
                 }
@@ -1015,6 +1018,18 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         return resolved.id.removePrefix("yt:").takeIf { it.matches(Regex("[A-Za-z0-9_-]{11}")) }
             ?: error("A matching YouTube song could not be identified.")
     }
+    private val playlistImporter by lazy { labs.rtensor.music.imports.PlaylistImportController(getApplication(), viewModelScope,
+        devicePlaylists, youtube, youtubePlaylists, spotify, { mutable.value.account.connected },
+        { value -> mutable.update { it.copy(playlistImport = value) } }, { message -> actionMessage(message); loadPlaylists() }) }
+    fun showPlaylistImport() = playlistImporter.show()
+    fun dismissPlaylistImport() = playlistImporter.dismiss()
+    fun importPlaylistAccount(provider: String) = playlistImporter.account(provider)
+    fun importPlaylistChoice(choice: labs.rtensor.music.imports.PlaylistImportChoice) = playlistImporter.choose(choice)
+    fun importPlaylistLink(link: String) = playlistImporter.link(link)
+    fun importPlaylistFile(uri: Uri) = playlistImporter.file(uri)
+    fun importPlaylistFolder(uri: Uri) = playlistImporter.folder(uri)
+    fun confirmPlaylistImport() = playlistImporter.confirm()
+
     fun loadPlaylists(selected: Track? = null) {
         playlistsJob?.cancel()
         val ticket = playlistEpoch

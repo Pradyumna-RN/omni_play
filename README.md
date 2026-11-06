@@ -49,6 +49,12 @@ quality information, reliable surround processing and smooth everyday playback.
 A combined library is part of that experience. The current UI can stay while
 those features improve.
 
+## Pending source changes
+
+[Playlist imports and Spotify sign-in handoff](PLAYLIST_IMPORTS.md) describes the
+0.3.41 source changes, supported import formats, history-sync limits and remaining
+local validation. These changes have not been published as an OTA.
+
 ## Quick guide
 
 1. **Install or update.** Get the [current preview release](https://github.com/RTensorLabs/music-app/releases/tag/v0.3.40).

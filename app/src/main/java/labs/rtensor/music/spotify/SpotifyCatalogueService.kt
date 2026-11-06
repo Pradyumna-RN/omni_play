@@ -23,7 +23,7 @@ internal class SpotifyCatalogueService : Service() {
             else {
                 val operation = data.readString().orEmpty()
                 val json = data.readString().orEmpty()
-                require(json.length <= 16384 && operation in setOf("profile", "home", "radio", "search", "collection", "disconnect"))
+                require(json.length <= 16384 && operation in setOf("profile", "home", "radio", "search", "collection", "playlists", "disconnect"))
                 val receiver = SpotifyCatalogueProtocol.readReceiver(data)
                 main.post {
                     val job = scope.launch(start = CoroutineStart.LAZY) {

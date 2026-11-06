@@ -16,7 +16,7 @@
         android:theme="@style/Theme.Music"
         android:usesCleartextTraffic="false">
         <activity android:name=".YouTubeLoginActivity" android:exported="false" android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|uiMode|keyboard|keyboardHidden|navigation" />
-        <activity android:name=".spotify.SpotifyLoginActivity" android:exported="false" android:process=":spotify_metadata" android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize" android:windowSoftInputMode="adjustResize" />
+        <activity android:name=".spotify.SpotifyLoginActivity" android:exported="false" android:process=":spotify_metadata" android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|uiMode|keyboard|keyboardHidden|navigation" android:windowSoftInputMode="adjustResize" />
         <service android:name=".spotify.SpotifyCatalogueService" android:exported="false" android:process=":spotify_metadata" />
         <activity android:name=".apple.AppleWebLoginActivity" android:exported="false" android:process=":apple_web" android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|uiMode|keyboard|keyboardHidden|navigation" />
         <activity android:name=".apple.AppleNativeSetupActivity" android:exported="false" />
