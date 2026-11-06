@@ -172,6 +172,7 @@ class NativeUiTest {
         val state = mutableStateOf(MusicState(account = AccountState(connected = true), explore = listOf(FeedSection("Your provider’s picks", listOf(album, song, song.copy()))), reducedMotion = true, theme = "light"))
         var playedOriginal = false
         compose.setContent { MusicApp(state.value, initialPage = "explore", onBrowse = { state.value = state.value.copy(collectionEntry = it, collection = listOf(track)) }, onPlay = { t, queue -> playedOriginal = t == track && queue == listOf(track) }) }
+        compose.onNodeWithContentDescription("Discover").performClick()
         compose.onNodeWithText("Your provider’s picks").assertIsDisplayed()
         capture("provider-feed")
         compose.onNodeWithText("Late Windows").performScrollTo().performClick()
