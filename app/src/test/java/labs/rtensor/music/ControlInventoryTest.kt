@@ -510,6 +510,7 @@ class ControlInventoryTest {
 
     @Test fun exploreEntriesOpenCollectionsPlaySongsAndSearchArtists() {
         host(base().copy(explore = listOf(FeedSection("Fresh discoveries", listOf(album, song, artist)))), "explore")
+        compose.onNodeWithContentDescription("Discover").performClick()
         compose.onNodeWithText("Late Windows").performClick()
         compose.runOnIdle { assertEquals(listOf("onBrowse(${album.id})"), calls) }
         assertEquals("collection", screen())
