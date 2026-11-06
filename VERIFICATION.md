@@ -1,3 +1,27 @@
+# Music 0.3.39 / Explore tabs and focused Home
+
+- The full provider recommendation shelves and continuous loading move from
+  Home to Explore's For you tab. Home retains Last played, recent listening,
+  personal recommendations and highlights, using the existing look.
+- Explore has For you, Discover and Browse tabs. Discover shows the separate
+  provider discovery shelves; Browse shows actual supplied category navigation,
+  or available collections when that provider has no category links. No
+  recommendations or categories are invented to fill a tab.
+- Each tab retains its own vertical and horizontal positions. Returning from the
+  player restores the selected tab and position. Pagination is active only for
+  the selected recommendation tab, keeping inactive tabs from consuming pages.
+- Shelf expansion reads from the correct recommendation/discovery/category
+  source. Category shelf Back returns to its category page. The three existing
+  appearance choices, provider accounts, playlist tools and audio engine remain.
+
+Compose regression tests cover the moved content, tab separation, independent
+positions, playback return, expanded recommendation shelves and inactive-tab
+pagination. Native screenshots of the tabs are captured on the host. No phone or
+live-account test was performed. Exact checks are recorded in the release's
+decoder-validation.json.
+
+## Previous release baseline
+
 # Music 0.3.38 / real continuation envelopes and Explore navigation
 
 - Reproduced 0.3.37's generic next-page error with a response containing only

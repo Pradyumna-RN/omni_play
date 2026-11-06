@@ -51,22 +51,19 @@ those features improve.
 
 ## Quick guide
 
-1. **Install or update.** Get the [current preview release](https://github.com/RTensorLabs/music-app/releases/tag/v0.3.38).
+1. **Install or update.** Get the [current preview release](https://github.com/RTensorLabs/music-app/releases/tag/v0.3.39).
    Existing installations can use **Settings → About → Check updates**.
 2. **Choose recommendations.** Open **Settings → Playback → Recommendation source**.
    YouTube Music is the default. Selecting Spotify starts its sign-in; the choice
    is saved after verification. See the [Spotify guide](SPOTIFY_RECOMMENDATIONS.md).
-3. **Search or browse.** Home, Explore, Mixed for you and automatic Up next follow
-   the selected recommendation service. Search uses YouTube, with query and song
-   suggestions as you type. Home also shows the provider's available mixes,
-   albums, artists and community playlists; open a shelf heading to browse it.
-   Explore includes YouTube's category navigation, such as Charts and Moods &
-   genres, when supplied. Categories open inside Music, preserving provider
-   parameters and parent-page navigation. YouTube mood filters appear when the
-   provider supplies them. Keep scrolling
-   to load the next available page automatically; new pages append below what
-   you already see. Opening a song and leaving the player returns you to your
-   browsing position, including horizontal shelves and Library tabs.
+3. **Search or browse.** Home keeps recent listening and personal highlights.
+   **Explore → For you** contains the full recommendation feed and YouTube mood
+   filters; keep scrolling to load the next available page. **Discover** contains
+   the provider's discovery shelves, and **Browse** contains its category links
+   or available collections. New pages append below existing content. Each tab
+   keeps its own position, including after opening and leaving the player.
+   Categories such as Charts and Moods & genres open inside Music. Search uses
+   YouTube and offers suggestions as you type.
 4. **Add your files or playback sources.** Use **Settings → Sources → Import audio**
    for a file or folder. **Playback sources** contains provider and personal-server
    connections. Supported files can be stereo, lossless or multichannel.
@@ -121,8 +118,8 @@ See [verification and current limits](VERIFICATION.md).
 **Listening room** is the default look, with cover colours and a room panel.
 **Soft** has rounded artwork, a centred transport row and Like beside the song
 information; **Classic** retains the Signal design. Home separates the last song,
-recommendations shaped by listening and new-to-history songs, with additional
-provider shelves available below and in the full feed. Android Auto shares the
+recommendations shaped by listening and new-to-history songs. Explore holds the
+full provider feed, discovery shelves and category navigation in separate tabs. Android Auto shares the
 phone's playback engine, library and provider routing. See
 [verification and current limits](VERIFICATION.md).
 
@@ -324,10 +321,11 @@ code. The Android installer asks the user to confirm installation.
 
 ## Current release
 
-[Music 0.3.35](https://github.com/RTensorLabs/music-app/releases/tag/v0.3.38)
-adds a choice of three looks (Listening room, the new default; Soft, the original
-rounded design; and Classic), recommendation shelves on Home, the 0.3.32-style
-"More from your feed", player and notification fixes, and clearer sign-in errors.
+[Music 0.3.39](https://github.com/RTensorLabs/music-app/releases/tag/v0.3.39)
+moves the full recommendation feed to Explore's For you tab, alongside Discover
+and Browse. Home keeps personal listening highlights. Each tab retains its own
+scroll position, including when returning from the player; For you loads more
+as you scroll. All three existing appearance choices remain available.
 
 Automated app checks cover the player, navigation, account recovery, car browsing
 and queue selection. Existing DSP and browser results remain baseline evidence;

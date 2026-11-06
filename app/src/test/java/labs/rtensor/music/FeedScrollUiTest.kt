@@ -25,10 +25,10 @@ class FeedScrollUiTest {
     private fun vertical() = compose.onAllNodes(verticalMatcher).onFirst()
     private fun songText(title: String) = compose.onNode(hasText(title) and hasAnyAncestor(verticalMatcher))
 
-    @Test fun homeReturnsToTheSameSongAfterPlaybackAddsAHeroAboveIt() {
+    @Test fun forYouReturnsToTheSameSongAfterPlaybackUpdatesHomeHistory() {
         val sections = (0..24).map { FeedSection("Shelf $it", listOf(song(it))) }
         val state = mutableStateOf(MusicState(look = LookChoice.SOFT, reducedMotion = true, feed = sections, current = song(99).asTrack()))
-        compose.setContent { MusicApp(state.value, onPlay = { track, _ -> state.value = state.value.copy(current = track, history = listOf(track), playing = true) }) }
+        compose.setContent { MusicApp(state.value, initialPage = "explore", onPlay = { track, _ -> state.value = state.value.copy(current = track, history = listOf(track), playing = true) }) }
         vertical().performScrollToKey("provider-shelf:8:Shelf 8")
         val before = songText("Song 8").getUnclippedBoundsInRoot()
         songText("Song 8").performClick()
@@ -56,20 +56,20 @@ class FeedScrollUiTest {
     @Test fun appendedPagesKeepExistingShelvesAndTheirPosition() {
         val initial = (0..18).map { FeedSection("Shelf $it", listOf(song(it))) }
         val state = mutableStateOf(MusicState(look = LookChoice.SOFT, reducedMotion = true, feed = initial))
-        compose.setContent { MusicApp(state.value) }
+        compose.setContent { MusicApp(state.value, initialPage = "explore") }
         vertical().performScrollToKey("provider-shelf:8:Shelf 8")
         val before = songText("Song 8").getUnclippedBoundsInRoot()
         compose.runOnIdle { state.value = state.value.withMoreHomeFeed(HomeFeedMore(listOf(song(200).asTrack()), false, listOf(FeedSection("New page", listOf(song(200)))))) }
         val after = songText("Song 8").getUnclippedBoundsInRoot()
         assertEquals(before.top.value, after.top.value, 1f)
         compose.runOnIdle { assertEquals(initial, state.value.feed) }
-        vertical().performScrollToKey("provider-shelf:13:New page")
+        vertical().performScrollToKey("provider-shelf:19:New page")
         songText("Song 200").assertIsDisplayed()
     }
     @Test fun anAutomaticPageFailureWaitsForRetryWithoutRefreshingTheFeed() {
         var more = 0; var refresh = 0
         val state = mutableStateOf(MusicState(look = LookChoice.SOFT, reducedMotion = true, feed = listOf(FeedSection("Songs", listOf(song(1)))), feedHasMore = true))
-        compose.setContent { MusicApp(state.value, onMoreFeed = { more++; state.value = state.value.copy(feedError = "Connection lost") }, onRefreshFeed = { refresh++ }) }
+        compose.setContent { MusicApp(state.value, initialPage = "explore", onMoreFeed = { more++; state.value = state.value.copy(feedError = "Connection lost") }, onRefreshFeed = { refresh++ }) }
         vertical().performScrollToKey("feed-tail")
         compose.waitUntil(5_000) { more == 1 }
         compose.mainClock.advanceTimeBy(2_000)

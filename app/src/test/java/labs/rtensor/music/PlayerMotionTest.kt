@@ -236,7 +236,12 @@ class PlayerMotionTest {
         pull("For your ears"); assertEquals(1, home)
         pull("For your ears"); assertEquals(1, home)
         compose.onNodeWithContentDescription("Explore").performClick(); frame(600)
-        pull("Explore"); assertEquals(1, explore)
+        compose.runOnIdle { state.value = state.value.copy(feedBusy = false) }; frame(600)
+        pull("Home picks"); assertEquals(2, home)
+        pull("Home picks"); assertEquals(2, home)
+        compose.onNodeWithContentDescription("Discover").performClick(); frame(600)
+        pull("Explore picks"); assertEquals(1, explore)
+        pull("Explore picks"); assertEquals(1, explore)
     }
 
     @Test @Config(sdk = [35], qualifiers = "w320dp-h740dp-mdpi")

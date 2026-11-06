@@ -31,6 +31,7 @@ class ExploreBrowseUiTest {
             opened += entry
             state.value = state.value.copy(collectionEntry = entry, collectionSections = listOf(FeedSection("Top songs", listOf(song))))
         }, onPlay = { track, _ -> state.value = state.value.copy(current = track, playing = true) }) }
+        compose.onNodeWithContentDescription("Browse").performClick()
         compose.onNodeWithText("Charts").assertIsDisplayed().performClick()
         compose.runOnIdle { assertEquals(listOf(charts), opened) }
         compose.onNodeWithText("Top songs").assertIsDisplayed()
@@ -54,6 +55,7 @@ class ExploreBrowseUiTest {
             val frame = history.pop()
             if (frame == null) false else { state.value = frame.restore(state.value); true }
         }) }
+        compose.onNodeWithContentDescription("Browse").performClick()
         compose.onNodeWithText("Moods & genres").performClick()
         compose.onNode(SemanticsMatcher.keyIsDefined(SemanticsProperties.HorizontalScrollAxisRange) and hasAnyDescendant(hasText("Genre 0"))).performScrollToIndex(7)
         val position = compose.onNodeWithText("Rock").getUnclippedBoundsInRoot()

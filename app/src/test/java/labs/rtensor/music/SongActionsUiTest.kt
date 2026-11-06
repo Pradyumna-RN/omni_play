@@ -83,6 +83,7 @@ class SongActionsUiTest {
         val state = base().copy(feed = listOf(home), explore = listOf(explore), homeFilters = listOf("Relax"))
         val restoration = StateRestorationTester(compose)
         restoration.setContent { MusicApp(state, initialPage = "explore") }
+        compose.onNodeWithContentDescription("Discover").performClick()
         compose.onNodeWithText("Relax").assertDoesNotExist()
         compose.onNodeWithText("Live performances").performClick()
         compose.onNodeWithText(first.title).assertIsDisplayed()

@@ -149,7 +149,9 @@ class HomeShelvesUiTest {
         compose.setContent { MusicApp(state.value, onMoreFeed = { more++; state.value = state.value.copy(feedBusy = true, feedAppending = true) }) }
         compose.onNodeWithText("More from your feed").assertDoesNotExist()
         compose.onNodeWithText("Your YouTube Music feed").assertDoesNotExist()
-        home().performScrollToKey("feed-tail")
+        compose.runOnIdle { assertEquals(0, more) }
+        compose.onNodeWithContentDescription("Explore").performClick()
+        compose.onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange)).onFirst().performScrollToKey("feed-tail")
         compose.waitUntil(5_000) { more == 1 }
         compose.mainClock.advanceTimeBy(1_000)
         compose.runOnIdle { assertEquals(1, more) }
