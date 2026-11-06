@@ -25,7 +25,7 @@ internal object LocalAudioImporter {
             context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
                 if (it.moveToFirst()) it.getString(0) else null
             }
-        }.getOrNull() ?: uri.lastPathSegment ?: "Local recording"
+        }.getOrNull() ?: uri.lastPathSegment?.substringAfterLast('\\') ?: "Local recording"
         val details = runCatching { metadata(context, uri) }.getOrDefault(LocalAudioMetadata())
         return Track("local:$uri", details.title.ifBlank { filename.substringBeforeLast('.', filename) },
             details.artist, uri.toString(), durationMs = details.durationMs.coerceAtLeast(0), source = Source.LOCAL)

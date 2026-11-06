@@ -17,6 +17,7 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -31,11 +32,13 @@ internal val LocalHomeFilterSelect = staticCompositionLocalOf<(String?) -> Unit>
 
 @Composable
 internal fun ProviderFilters(state: MusicState) {
-    if (state.homeFilters.isEmpty()) return
+    // Hum is music only: YouTube Music's Podcasts chip is left out.
+    val filters = state.homeFilters.filterNot { it.contains("podcast", ignoreCase = true) }
+    if (filters.isEmpty()) return
     val select = LocalHomeFilterSelect.current
     LazyRow(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         item { FilterChip(state.homeFilter == null, { select(null) }, label = { Text("All") }) }
-        itemsIndexed(state.homeFilters, key = { i, title -> "$i:$title" }) { _, title ->
+        itemsIndexed(filters, key = { i, title -> "$i:$title" }) { _, title ->
             FilterChip(state.homeFilter == title, { select(title) }, label = { Text(title) })
         }
     }
@@ -43,14 +46,17 @@ internal fun ProviderFilters(state: MusicState) {
 
 /** Real provider sections and item order. No invented mixes, genres or community playlists. */
 internal fun LazyListScope.providerShelves(sections: List<FeedSection>, onEntry: (FeedEntry) -> Unit, gap: Dp = 20.dp) {
-    itemsIndexed(sections, key = { i, section -> "provider-shelf:$i:${section.title}" }) { _, section ->
+    itemsIndexed(sections, key = { i, section -> "provider-shelf:$i:${section.title}" }) { shelfIndex, section ->
         val open = LocalFeedSectionOpen.current
         val play = LocalPlaySongs.current
         val songs = remember(section) { section.items.filter { it.videoId.isNotBlank() || it.kind == "spotify_track" }.map(FeedEntry::asTrack) }
-        Column(Modifier.fillMaxWidth().padding(top = gap)) {
+        Column(Modifier.fillMaxWidth().padding(top = gap).cascade(shelfIndex, LocalReducedMotion.current)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = { open(section) }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(0.dp)) {
-                    Text(section.title, Modifier.weight(1f).semantics { heading() }, fontSize = 21.sp, fontWeight = FontWeight.SemiBold,
+                    if (LocalLook.current.hum) Text(section.title, Modifier.weight(1f).semantics { heading() }, fontFamily = HumDisplay, fontSize = 24.sp,
+                        lineHeight = 28.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-.02).em, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        color = MaterialTheme.colorScheme.onSurface)
+                    else Text(section.title, Modifier.weight(1f).semantics { heading() }, fontSize = 21.sp, fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurface)
                     Text("›", fontSize = 26.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -89,6 +95,39 @@ internal fun LazyListScope.providerShelves(sections: List<FeedSection>, onEntry:
                         Text(entry.subtitle, Modifier.padding(top = 3.dp), maxLines = 1, overflow = TextOverflow.Ellipsis,
                             color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
                     }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * A section opened from its arrow: the whole shelf laid out to scroll down the page, songs as a list
+ * and everything else (albums, playlists) as a two-column grid, with no second heading.
+ */
+internal fun LazyListScope.expandedShelf(sections: List<FeedSection>, onEntry: (FeedEntry) -> Unit) {
+    sections.forEachIndexed { sectionIndex, section ->
+        val songs = section.items.filter { it.videoId.isNotBlank() || it.kind == "spotify_track" }
+        if (songs.size == section.items.size && songs.isNotEmpty()) {
+            val tracks = songs.map(FeedEntry::asTrack)
+            itemsIndexed(tracks, key = { i, t -> "expanded:$sectionIndex:$i:${t.id}" }) { _, track ->
+                val play = LocalPlaySongs.current
+                TrackRow(track, false, false, { play(track, tracks) }, null)
+            }
+        } else {
+            itemsIndexed(section.items.chunked(2), key = { i, _ -> "expanded:$sectionIndex:row$i" }) { _, pair ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    pair.forEach { entry ->
+                        val song = entry.takeIf { it.videoId.isNotBlank() || it.kind == "spotify_track" }?.asTrack()
+                        val artwork = song ?: Track(entry.id, entry.title, entry.subtitle, "", entry.artwork)
+                        Column(Modifier.weight(1f).clip(LocalLook.current.art).clickable { onEntry(entry) }) {
+                            Artwork(artwork, Modifier.fillMaxWidth().aspectRatio(1f).clip(LocalLook.current.art), size = 170.dp)
+                            Text(entry.title, Modifier.padding(top = 8.dp), maxLines = 2, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium, fontSize = 14.sp)
+                            if (entry.subtitle.isNotBlank()) Text(entry.subtitle, Modifier.padding(top = 3.dp), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                        }
+                    }
+                    if (pair.size == 1) Spacer(Modifier.weight(1f))
                 }
             }
         }

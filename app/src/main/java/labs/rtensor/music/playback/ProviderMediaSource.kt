@@ -31,9 +31,15 @@ import java.io.IOException
 @UnstableApi
 class ProviderMediaSourceFactory(private val fallback: MediaSource.Factory, private val remote: MediaSource.Factory,
     private val sources: PlaybackSources,
+    /** A song saved on this device plays from its file, uncached and without any network. */
+    private val offline: (Track) -> android.net.Uri? = { null },
+    private val local: MediaSource.Factory = fallback,
     private val resolveCatalogue: suspend (Track) -> Track = { throw IOException("Spotify matching is unavailable in this build.") }) : MediaSource.Factory by fallback {
     override fun createMediaSource(mediaItem: MediaItem): MediaSource {
         val track = runCatching { mediaItem.mediaMetadata.extras?.getString("catalogue_track")?.let { Track.fromJson(JSONObject(it)) } }.getOrNull()
+        if (track != null && track.source == Source.YOUTUBE) offline(track)?.let { file ->
+            return local.createMediaSource(mediaItem.buildUpon().setUri(file).setMimeType(null).setCustomCacheKey(null).build())
+        }
         if (track == null || track.source != Source.YOUTUBE || (!sources.enabled && !labs.rtensor.music.spotify.SpotifyTrackMatcher.pending(track))) return fallback.createMediaSource(mediaItem)
         return ProviderMediaSource(mediaItem, track, fallback, remote, sources, resolveCatalogue)
     }

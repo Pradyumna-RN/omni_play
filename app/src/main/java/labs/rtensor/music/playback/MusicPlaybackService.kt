@@ -122,7 +122,9 @@ class MusicPlaybackService : MediaLibraryService() {
                     .build()
         }
         val player = ExoPlayer.Builder(this, renderers)
-            .setMediaSourceFactory(ProviderMediaSourceFactory(DefaultMediaSourceFactory(cachedData), remoteFactory, sources, spotifyMatches::resolve))
+            .setMediaSourceFactory(ProviderMediaSourceFactory(DefaultMediaSourceFactory(cachedData), remoteFactory, sources,
+                offline = labs.rtensor.music.data.Downloads.get(this)::offlineUri, local = DefaultMediaSourceFactory(this),
+                resolveCatalogue = spotifyMatches::resolve))
             // A deeper forward buffer (as in open-source YouTube Music players) rides out
             // slow media-server ranges; 50 s of audio is well under 1 MB.
             .setLoadControl(DefaultLoadControl.Builder().setBufferDurationsMs(50_000, 50_000, 750, 2_000)

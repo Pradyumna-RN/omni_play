@@ -26,6 +26,7 @@ class SourceSettingsUiTest {
             audioProcessing = labs.rtensor.music.playback.AudioProcessingState(available = true)),
             initialPage = "settings", onConnectTidal = { signIns++ }) }
         compose.onNodeWithContentDescription("Scene decoding (experimental)").assertDoesNotExist()
+        compose.settingsTab("Sources")
         compose.onNodeWithText("Playback sources").performScrollTo().performClick()
         compose.onNodeWithText("TIDAL · experimental").assertExists()
         compose.onNodeWithText("Sign in to TIDAL").performScrollTo().performClick()
@@ -37,6 +38,7 @@ class SourceSettingsUiTest {
         compose.setContent { MusicApp(MusicState(reducedMotion = true, mastersSummary = "8 files · 3 Atmos"), initialPage = "settings",
             onChooseMasters = { folderPicks++ }, onClearMasters = { forgotten = true }) }
         compose.onNodeWithText("Atmos & lossless folder").assertDoesNotExist()
+        compose.settingsTab("Sources")
         compose.onNodeWithText("Import audio").performScrollTo().performClick()
         compose.onNodeWithText("Choose folder").performClick()
         compose.runOnIdle { assertEquals(1, folderPicks) }
@@ -55,6 +57,7 @@ class SourceSettingsUiTest {
                 assertEquals("https://personal.example/music", url)
                 requests += provider to protocol
             }) }
+        compose.settingsTab("Sources")
         compose.onNodeWithText("Playback sources").performScrollTo()
         compose.onNodeWithText("Playback sources").performClick()
         compose.onNodeWithText("Add a source").performScrollTo().performClick()
@@ -66,6 +69,7 @@ class SourceSettingsUiTest {
             assertEquals(listOf(MusicProvider.APPLE_MUSIC to SourceProtocol.GATEWAY, MusicProvider.LIBRARY to SourceProtocol.ADDON), requests)
         }
         compose.onNodeWithText("Done").performClick()
+        compose.settingsTab("Playback")
         compose.onNodeWithText("Autoplay radio").performScrollTo().assertIsDisplayed()
     }
 
@@ -74,6 +78,7 @@ class SourceSettingsUiTest {
         compose.setContent { MusicApp(MusicState(reducedMotion = true,
             appleAccount = labs.rtensor.music.apple.AppleAccountState(connected = true, native = true)), initialPage = "settings",
             onConnectApple = { aac++ }, onNativeApple = { native++ }, onDisconnectApple = { disconnected++ }) }
+        compose.settingsTab("Sources")
         compose.onNodeWithText("Playback sources").performScrollTo().performClick()
         compose.onNodeWithText("Apple Music · experimental").assertExists()
         compose.onNodeWithText("Sign in · AAC stereo").performScrollTo().performClick()

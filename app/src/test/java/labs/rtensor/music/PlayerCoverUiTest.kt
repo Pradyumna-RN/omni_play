@@ -76,7 +76,7 @@ class PlayerCoverUiTest {
             CoverAccent.prime(url, bitmap)
             Track("fixture:$name", "Afterimage ($name)", "Serein", "https://www.youtube.com/watch?v=jNQXAC9IVRw", artwork = url, durationMs = 224000) to name
         }
-        val state = mutableStateOf(MusicState(current = tracks[0].first, saved = listOf(tracks[0].first), durationMs = 224000, positionMs = 72000,
+        val state = mutableStateOf(MusicState(look = labs.rtensor.music.data.LookChoice.ROOM, current = tracks[0].first, saved = listOf(tracks[0].first), durationMs = 224000, positionMs = 72000,
             reducedMotion = true, theme = "light", routeLabel = "YouTube · AAC compressed 48.0 kHz · stereo · unchanged"))
         assertEquals(AccentChoice.COVER, state.value.accent)
         compose.setContent { MusicApp(state.value, initialPage = "now") }
@@ -104,7 +104,7 @@ class PlayerCoverUiTest {
         val file = folder.newFile("$name.png").apply { outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) } }
         CoverAccent.prime(file.toURI().toString(), bitmap)
         val withArt = Track("fixture:art", "Afterimage", "Serein", "https://www.youtube.com/watch?v=jNQXAC9IVRw", artwork = file.toURI().toString(), durationMs = 224000)
-        val state = mutableStateOf(MusicState(current = withArt, durationMs = 224000, reducedMotion = true, theme = "light", accent = AccentChoice.MOSS))
+        val state = mutableStateOf(MusicState(look = labs.rtensor.music.data.LookChoice.ROOM, current = withArt, durationMs = 224000, reducedMotion = true, theme = "light", accent = AccentChoice.MOSS))
         compose.setContent { MusicApp(state.value, initialPage = "now") }
         fun ground(): Int {
             val image = snapshot()

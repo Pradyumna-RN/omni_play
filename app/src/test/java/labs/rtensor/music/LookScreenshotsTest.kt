@@ -33,8 +33,8 @@ import org.robolectric.annotation.GraphicsMode
 import java.io.File
 
 /**
- * Review screenshots for both looks, written to build/reports/screenshots/look-room-*.png and
- * look-classic-*.png. Covers are synthetic local files, so "From the cover" has real colours.
+ * Review screenshots of the Hum look, written to build/reports/screenshots/look-room-*.png.
+ * Covers are synthetic local files, so "From the cover" has real colours.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], qualifiers = "w390dp-h844dp-mdpi")
@@ -92,7 +92,7 @@ class LookScreenshotsTest {
         compose.onNodeWithContentDescription("Explore").performClick(); capture("$prefix-explore")
         compose.onNodeWithContentDescription("Library").performClick(); capture("$prefix-library")
         compose.onNodeWithContentDescription("Open settings").performClick()
-        compose.onNodeWithText("Accent colour").performScrollTo(); capture("$prefix-settings")
+        compose.settingsTab("Appearance"); compose.onNodeWithText("Accent colour").performScrollTo(); capture("$prefix-settings")
         compose.onNodeWithContentDescription("Back").performClick()
         compose.onNodeWithContentDescription("Home").performClick()
         compose.onAllNodes(hasClickAction() and hasText("Clay Rooms", substring = true)).onLast().performClick()
@@ -101,19 +101,6 @@ class LookScreenshotsTest {
 
     @Test fun listeningRoomDark() = shoot("look-room-dark", LookChoice.ROOM, "dark")
     @Test fun listeningRoomLight() = shoot("look-room-light", LookChoice.ROOM, "light")
-    @Test fun softLight() = shoot("look-soft-light", LookChoice.SOFT, "light")
-    @Test fun softDark() = shoot("look-soft-dark", LookChoice.SOFT, "dark")
-    @Test fun softEmptyAndPaused() {
-        val state = mutableStateOf(MusicState(look = LookChoice.SOFT, theme = "light", reducedMotion = true))
-        compose.setContent { MusicApp(state.value) }
-        capture("look-soft-light-home-empty")
-        compose.runOnIdle { state.value = state.value.copy(theme = "dark") }
-        capture("look-soft-dark-home-empty")
-        compose.runOnIdle { state.value = fixture(LookChoice.SOFT, "light").copy(playing = false) }
-        capture("look-soft-light-mini-player-paused", cropBottom = 150)
-    }
-    @Test fun classicLight() = shoot("look-classic-light", LookChoice.CLASSIC, "light")
-    @Test fun classicDark() = shoot("look-classic-dark", LookChoice.CLASSIC, "dark")
 
     @Test fun roomsForEachLayout() {
         val base = fixture(LookChoice.ROOM, "dark")

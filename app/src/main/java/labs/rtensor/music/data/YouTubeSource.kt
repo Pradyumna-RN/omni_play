@@ -26,6 +26,12 @@ class YouTubeSource(context: Context) {
     }
     suspend fun explore(): HomeFeed = feed(runtime.call("explore"))
     suspend fun browse(entry: FeedEntry, more: Boolean = false): HomeFeed = feed(runtime.call("browse", JSONObject().put("id", entry.browseId).put("params", entry.params).put("more", more)))
+    /** The lyrics tab YouTube Music shows for a song; empty when it has none. */
+    suspend fun lyrics(track: Track): Lyrics {
+        val videoId = track.id.removePrefix("yt:").takeIf { track.source == Source.YOUTUBE && it.matches(Regex("[A-Za-z0-9_-]{11}")) } ?: return Lyrics("", "")
+        val data = runtime.call("lyrics", JSONObject().put("videoId", videoId))
+        return Lyrics(data.optString("lyrics"), data.optString("source"))
+    }
     /** YouTube Music's "Related" page for a song: similar songs, artists and playlists. */
     suspend fun related(track: Track): List<FeedSection> {
         val videoId = track.id.removePrefix("yt:").takeIf { track.source == Source.YOUTUBE && it.matches(Regex("[A-Za-z0-9_-]{11}")) } ?: return emptyList()
@@ -69,3 +75,8 @@ class YouTubeSource(context: Context) {
 }
 
 class SourceException(val code: String, message: String, val diagnostic: String = "") : Exception(message)
+
+/** A song's lyrics as YouTube Music shows them, with the credit line it gives. */
+data class Lyrics(val text: String, val source: String) {
+    val available: Boolean get() = text.isNotBlank()
+}

@@ -58,9 +58,10 @@ class AccentUiTest {
     private fun bounds(node: SemanticsNodeInteraction) = node.fetchSemanticsNode().boundsInWindow
 
     @Test fun settingsSwatchesAreLabelledSelectableTargetsThatChangeTheAccent() {
-        val state = mutableStateOf(MusicState(theme = "light", reducedMotion = true))
+        val state = mutableStateOf(MusicState(look = labs.rtensor.music.data.LookChoice.ROOM, theme = "light", reducedMotion = true))
         val chosen = mutableListOf<AccentChoice>()
         compose.setContent { MusicApp(state.value, initialPage = "settings", onAccent = { chosen += it; state.value = state.value.copy(accent = it) }) }
+        compose.settingsTab("Appearance")
         compose.onNodeWithText("Accent colour").performScrollTo().assertIsDisplayed()
         for (choice in AccentChoice.entries) {
             val node = compose.onNodeWithContentDescription("${choice.label} accent colour").performScrollTo()
@@ -83,7 +84,7 @@ class AccentUiTest {
 
     /** Renders the player for each fixed accent in both themes and checks the Play fill, label and heart. */
     @Test fun playButtonAndHeartUseTheChosenAccentWithReadableContent() {
-        val state = mutableStateOf(MusicState(current = track, saved = listOf(track), durationMs = 224000, positionMs = 72000, reducedMotion = true))
+        val state = mutableStateOf(MusicState(look = labs.rtensor.music.data.LookChoice.ROOM, current = track, saved = listOf(track), durationMs = 224000, positionMs = 72000, reducedMotion = true))
         compose.setContent { MusicApp(state.value, initialPage = "now") }
         for (choice in fixed) for (theme in listOf("light", "dark")) {
             compose.runOnIdle { state.value = state.value.copy(accent = choice, theme = theme) }
@@ -107,7 +108,7 @@ class AccentUiTest {
 
     /** The dock is black in both themes: the chosen tab's three lights must show for every accent, Ink included. */
     @Test fun dockTabLightsStayVisibleForEveryAccent() {
-        val state = mutableStateOf(MusicState(current = track, durationMs = 224000, reducedMotion = true))
+        val state = mutableStateOf(MusicState(look = labs.rtensor.music.data.LookChoice.ROOM, current = track, durationMs = 224000, reducedMotion = true))
         compose.setContent { MusicApp(state.value) }
         for (choice in fixed) for (theme in listOf("light", "dark")) {
             compose.runOnIdle { state.value = state.value.copy(accent = choice, theme = theme) }

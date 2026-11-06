@@ -147,11 +147,11 @@ class PlayerProcessingTest {
         compose.onNodeWithText("6 channels → stereo").assertDoesNotExist()
     }
 
-    @Test fun missingDspShowsAnExplanationInsteadOfHidingTheControl() {
+    @Test fun missingDspHidesTheSwitchThatCouldNotSwitch() {
         val state = initial(DownmixReport(48000, surround)).copy(audioProcessing =
             AudioProcessingState(available = false, unavailableReason = "The DSP library is not included"))
         compose.setContent { MusicApp(state, initialPage = "now") }
-        compose.onNodeWithContentDescription("Processed audio").performScrollTo().assertIsNotEnabled().assertIsOff()
-        compose.onNodeWithText("Processing unavailable · The DSP library is not included").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Processed audio").assertDoesNotExist()
+        compose.onNodeWithText("Processing unavailable", substring = true).assertDoesNotExist()
     }
 }

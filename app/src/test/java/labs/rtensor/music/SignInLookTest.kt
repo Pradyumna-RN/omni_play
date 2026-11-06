@@ -14,8 +14,8 @@ import androidx.test.core.app.ApplicationProvider
 import labs.rtensor.music.data.LookChoice
 import labs.rtensor.music.spotify.SpotifyLoginActivity
 import labs.rtensor.music.spotify.SpotifyWebRuntime
-import labs.rtensor.music.ui.Ink
-import labs.rtensor.music.ui.RoomNight
+import labs.rtensor.music.ui.HumNight
+import labs.rtensor.music.ui.HumPaper
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Rule
@@ -26,7 +26,7 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.io.File
 
-/** Sign-in pages follow the saved Look and Theme, so Classic users get Classic there too. */
+/** Sign-in pages follow the saved Theme in the Hum look. */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], qualifiers = "w390dp-h844dp-mdpi")
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -61,11 +61,7 @@ class SignInLookTest {
     }
 
     @Test fun spotifySignInTakesTheSavedLookAndTheme() {
-        assertEquals("Classic dark is ink", Ink.toArgb(), ground(LookChoice.CLASSIC, "dark", "look-classic-dark-sign-in-spotify"))
-        assertEquals("Listening room dark is its near-black", RoomNight.toArgb(), ground(LookChoice.ROOM, "dark", "look-room-dark-sign-in-spotify"))
-        ground(LookChoice.CLASSIC, "light", "look-classic-light-sign-in-spotify")
-        ground(LookChoice.ROOM, "light", "look-room-light-sign-in-spotify")
-        assertEquals("Soft dark is its charcoal surface", 0xFF222125.toInt(), ground(LookChoice.SOFT, "dark", "look-soft-dark-sign-in-spotify"))
-        assertEquals("Soft light is its warm white surface", 0xFFFFFEFA.toInt(), ground(LookChoice.SOFT, "light", "look-soft-light-sign-in-spotify"))
+        assertEquals("Dark sign-in is Hum's near-black", HumNight.toArgb(), ground(LookChoice.HUM, "dark", "look-hum-dark-sign-in-spotify"))
+        assertEquals("Light sign-in is Hum's paper", HumPaper.toArgb(), ground(LookChoice.HUM, "light", "look-hum-light-sign-in-spotify"))
     }
 }

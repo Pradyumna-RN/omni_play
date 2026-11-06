@@ -21,8 +21,8 @@ android {
         applicationId = "labs.rtensor.music"
         minSdk = 30
         targetSdk = 35
-        versionCode = 44
-        versionName = "0.3.41"
+        versionCode = 45
+        versionName = "0.4.0-beta.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("boolean", "APPLE_NATIVE_INCLUDED", providers.gradleProperty("rtensorAppleJniDir").isPresent.toString())
         buildConfigField("boolean", "APPLE_RUNTIME_INCLUDED", providers.gradleProperty("rtensorAppleRuntimeAssetsDir").isPresent.toString())

@@ -63,7 +63,8 @@ class ListeningHistory(private val file: File) {
         val array = JSONArray(); events.forEach { array.put(it.json()) }
         runCatching {
             val tmp = File(file.parentFile, file.name + ".tmp")
-            tmp.writeText(array.toString()); tmp.renameTo(file)
+            tmp.writeText(array.toString())
+            if (!tmp.renameTo(file)) { file.writeText(tmp.readText()); tmp.delete() }
         }
     }
 

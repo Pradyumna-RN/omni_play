@@ -2,14 +2,15 @@ import { build } from 'esbuild';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { readFileSync, readdirSync } from 'node:fs';
 import { createHash } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 const target = new URL('../app/src/main/assets/engine/', import.meta.url);
 await mkdir(target, { recursive: true });
-await build({ entryPoints: ['src/engine.mjs'], absWorkingDir: new URL('.', import.meta.url).pathname,
+await build({ entryPoints: ['src/engine.mjs'], absWorkingDir: fileURLToPath(new URL('.', import.meta.url)),
   bundle: true, platform: 'browser', format: 'iife', target: 'chrome100', keepNames: true,
-  minify: true, legalComments: 'eof', outfile: new URL('engine.js', target).pathname });
-await build({ entryPoints: ['src/proof.mjs'], absWorkingDir: new URL('.', import.meta.url).pathname,
+  minify: true, legalComments: 'eof', outfile: fileURLToPath(new URL('engine.js', target)) });
+await build({ entryPoints: ['src/proof.mjs'], absWorkingDir: fileURLToPath(new URL('.', import.meta.url)),
   bundle: true, platform: 'browser', format: 'iife', target: 'chrome100', keepNames: true,
-  minify: true, legalComments: 'eof', outfile: new URL('proof.js', target).pathname });
+  minify: true, legalComments: 'eof', outfile: fileURLToPath(new URL('proof.js', target)) });
 await writeFile(new URL('index.html', target), `<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-eval'; worker-src blob:; connect-src 'none'"><script src="engine.js"></script>`);
 const inputs = ['build.mjs', 'package.json', 'package-lock.json', ...readdirSync(new URL('src/', import.meta.url), { recursive: true }).filter(f => f.endsWith('.mjs')).map(f => 'src/' + f)].sort();
 const hash = createHash('sha256');

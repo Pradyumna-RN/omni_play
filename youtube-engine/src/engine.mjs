@@ -1,6 +1,6 @@
 import { fetchBrowsePage, fetchBrowseContinuation } from './browse-pages.mjs';
 import { advanceHomeCursor } from './feed-cursor.mjs';
-import { Innertube, Player, Platform, Log, Constants, ClientType } from 'youtubei.js/web';
+import { Innertube, Player, Platform, Log, Constants, ClientType, Utils } from 'youtubei.js/web';
 import { track, sections, safeError, largestArtwork, isMusic, audioVersion } from './mapping.mjs';
 import { createLibraryActions, libraryMethods, searchSuggestions } from './library-actions.mjs';
 import { evaluatePlayer } from './evaluator.mjs';
@@ -540,6 +540,18 @@ globalThis.musicCall = async (id, method, args) => {
         if (!/^[A-Za-z0-9_-]{11}$/.test(args.videoId)) throw failure('LINK', 'Choose a valid YouTube recording.');
         const page = await api.music.getRelated(args.videoId);
         result = { sections: sections({ sections: page?.contents || [] }), hasMore: false }; break;
+      }
+      case 'lyrics': {
+        // YouTube Music's own lyrics tab for a song. A song without one is an empty answer, not a failure.
+        if (!/^[A-Za-z0-9_-]{11}$/.test(args.videoId)) throw failure('LINK', 'Choose a valid YouTube recording.');
+        try {
+          const shelf = await api.music.getLyrics(args.videoId);
+          result = { lyrics: String(shelf?.description?.toString?.() || '').trim(), source: String(shelf?.footer?.toString?.() || '').trim() };
+        } catch (error) {
+          if (!(error instanceof Utils.InnertubeError)) throw error;
+          result = { lyrics: '', source: '' };
+        }
+        break;
       }
       case 'collection': {
         const page = args.kind === 'album' ? await api.music.getAlbum(args.id) : await api.music.getPlaylist(args.id);

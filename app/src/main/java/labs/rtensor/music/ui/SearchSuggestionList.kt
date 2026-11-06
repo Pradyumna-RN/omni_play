@@ -19,11 +19,7 @@ import labs.rtensor.music.data.Track
 @Composable
 internal fun SearchSuggestionList(state: MusicState, onSelect: (String) -> Unit, onPlay: (Track) -> Unit) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)) {
-        item {
-            Text("Search suggestions", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium)
-            Text("From YouTube Music", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (state.suggestionsBusy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 12.dp))
-        }
+        if (state.suggestionsBusy) item { LinearProgressIndicator(Modifier.fillMaxWidth().padding(bottom = 12.dp)) }
         itemsIndexed(state.suggestions, key = { i, suggestion -> "$i:${suggestion.track?.libraryKey() ?: suggestion.text}" }) { _, suggestion ->
             val track = suggestion.track
             if (track != null) TrackRow(track, state.saved.any { it.libraryKey() == track.libraryKey() }, state.current?.libraryKey() == track.libraryKey(), { onPlay(track) }, null)
@@ -33,7 +29,7 @@ internal fun SearchSuggestionList(state: MusicState, onSelect: (String) -> Unit,
                 Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) { Text(suggestion.text, color = MaterialTheme.colorScheme.onSurface) }
             }
         }
-        item {
+        if (state.query.isNotBlank()) item {
             TextButton(onClick = { onSelect(state.query) }, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) {
                 Text("Search for “${state.query}”")
             }

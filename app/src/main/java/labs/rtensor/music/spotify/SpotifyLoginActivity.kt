@@ -57,6 +57,9 @@ class SpotifyLoginActivity : ComponentActivity() {
                     browser?.let { view -> key(view) {
                         AndroidView(modifier = Modifier.fillMaxSize(), factory = {
                             (view.parent as? ViewGroup)?.removeView(view)
+                            // Without explicit params the WebView sizes itself to its content, so Spotify's
+                            // height:100% page collapses to nothing and the sign-in form is clipped away.
+                            view.layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
                             view
                         })
                     } }

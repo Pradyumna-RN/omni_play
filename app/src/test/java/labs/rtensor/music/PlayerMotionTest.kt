@@ -35,7 +35,7 @@ class PlayerMotionTest {
     private val two = one.copy(id = "fixture:two", title = "Soft Signals", artist = "Hollow Coves")
     private val three = one.copy(id = "fixture:three", title = "Night Windows", artist = "Elian")
     private val queue = listOf(one, two, three)
-    private fun initial() = MusicState(current = one, queue = queue, queueIndex = 0, durationMs = one.durationMs, theme = "light", reducedMotion = false)
+    private fun initial() = MusicState(look = labs.rtensor.music.data.LookChoice.ROOM, current = one, queue = queue, queueIndex = 0, durationMs = one.durationMs, theme = "light", reducedMotion = false)
     private fun cover(track: Track = one) = compose.onNodeWithContentDescription("Cover for ${track.title}. Swipe left for next, right for previous.")
     private fun frame(ms: Long = 32) {
         // Include Android measure/layout between frames, as a real choreographer does.
@@ -225,7 +225,7 @@ class PlayerMotionTest {
     @Test fun homeAndExplorePullToRefreshFireOnceAndIgnorePullsWhileBusy() {
         compose.mainClock.autoAdvance = false
         val entry = FeedEntry(one.id, one.title, one.artist, "", "song", "", "aaaaaaaaaaa")
-        val state = mutableStateOf(MusicState(feed = listOf(FeedSection("Home picks", listOf(entry))), explore = listOf(FeedSection("Explore picks", listOf(entry)))))
+        val state = mutableStateOf(MusicState(look = labs.rtensor.music.data.LookChoice.ROOM, feed = listOf(FeedSection("Home picks", listOf(entry))), explore = listOf(FeedSection("Explore picks", listOf(entry)))))
         var home = 0; var explore = 0
         compose.setContent { MusicApp(state.value, onRefreshFeed = { home++; state.value = state.value.copy(feedBusy = true) }, onRefreshExplore = { explore++; state.value = state.value.copy(exploreBusy = true) }) }
         frame()

@@ -99,7 +99,7 @@ class LookTokensTest {
     @Test fun classicKeepsTheSignalPaletteAndThreeLooksExist() {
         assertEquals(Paper, classicLook(false).background); assertEquals(Ink, classicLook(false).text)
         assertEquals(Ink, classicLook(true).background); assertEquals(Paper, classicLook(true).text)
-        assertEquals(listOf(LookChoice.ROOM, LookChoice.SOFT, LookChoice.CLASSIC), LookChoice.entries)
+        assertEquals(listOf(LookChoice.HUM, LookChoice.ROOM, LookChoice.SOFT, LookChoice.CLASSIC), LookChoice.entries)
         assertTrue(lookFor(LookChoice.CLASSIC, false).classic)
         assertTrue(lookFor(LookChoice.ROOM, true).room)
         assertEquals("RETRY", classicLook(false).label("Retry")); assertEquals("Retry", roomLook(false).label("Retry"))

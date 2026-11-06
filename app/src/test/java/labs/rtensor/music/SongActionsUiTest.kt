@@ -111,7 +111,6 @@ class SongActionsUiTest {
         var selected = ""; val played = mutableListOf<Track>()
         compose.setContent { MusicApp(base().copy(query = "fir", suggestions = listOf(SearchSuggestion("first artist"), SearchSuggestion(first.title, first))),
             onSuggestion = { selected = it }, onPlay = { track, _ -> played += track }) }
-        compose.onNodeWithText("Search suggestions").assertIsDisplayed()
         compose.onNodeWithText("first artist").performClick()
         compose.runOnIdle { assertEquals("first artist", selected) }
         compose.onNodeWithContentDescription("More options for ${first.title}").assertExists()

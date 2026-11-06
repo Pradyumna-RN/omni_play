@@ -22,6 +22,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
@@ -54,6 +56,7 @@ class SongActionCallbacks(
     val selectPlaylistImport: (labs.rtensor.music.imports.PlaylistImportChoice) -> Unit = {},
     val choosePlaylistFile: () -> Unit = {}, val choosePlaylistFolder: () -> Unit = {}, val confirmPlaylistImport: () -> Unit = {},
     val dismissMessage: () -> Unit = {},
+    val download: (List<Track>) -> Unit = {}, val removeDownload: (Track) -> Unit = {},
 )
 
 internal data class SongMenuTarget(val track: Track, val queueIndex: Int? = null,
@@ -68,7 +71,13 @@ internal val LocalSongActions = staticCompositionLocalOf { SongActionCallbacks()
 @Composable
 internal fun Modifier.songClickable(track: Track, target: SongMenuTarget = SongMenuTarget(track), onClick: () -> Unit): Modifier {
     val menus = LocalSongMenus.current
-    return combinedClickable(role = Role.Button, onClickLabel = "Play", onClick = onClick,
+    val reduced = LocalReducedMotion.current
+    val source = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val pressed by source.collectIsPressedAsState()
+    val scale by androidx.compose.animation.core.animateFloatAsState(if (pressed && !reduced) .97f else 1f,
+        if (reduced) androidx.compose.animation.core.snap() else androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 900f), label = "press")
+    return graphicsLayer { scaleX = scale; scaleY = scale }.combinedClickable(interactionSource = source, indication = androidx.compose.foundation.LocalIndication.current,
+        role = Role.Button, onClickLabel = "Play", onClick = onClick,
         onLongClickLabel = "Song options", onLongClick = menus?.let { { it.open(target) } })
 }
 
@@ -117,7 +126,7 @@ internal fun SongActionsHost(state: MusicState, actions: SongActionCallbacks, on
             val track = selected.track
             val saved = state.saved.any { it.libraryKey() == track.libraryKey() }
             val link = songLink(track)
-            ModalBottomSheet(onDismissRequest = { target = null }) {
+            ModalBottomSheet(onDismissRequest = { target = null }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
                 LazyColumn(Modifier.fillMaxWidth(), contentPadding = PaddingValues(bottom = 24.dp)) {
                     item {
                         Row(Modifier.padding(horizontal = 24.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -137,9 +146,17 @@ internal fun SongActionsHost(state: MusicState, actions: SongActionCallbacks, on
                         MenuAction("Start radio", Glyph.Sparkle) { target = null; actions.startRadio(track) }
                     }
                     item { MenuAction("Add to playlist", Glyph.Library) { target = null; adding = track; actions.loadPlaylists(track) } }
-                    item { MenuAction(if (saved) "Remove from Saved" else "Save in Music", if (saved) Icons.Outlined.Favorite else Icons.Outlined.FavoriteBorder) {
+                    item { MenuAction(if (saved) "Remove from Saved" else "Save to Library", if (saved) Icons.Outlined.Favorite else Icons.Outlined.FavoriteBorder) {
                         target = null; onSave(track)
                     } }
+                    if (track.source == Source.YOUTUBE) item {
+                        val key = track.libraryKey()
+                        when {
+                            key in state.downloadedKeys -> MenuAction("Remove download", Icons.Outlined.Delete) { target = null; actions.removeDownload(track) }
+                            key in state.downloading -> MenuAction("Cancel download", Icons.Outlined.Close) { target = null; actions.removeDownload(track) }
+                            else -> MenuAction("Download", Icons.Outlined.KeyboardArrowDown) { target = null; actions.download(listOf(track)) }
+                        }
+                    }
                     selected.queueIndex?.takeIf { it > state.queueIndex }?.let { index -> item {
                         MenuAction("Remove from queue", Icons.Outlined.Close) { target = null; actions.removeQueued(index, track) }
                     } }
@@ -181,7 +198,7 @@ internal fun SongActionsHost(state: MusicState, actions: SongActionCallbacks, on
             }
         }
         adding?.let { track ->
-            ModalBottomSheet(onDismissRequest = { adding = null }) {
+            ModalBottomSheet(onDismissRequest = { adding = null }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
                 LazyColumn(Modifier.fillMaxWidth(), contentPadding = PaddingValues(bottom = 24.dp)) {
                     item { Text("Add to playlist", Modifier.padding(24.dp).semantics { heading() }, style = MaterialTheme.typography.titleLarge) }
                     item { MenuAction("New playlist", Icons.Outlined.Add, !state.playlistBusy) { adding = null; creating = PlaylistDraft(listOf(track), fromPicker = true) } }
@@ -292,6 +309,7 @@ internal fun PlaylistLibrary(state: MusicState, onPlay: (Track, List<Track>) -> 
                     OutlinedButton(onClick = { state.playlistTracks.shuffled().let { if (it.isNotEmpty()) onPlay(it.first(), it) } }, enabled = state.playlistTracks.isNotEmpty()) { Text("Shuffle") }
                 }
                 Row {
+                    TextButton(onClick = { actions.download(state.playlistTracks) }, enabled = state.playlistTracks.any { it.source == Source.YOUTUBE }) { Text("Download all") }
                     TextButton(onClick = { rename = selected }, enabled = !state.playlistBusy) { Text("Rename") }
                     TextButton(onClick = { deleting = selected }, enabled = !state.playlistBusy) { Text("Delete playlist") }
                 }

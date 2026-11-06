@@ -4,7 +4,7 @@ import org.json.JSONObject
 data class FeedEntry(val id: String, val title: String, val subtitle: String,
     val artwork: String, val kind: String, val browseId: String, val videoId: String, val durationMs: Long = 0, val artist: String = "", val params: String = "") {
     fun asTrack() = if (kind == "spotify_track") labs.rtensor.music.spotify.SpotifyItem.from(this).track()
-        else Track(id, title, artist, "https://www.youtube.com/watch?v=$videoId", artwork, durationMs)
+        else Track(id, title, artist.ifBlank { subtitle }, "https://www.youtube.com/watch?v=$videoId", artwork, durationMs)
     companion object {
         fun parse(o: JSONObject) = FeedEntry(o.optString("id"), o.optString("title"), o.optString("subtitle"),
             o.optString("artwork"), o.optString("kind"), o.optString("browseId"), o.optString("videoId").takeUnless { it == "null" }.orEmpty(), o.optLong("durationMs"), o.optString("artist"), o.optString("params"))

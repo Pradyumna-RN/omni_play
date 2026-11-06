@@ -15,10 +15,13 @@ export function entry(node) {
   const linked = value => (value?.runs || []).filter(r => r.endpoint?.payload?.browseId?.startsWith('UC')).map(r => r.text);
   const names = [...(node.artists || []), ...(node.authors || [])].map(a => a.name).filter(Boolean);
   const artist = [...new Set([...names, node.author?.name, ...linked(node.subtitle), ...(node.flex_columns || []).flatMap(c => linked(c.title))].filter(Boolean))].join(', ');
+  // Some shelves (Quick picks) carry the artist only as plain text in the second column: "Artist • Album".
+  const column = (node.flex_columns?.[1]?.title?.runs || []).map(r => r.text).filter(t => t && !/^\s*[•·]\s*$/.test(t));
+  const plain = column.filter(t => !/^(Song|Video|Single|Album|EP|Playlist)$/i.test(t.trim())).slice(0, 1).join('');
   const kind = videoId ? 'song' : node.type === 'MusicNavigationButton' ? 'browse' : (node.item_type || 'browse');
   const browseId = payload.browseId || payload.playlistId || node.id || '';
   return { id: videoId ? `yt:${videoId}` : kind === 'browse' && payload.params ? `${browseId}:${payload.params}` : browseId, title,
-    subtitle: artist || text(node.subtitle), artist,
+    subtitle: artist || text(node.subtitle) || plain, artist: artist || (videoId ? plain : ''),
     artwork, kind, browseId, ...(kind === 'browse' && payload.params ? { params: payload.params } : {}), videoId, durationMs: (node.duration?.seconds || 0) * 1000 };
 }
 export function track(node) {

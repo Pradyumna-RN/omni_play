@@ -44,7 +44,7 @@ class NativeUiTest {
     }
 
     @Test fun homeAndNavigation() {
-        compose.setContent { MusicApp(MusicState(theme = "light", reducedMotion = true)) }
+        compose.setContent { MusicApp(MusicState(look = labs.rtensor.music.data.LookChoice.ROOM, theme = "light", reducedMotion = true)) }
         compose.onNodeWithText("For your ears").assertIsDisplayed()
         compose.onNodeWithText("Already yours").assertDoesNotExist()
         capture("home")
@@ -59,13 +59,15 @@ class NativeUiTest {
         compose.onNodeWithText("Background play").assertDoesNotExist()
         compose.onNodeWithText("Recommendations").assertDoesNotExist()
         compose.onNodeWithText("Off · original audio").assertDoesNotExist()
+        compose.settingsTab("Playback")
         compose.onNodeWithText("Autoplay radio").performScrollTo().assertIsDisplayed()
+        compose.settingsTab("Sources")
         compose.onNodeWithText("Import audio").performScrollTo().assertIsDisplayed()
         capture("settings")
     }
 
     @Test fun playerHasOneSaveActionAndWorkingTransportCallback() {
-        val state = mutableStateOf(MusicState(current = track, playing = true, positionMs = 72000, durationMs = 224000, queue = listOf(track, other), queueIndex = 0, reducedMotion = true, theme = "light"))
+        val state = mutableStateOf(MusicState(look = labs.rtensor.music.data.LookChoice.ROOM, current = track, playing = true, positionMs = 72000, durationMs = 224000, queue = listOf(track, other), queueIndex = 0, reducedMotion = true, theme = "light"))
         compose.setContent {
             MusicApp(state.value, initialPage = "now", onSave = { state.value = state.value.copy(saved = listOf(it)) }, onToggle = { state.value = state.value.copy(playing = false) })
         }
@@ -78,7 +80,7 @@ class NativeUiTest {
     }
 
     @Test fun searchAndSavedLayouts() {
-        val state = mutableStateOf(MusicState(query = "Serein", searched = true, results = listOf(track, other), saved = listOf(track), reducedMotion = true, theme = "light"))
+        val state = mutableStateOf(MusicState(look = labs.rtensor.music.data.LookChoice.ROOM, query = "Serein", searched = true, results = listOf(track, other), saved = listOf(track), reducedMotion = true, theme = "light"))
         compose.setContent { MusicApp(state.value, onQuery = { state.value = state.value.copy(query = it, searched = it.isNotEmpty()) }) }
         compose.onNodeWithText("Afterimage").assertIsDisplayed()
         capture("search")
@@ -90,19 +92,19 @@ class NativeUiTest {
     }
 
     @Test fun darkPlayerLayout() {
-        compose.setContent { MusicApp(MusicState(current = track, playing = false, positionMs = 72000, durationMs = 224000, reducedMotion = true, theme = "dark"), initialPage = "now") }
+        compose.setContent { MusicApp(MusicState(look = labs.rtensor.music.data.LookChoice.ROOM, current = track, playing = false, positionMs = 72000, durationMs = 224000, reducedMotion = true, theme = "dark"), initialPage = "now") }
         compose.onNodeWithText("Afterimage").assertIsDisplayed()
         capture("player-dark")
     }
 
     @Test fun repeatedPlaylistEntriesRemainVisible() {
-        compose.setContent { MusicApp(MusicState(query = "test", searched = true, results = listOf(track, other, track.copy()), reducedMotion = true, theme = "light")) }
+        compose.setContent { MusicApp(MusicState(look = labs.rtensor.music.data.LookChoice.ROOM, query = "test", searched = true, results = listOf(track, other, track.copy()), reducedMotion = true, theme = "light")) }
         compose.onAllNodesWithText("Afterimage").assertCountEquals(2)
     }
 
     @Test @Config(sdk = [35], qualifiers = "w320dp-h740dp-mdpi")
     fun compactPlayerKeepsTransportReachable() {
-        compose.setContent { MusicApp(MusicState(current = track, durationMs = 224000, reducedMotion = true, theme = "light"), initialPage = "now") }
+        compose.setContent { MusicApp(MusicState(look = labs.rtensor.music.data.LookChoice.ROOM, current = track, durationMs = 224000, reducedMotion = true, theme = "light"), initialPage = "now") }
         compose.onNodeWithContentDescription("Play").performScrollTo().assertIsDisplayed()
         compose.onNodeWithContentDescription("Save").assertIsDisplayed()
         capture("player-320")
@@ -110,7 +112,7 @@ class NativeUiTest {
 
     @Test fun signInOpensYouTubeWithoutATvCode() {
         var opened = false
-        compose.setContent { MusicApp(MusicState(reducedMotion = true, theme = "light"), initialPage = "settings", onWebSignIn = { opened = true }) }
+        compose.setContent { MusicApp(MusicState(look = labs.rtensor.music.data.LookChoice.ROOM, reducedMotion = true, theme = "light"), initialPage = "settings", onWebSignIn = { opened = true }) }
         compose.onNodeWithText("Sign in using browser").performScrollTo().performClick()
         org.junit.Assert.assertTrue(opened)
         compose.onNodeWithText("Open Google sign-in").assertDoesNotExist()
@@ -118,7 +120,7 @@ class NativeUiTest {
         capture("account-sign-in")
     }
     @Test fun exploreUsesProviderCardsAndTheSearchBarSubmitsInline() {
-        val state = mutableStateOf(MusicState(explore = listOf(FeedSection("Fresh discoveries", listOf(FeedEntry("yt:jNQXAC9IVRw", track.title, track.artist, "", "song", "", "jNQXAC9IVRw")))), reducedMotion = true, theme = "light"))
+        val state = mutableStateOf(MusicState(look = labs.rtensor.music.data.LookChoice.ROOM, explore = listOf(FeedSection("Fresh discoveries", listOf(FeedEntry("yt:jNQXAC9IVRw", track.title, track.artist, "", "song", "", "jNQXAC9IVRw")))), reducedMotion = true, theme = "light"))
         var submitted = false
         compose.setContent { MusicApp(state.value, onQuery = { state.value = state.value.copy(query = it, searched = false) }, onSearch = { submitted = true; state.value = state.value.copy(searched = true, results = listOf(track)) }) }
         compose.onNodeWithContentDescription("Explore").performClick()
@@ -135,7 +137,7 @@ class NativeUiTest {
         compose.onNodeWithText("Explore").assertIsDisplayed()
     }
     @Test fun playerErrorProvidesCopyableDiagnostics() {
-        compose.setContent { MusicApp(MusicState(current = track, error = "YouTube rejected the audio stream (HTTP 403).", errorDiagnostic = "YTMUSIC: media probe HTTP 403", reducedMotion = true, theme = "light"), initialPage = "now") }
+        compose.setContent { MusicApp(MusicState(look = labs.rtensor.music.data.LookChoice.ROOM, current = track, error = "YouTube rejected the audio stream (HTTP 403).", errorDiagnostic = "YTMUSIC: media probe HTTP 403", reducedMotion = true, theme = "light"), initialPage = "now") }
         compose.onNodeWithText("YouTube rejected the audio stream (HTTP 403).").assertIsDisplayed()
         compose.onNodeWithText("Copy details").performClick()
         val clipboard = compose.activity.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
@@ -145,7 +147,7 @@ class NativeUiTest {
     @Test fun googleDeviceSelectionDoesNotPretendTheYoutubeSessionIsConnected() {
         var selected = false
         val profile = labs.rtensor.music.auth.GoogleProfile("fixture-subject", "listener@example.test", "Fixture listener")
-        compose.setContent { MusicApp(MusicState(googleProfile = profile, reducedMotion = true, theme = "light"), initialPage = "settings", onGoogleSignIn = { selected = true }) }
+        compose.setContent { MusicApp(MusicState(look = labs.rtensor.music.data.LookChoice.ROOM, googleProfile = profile, reducedMotion = true, theme = "light"), initialPage = "settings", onGoogleSignIn = { selected = true }) }
         compose.onNodeWithText("listener@example.test").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Change Google account").performScrollTo().performClick()
         org.junit.Assert.assertTrue(selected)
@@ -155,13 +157,14 @@ class NativeUiTest {
     }
     @Test fun nativeGoogleSelectionHasAnExplicitCancelAction() {
         var cancelled = false
-        compose.setContent { MusicApp(MusicState(googleBusy = true, reducedMotion = true, theme = "light"), initialPage = "settings", onCancelGoogle = { cancelled = true }) }
+        compose.setContent { MusicApp(MusicState(look = labs.rtensor.music.data.LookChoice.ROOM, googleBusy = true, reducedMotion = true, theme = "light"), initialPage = "settings", onCancelGoogle = { cancelled = true }) }
         compose.onNodeWithText("Cancel Google sign-in").performScrollTo().performClick()
         org.junit.Assert.assertTrue(cancelled)
     }
     @Test fun verifiedUpdateHasAnExplicitInstallAction() {
         var installed = false
-        compose.setContent { MusicApp(MusicState(update = UpdateState(apkPath = "/test/verified.apk", message = "Verified update. Ready to install."), reducedMotion = true, theme = "light"), initialPage = "settings", onInstallUpdate = { installed = true }) }
+        compose.setContent { MusicApp(MusicState(look = labs.rtensor.music.data.LookChoice.ROOM, update = UpdateState(apkPath = "/test/verified.apk", message = "Verified update. Ready to install."), reducedMotion = true, theme = "light"), initialPage = "settings", onInstallUpdate = { installed = true }) }
+        compose.settingsTab("About")
         compose.onNodeWithText("Install update").performScrollTo().performClick()
         org.junit.Assert.assertTrue(installed)
         capture("app-updates")
@@ -169,7 +172,7 @@ class NativeUiTest {
     @Test fun providerFeedOpensItsAlbumAndPlaysTheOriginalTrackList() {
         val album = FeedEntry("MPREb_fixture", "Late Windows", "Serein", "", "album", "MPREb_fixture", "")
         val song = FeedEntry(track.id, track.title, track.artist, "", "song", "", "jNQXAC9IVRw")
-        val state = mutableStateOf(MusicState(account = AccountState(connected = true), explore = listOf(FeedSection("Your provider’s picks", listOf(album, song, song.copy()))), reducedMotion = true, theme = "light"))
+        val state = mutableStateOf(MusicState(look = labs.rtensor.music.data.LookChoice.ROOM, account = AccountState(connected = true), explore = listOf(FeedSection("Your provider’s picks", listOf(album, song, song.copy()))), reducedMotion = true, theme = "light"))
         var playedOriginal = false
         compose.setContent { MusicApp(state.value, initialPage = "explore", onBrowse = { state.value = state.value.copy(collectionEntry = it, collection = listOf(track)) }, onPlay = { t, queue -> playedOriginal = t == track && queue == listOf(track) }) }
         compose.onNodeWithContentDescription("Discover").performClick()
@@ -183,7 +186,7 @@ class NativeUiTest {
     @Test fun googleSelectionWithoutYoutubePromptsToFinishSyncOnHome() {
         var connected = false
         val profile = labs.rtensor.music.auth.GoogleProfile("fixture-subject", "listener@example.test", "Fixture listener")
-        compose.setContent { MusicApp(MusicState(googleProfile = profile, reducedMotion = true, theme = "light"), initialPage = "explore", onConnect = { connected = true }) }
+        compose.setContent { MusicApp(MusicState(look = labs.rtensor.music.data.LookChoice.ROOM, googleProfile = profile, reducedMotion = true, theme = "light"), initialPage = "explore", onConnect = { connected = true }) }
         compose.onNodeWithText("Finish syncing YouTube Music").assertIsDisplayed()
         compose.onNodeWithText("Connect").performClick()
         org.junit.Assert.assertTrue(connected)
@@ -193,7 +196,7 @@ class NativeUiTest {
         var signedOut = false
         var youtubeOnly = false
         val profile = labs.rtensor.music.auth.GoogleProfile("fixture-subject", "listener@example.test", "Fixture listener")
-        compose.setContent { MusicApp(MusicState(googleProfile = profile, account = AccountState(connected = true, name = "Listener"), reducedMotion = true, theme = "light"),
+        compose.setContent { MusicApp(MusicState(look = labs.rtensor.music.data.LookChoice.ROOM, googleProfile = profile, account = AccountState(connected = true, name = "Listener"), reducedMotion = true, theme = "light"),
             initialPage = "settings", onGoogleSignOut = { signedOut = true }, onDisconnect = { youtubeOnly = true }) }
         compose.onNodeWithText("Connected · Listener").assertIsDisplayed()
         compose.onNodeWithText("Sign out").performScrollTo().performClick()
@@ -203,24 +206,25 @@ class NativeUiTest {
     }
     @Test fun miniPlayerShowsTrackAndTransport() {
         var toggled = false
-        compose.setContent { MusicApp(MusicState(current = track, playing = true, positionMs = 72000, durationMs = 224000, queue = listOf(track, other), queueIndex = 0, reducedMotion = true, theme = "dark"), onToggle = { toggled = true }) }
+        compose.setContent { MusicApp(MusicState(look = labs.rtensor.music.data.LookChoice.ROOM, current = track, playing = true, positionMs = 72000, durationMs = 224000, queue = listOf(track, other), queueIndex = 0, reducedMotion = true, theme = "dark"), onToggle = { toggled = true }) }
         compose.onNodeWithContentDescription("Pause").performClick()
         org.junit.Assert.assertTrue(toggled)
         compose.onNodeWithContentDescription("Next recording").assertIsEnabled()
         capture("mini-player")
     }
 
-    @Test fun settingsKeepsUpdatesReachableByScrollingWithoutASectionSelector() {
-        compose.setContent { MusicApp(MusicState(reducedMotion = true, theme = "light"), initialPage = "settings") }
+    @Test fun settingsKeepsUpdatesUnderTheAboutTab() {
+        compose.setContent { MusicApp(MusicState(look = labs.rtensor.music.data.LookChoice.ROOM, reducedMotion = true, theme = "light"), initialPage = "settings") }
         compose.onNodeWithText("Reduce motion").assertDoesNotExist()
-        compose.onNode(hasText("Account") and hasClickAction()).assertDoesNotExist()
+        compose.settingsTab("About")
         compose.onNodeWithText("Check updates").performScrollTo().assertIsDisplayed()
         capture("settings-scroll-about")
     }
 
     @Test fun settingsImportActionOpensTheFilePickerCallback() {
         var imported = false
-        compose.setContent { MusicApp(MusicState(reducedMotion = true), initialPage = "settings", onOpenLocal = { imported = true }) }
+        compose.setContent { MusicApp(MusicState(look = labs.rtensor.music.data.LookChoice.ROOM, reducedMotion = true), initialPage = "settings", onOpenLocal = { imported = true }) }
+        compose.settingsTab("Sources")
         compose.onNodeWithText("Import audio").performScrollTo().performClick()
         org.junit.Assert.assertFalse(imported)
         compose.onNodeWithText("Choose file").performClick()

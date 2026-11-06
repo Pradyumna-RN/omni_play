@@ -26,6 +26,7 @@ class LibraryHistoryUiTest {
         val events = listOf(local, local.copy(id = "legacy-local"), online, online.copy(id = "aaaaaaaaaaa"))
             .mapIndexed { i, t -> PlayEvent(t, 10L + i, 30_000, false) }
         compose.setContent { MusicApp(MusicState(playEvents = events, history = listOf(local, online), reducedMotion = true), initialPage = "settings") }
+        compose.settingsTab("Privacy")
         compose.onNodeWithText("2 recordings in History").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("4 plays · 2 recent recordings").assertDoesNotExist()
     }

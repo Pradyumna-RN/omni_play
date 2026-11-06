@@ -51,7 +51,8 @@ internal class SpotifyWebRuntime private constructor(private val context: Contex
             allowFileAccess = false; allowContentAccess = false
             mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
             mediaPlaybackRequiresUserGesture = true
-            blockNetworkImage = true
+            // The sign-in page needs its logo and challenge images from the first request.
+            blockNetworkImage = loginObserver == null
             setSupportMultipleWindows(false)
             javaScriptCanOpenWindowsAutomatically = false
             // Request the catalogue's desktop layout using the installed Chromium version.
@@ -59,7 +60,9 @@ internal class SpotifyWebRuntime private constructor(private val context: Contex
             userAgentString = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/$version Safari/537.36"
         }
         CookieManager.getInstance().setAcceptCookie(true)
-        CookieManager.getInstance().setAcceptThirdPartyCookies(view, false)
+        // Spotify's login embeds captcha/challenge frames from other hosts; without third-party
+        // cookies they never finish and the page stays blank. Only while the login is showing.
+        CookieManager.getInstance().setAcceptThirdPartyCookies(view, loginObserver != null)
         view.webChromeClient = object : WebChromeClient() {
             override fun onPermissionRequest(request: PermissionRequest) { request.deny() }
         }
@@ -165,6 +168,7 @@ internal class SpotifyWebRuntime private constructor(private val context: Contex
         resumeLogin = !fresh && existing == null
         return view().apply {
             settings.blockNetworkImage = false
+            CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
             if (fresh && existing != null) openSignIn()
             else observer.pageChanged(url ?: SpotifySignInNavigation.loginUrl(), channel != null)
         }
@@ -175,7 +179,11 @@ internal class SpotifyWebRuntime private constructor(private val context: Contex
         browser?.let { (it.parent as? android.view.ViewGroup)?.removeView(it) }
         loginObserver = null
         host.baseContext = context
-        browser?.let { it.settings.blockNetworkImage = true; it.onPause() }
+        browser?.let {
+            it.settings.blockNetworkImage = true
+            CookieManager.getInstance().setAcceptThirdPartyCookies(it, false)
+            it.onPause()
+        }
     }
     /** Fresh rendering process/view, while keeping Spotify's existing cookies. */
     fun reloadLogin(observer: SpotifyLoginObserver, window: Context): WebView {

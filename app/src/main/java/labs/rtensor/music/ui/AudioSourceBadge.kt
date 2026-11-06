@@ -16,7 +16,7 @@ import androidx.compose.ui.unit.sp
 @Composable
 internal fun RouteLabel(label: String) {
     if (label.isBlank()) return
-    val value = if (label == "YouTube") "YouTube · compressed stream" else label
+    val value = label
     val provider = value.substringBefore(" · ")
     val detail = value.substringAfter(" · ", "")
     Column(Modifier.padding(top = 14.dp).semantics(mergeDescendants = true) {

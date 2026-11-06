@@ -52,12 +52,12 @@ those features improve.
 ## Pending source changes
 
 [Playlist imports and Spotify sign-in handoff](PLAYLIST_IMPORTS.md) describes the
-0.3.41 source changes, supported import formats, history-sync limits and remaining
-local validation. These changes have not been published as an OTA.
+0.4.0 beta source changes, supported import formats, history-sync limits and remaining
+local validation. They ship in the 0.4.0 beta 1 release.
 
 ## Quick guide
 
-1. **Install or update.** Get the [current preview release](https://github.com/RTensorLabs/music-app/releases/tag/v0.3.40).
+1. **Install or update.** Get the [current preview release](https://github.com/RTensorLabs/music-app/releases/tag/v0.4.0-beta.1).
    Existing installations can use **Settings → About → Check updates**.
 2. **Choose recommendations.** Open **Settings → Playback → Recommendation source**.
    YouTube Music is the default. Selecting Spotify starts its sign-in; the choice
@@ -327,7 +327,7 @@ code. The Android installer asks the user to confirm installation.
 
 ## Current release
 
-[Music 0.3.40](https://github.com/RTensorLabs/music-app/releases/tag/v0.3.40)
+[Hum 0.4.0 beta 1](https://github.com/RTensorLabs/music-app/releases/tag/v0.4.0-beta.1)
 puts the full recommendation feed and continuous loading on Home. Explore's For you
 keeps personal listening highlights. Discover and Browse retain actual provider
 content even when the separate Explore response is empty or fails; category links

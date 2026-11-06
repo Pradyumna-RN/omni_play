@@ -69,10 +69,10 @@ class RoomPlayerUiTest {
         compose.runOnIdle { assertEquals(listOf(false, true), changes); assertEquals(0, seeks); assertEquals(0, toggles) }
     }
 
-    @Test fun thePillIsDisabledWithTheSameExplanationWhenProcessingIsMissing() {
+    @Test fun thePillIsNotShownWhenProcessingIsMissing() {
         compose.setContent { MusicApp(player(AudioProcessingState(available = false, unavailableReason = "The DSP library is not included")), initialPage = "now") }
-        compose.onNodeWithContentDescription("Processed audio").performScrollTo().assertIsNotEnabled().assertIsOff()
-        compose.onNodeWithText("Processing unavailable · The DSP library is not included").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithContentDescription("Processed audio").assertDoesNotExist()
+        compose.onNodeWithText("Processing unavailable", substring = true).assertDoesNotExist()
     }
 
     @Test fun theMeterNeverAsksForLevelsWithoutDeveloperOptionsOrWithReducedMotion() {

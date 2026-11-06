@@ -8,6 +8,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.dp
@@ -52,7 +53,8 @@ internal data class Look(
     val surface: Color = background,
 ) {
     val classic: Boolean get() = choice == LookChoice.CLASSIC
-    val room: Boolean get() = choice == LookChoice.ROOM
+    val room: Boolean get() = choice == LookChoice.ROOM || choice == LookChoice.HUM
+    val hum: Boolean get() = choice == LookChoice.HUM
     val soft: Boolean get() = choice == LookChoice.SOFT
 
     /** A small label: uppercase in Classic, sentence case in the Listening room. */
@@ -61,7 +63,7 @@ internal data class Look(
     fun headline(text: String): String = if (classic) "$text." else text
 
     /** What a settings card is filled with: the page colour in Classic, the lifted panel otherwise. */
-    val cardFill: Color get() = when (choice) { LookChoice.CLASSIC -> background; LookChoice.SOFT -> surface; LookChoice.ROOM -> panel }
+    val cardFill: Color get() = when (choice) { LookChoice.CLASSIC -> background; LookChoice.SOFT -> surface; LookChoice.ROOM, LookChoice.HUM -> panel }
     /** A segmented selector's track, inside a card: set apart from the card in every look. */
     val selectorTrack: Color get() = if (room) background else panel
     /** The selector's outline: the muted text colour, so its boundary stands out 3:1 from the card. */
@@ -71,20 +73,42 @@ internal data class Look(
     val onSelectorThumb: Color get() = background
 
     /** Filled and outlined buttons: square in Classic, pills in the Listening room. */
-    val button: Shape get() = when (choice) { LookChoice.CLASSIC -> RectangleShape; LookChoice.SOFT -> RoundedCornerShape(12.dp); LookChoice.ROOM -> RoundedCornerShape(percent = 50) }
+    val button: Shape get() = when (choice) { LookChoice.CLASSIC -> RectangleShape; LookChoice.SOFT -> RoundedCornerShape(12.dp); LookChoice.ROOM, LookChoice.HUM -> RoundedCornerShape(percent = 50) }
     /** Bordered square controls such as Save: square in Classic, softly rounded otherwise. */
     val control: Shape get() = if (classic) RectangleShape else RoundedCornerShape(14.dp)
     /** Cards, banners and settings groups. */
-    val card: Shape get() = when (choice) { LookChoice.CLASSIC -> RectangleShape; LookChoice.SOFT -> RoundedCornerShape(20.dp); LookChoice.ROOM -> RoundedCornerShape(16.dp) }
+    val card: Shape get() = when (choice) { LookChoice.CLASSIC -> RectangleShape; LookChoice.SOFT -> RoundedCornerShape(20.dp); LookChoice.ROOM -> RoundedCornerShape(16.dp); LookChoice.HUM -> RoundedCornerShape(22.dp) }
     /** Artwork in rows and cards. */
-    val art: Shape get() = when (choice) { LookChoice.CLASSIC -> RectangleShape; LookChoice.SOFT -> RoundedCornerShape(8.dp); LookChoice.ROOM -> RoundedCornerShape(10.dp) }
+    val art: Shape get() = when (choice) { LookChoice.CLASSIC -> RectangleShape; LookChoice.SOFT -> RoundedCornerShape(8.dp); LookChoice.ROOM -> RoundedCornerShape(10.dp); LookChoice.HUM -> RoundedCornerShape(14.dp) }
     /** The player's big cover. */
     val cover: Shape get() = if (classic) RectangleShape else RoundedCornerShape(18.dp)
     /** Small square tiles (setting icons, stats). */
     val tile: Shape get() = if (classic) RectangleShape else RoundedCornerShape(10.dp)
     /** The search field. */
-    val field: Shape get() = when (choice) { LookChoice.CLASSIC -> RectangleShape; LookChoice.SOFT -> RoundedCornerShape(14.dp); LookChoice.ROOM -> RoundedCornerShape(24.dp) }
+    val field: Shape get() = when (choice) { LookChoice.CLASSIC -> RectangleShape; LookChoice.SOFT -> RoundedCornerShape(14.dp); LookChoice.ROOM -> RoundedCornerShape(24.dp); LookChoice.HUM -> RoundedCornerShape(percent = 50) }
 }
+
+/** Hum, Berry: a plum-black night, a pink-tinted paper day, and one hot pink accent. */
+internal val HumNight = Color(0xFF150B14)
+internal val HumPanel = Color(0xFF241322)
+internal val HumDock = Color(0xFF1B0E1A)
+internal val HumPaper = Color(0xFFFBF1F7)
+internal val HumDayPanel = Color(0xFFF0DCE9)
+internal val HumInk = Color(0xFF1E0F1C)
+internal val HumMuted = Color(0xFFB49AAE)
+internal val HumDayMuted = Color(0xFF6E4F66)
+internal val HumPink = Color(0xFFFF4D9D)
+internal val HumPinkDay = Color(0xFFC8176F)
+
+internal fun humLook(dark: Boolean): Look = if (dark) Look(
+    LookChoice.HUM, dark = true,
+    background = HumNight, panel = HumPanel, text = HumPaper, muted = HumMuted, line = Color(0x1FFFFFFF).compositeOver(HumNight),
+    stage = HumDock, stageText = HumPaper, stageMuted = HumMuted,
+) else Look(
+    LookChoice.HUM, dark = false,
+    background = HumPaper, panel = HumDayPanel, text = HumInk, muted = HumDayMuted, line = Color(0xFFE4CBDA),
+    stage = HumDock, stageText = HumPaper, stageMuted = HumMuted,
+)
 
 internal fun roomLook(dark: Boolean): Look = if (dark) Look(
     LookChoice.ROOM, dark = true,
@@ -135,6 +159,7 @@ internal fun lookFor(choice: LookChoice, dark: Boolean): Look = when (choice) {
     LookChoice.CLASSIC -> classicLook(dark)
     LookChoice.SOFT -> softLook(dark)
     LookChoice.ROOM -> roomLook(dark)
+    LookChoice.HUM -> humLook(dark)
 }
 
 internal val LocalLook = staticCompositionLocalOf { roomLook(dark = false) }

@@ -24,6 +24,7 @@ class SpotifySettingsUiTest {
     @Test fun disconnectedSpotifyChoiceStartsLoginWithoutPretendingToSelectIt() {
         var login = 0; val changes = mutableListOf<RecommendationEngine>()
         compose.setContent { MusicApp(MusicState(reducedMotion = true), initialPage = "settings", onConnectSpotify = { login++ }, onRecommendationEngine = changes::add) }
+        compose.settingsTab("Playback")
         compose.onNodeWithContentDescription("YouTube Music recommendations").performScrollTo().assertIsSelected()
         compose.onNodeWithContentDescription("Spotify recommendations").performScrollTo().assertIsNotSelected().performClick()
         compose.runOnIdle { assertEquals(1, login); assertTrue(changes.isEmpty()) }
@@ -35,6 +36,7 @@ class SpotifySettingsUiTest {
         compose.setContent { MusicApp(state.value, initialPage = "settings", onRecommendationEngine = {
             store.recommendationEngine = it; state.value = state.value.copy(recommendationEngine = it)
         }, onDisconnectSpotify = { disconnects++ }) }
+        compose.settingsTab("Playback")
         compose.onNodeWithContentDescription("Spotify recommendations").performScrollTo().performClick().assertIsSelected()
         compose.runOnIdle { assertEquals(RecommendationEngine.SPOTIFY, LibraryStore(compose.activity).recommendationEngine) }
         compose.onNodeWithContentDescription("YouTube Music recommendations").performClick().assertIsSelected()
@@ -44,6 +46,7 @@ class SpotifySettingsUiTest {
     @Test fun aSignInThatEndsWithoutAConnectionSaysSoUnderTheChoice() {
         val message = labs.rtensor.music.spotify.SpotifyRecommendations.cancelledMessage("the sign-in page could not load")
         compose.setContent { MusicApp(MusicState(reducedMotion = true, spotifyAccount = AccountState(error = message)), initialPage = "settings") }
+        compose.settingsTab("Playback")
         compose.onNodeWithText(message).performScrollTo().assertIsDisplayed()
         compose.onNodeWithContentDescription("YouTube Music recommendations").assertIsSelected()
     }

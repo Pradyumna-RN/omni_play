@@ -57,6 +57,7 @@ class DeveloperOptionsTest {
         compose.setContent { MusicApp(state.value, initialPage = "settings", onDeveloperOptions = {
             store.developerOptions = it; changes += it; state.value = state.value.copy(developerOptions = it)
         }) }
+        compose.settingsTab("About")
         compose.onNodeWithContentDescription("Developer options").performScrollTo().assertIsOff().performClick().assertIsOn()
         compose.runOnIdle { assertTrue(LibraryStore(compose.activity).developerOptions) }
         compose.onNodeWithContentDescription("Developer options").performClick().assertIsOff()

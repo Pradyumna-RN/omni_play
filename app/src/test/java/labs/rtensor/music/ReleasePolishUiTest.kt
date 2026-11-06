@@ -37,7 +37,7 @@ class ReleasePolishUiTest {
     }
 
     @Test fun thePlayingSongIsMarkedInListsInEveryLook() {
-        val state = androidx.compose.runtime.mutableStateOf(MusicState(reducedMotion = true, accent = AccentChoice.SIGNAL, current = track,
+        val state = androidx.compose.runtime.mutableStateOf(MusicState(look = labs.rtensor.music.data.LookChoice.ROOM, reducedMotion = true, accent = AccentChoice.SIGNAL, current = track,
             query = "x", searched = true, results = listOf(track, other)))
         compose.setContent { MusicApp(state.value) }
         for (look in LookChoice.entries) for (theme in listOf("light", "dark")) {
@@ -50,7 +50,7 @@ class ReleasePolishUiTest {
     }
 
     @Test fun theSeekLineStandsOutWithAFixedAccentOnPaper() {
-        compose.setContent { MusicApp(MusicState(theme = "light", reducedMotion = true, accent = AccentChoice.SIGNAL, current = track,
+        compose.setContent { MusicApp(MusicState(look = labs.rtensor.music.data.LookChoice.ROOM, theme = "light", reducedMotion = true, accent = AccentChoice.SIGNAL, current = track,
             positionMs = 112000, durationMs = 224000), initialPage = "now") }
         val line = compose.onNodeWithContentDescription("Playback position").fetchSemanticsNode().boundsInWindow
         val image = snapshot()
@@ -67,24 +67,16 @@ class ReleasePolishUiTest {
         compose.setContent {
             val density = androidx.compose.ui.platform.LocalDensity.current
             androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(density.density, 2f)) {
-                MusicApp(MusicState(theme = "dark", reducedMotion = true), initialPage = "settings")
+                MusicApp(MusicState(look = labs.rtensor.music.data.LookChoice.ROOM, theme = "dark", reducedMotion = true), initialPage = "settings")
             }
         }
-        for (name in listOf("Listening room look", "Soft look", "Classic look", "Device theme")) {
-            val option = compose.onNodeWithContentDescription(name).performScrollTo().fetchSemanticsNode().boundsInRoot
-            assertTrue("$name is at least 48dp tall", option.height >= 48f)
-        }
-        // The label sits wholly inside its option, even at twice the text size.
-        val option = compose.onNodeWithContentDescription("Listening room look").fetchSemanticsNode().boundsInRoot
-        val label = compose.onNodeWithText("Listening room", useUnmergedTree = true).fetchSemanticsNode()
-        val layouts = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
-        label.config[androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult].action?.invoke(layouts)
-        assertFalse("label is not cut off", layouts.single().hasVisualOverflow)
-        assertTrue(label.boundsInRoot.bottom <= option.bottom + .5f && label.boundsInRoot.top >= option.top - .5f)
+        compose.settingsTab("Appearance")
+        val option = compose.onNodeWithContentDescription("Device theme").performScrollTo().fetchSemanticsNode().boundsInRoot
+        assertTrue("Device theme is at least 48dp tall", option.height >= 48f)
     }
 
     @Test fun libraryTabsAreFullSizeAndReadOnce() {
-        compose.setContent { MusicApp(MusicState(theme = "light", reducedMotion = true), initialPage = "library") }
+        compose.setContent { MusicApp(MusicState(look = labs.rtensor.music.data.LookChoice.ROOM, theme = "light", reducedMotion = true), initialPage = "library") }
         for (name in listOf("Saved", "History")) {
             val tab = compose.onNodeWithContentDescription(name)
             tab.assert(SemanticsMatcher.expectValue(androidx.compose.ui.semantics.SemanticsProperties.Role, androidx.compose.ui.semantics.Role.Tab))
@@ -97,7 +89,7 @@ class ReleasePolishUiTest {
     }
 
     @Test fun theDockMarksTheChosenTabWithOneLight() {
-        compose.setContent { MusicApp(MusicState(theme = "dark", reducedMotion = true, current = track)) }
+        compose.setContent { MusicApp(MusicState(look = labs.rtensor.music.data.LookChoice.ROOM, theme = "dark", reducedMotion = true, current = track)) }
         val image = snapshot()
         val home = compose.onNodeWithContentDescription("Home").fetchSemanticsNode().boundsInWindow
         val light = labs.rtensor.music.ui.accentColours(AccentChoice.COVER, true, null).onDock
@@ -119,7 +111,7 @@ class ReleasePolishUiTest {
             assertEquals("The music service wouldn't play this song", labs.rtensor.music.ui.friendlyError("YouTube rejected the audio stream (HTTP 403)."))
             assertNull(labs.rtensor.music.ui.friendlyError("Nothing found"))
         }
-        compose.setContent { MusicApp(MusicState(theme = "light", reducedMotion = true, current = track, error = "YouTube rejected the audio stream (HTTP 403).")) }
+        compose.setContent { MusicApp(MusicState(look = labs.rtensor.music.data.LookChoice.ROOM, theme = "light", reducedMotion = true, current = track, error = "YouTube rejected the audio stream (HTTP 403).")) }
         compose.onNodeWithText("The music service wouldn't play this song").assertIsDisplayed()
         compose.onNodeWithText("YouTube rejected the audio stream (HTTP 403).").assertIsDisplayed()
         compose.onNodeWithContentDescription("Error").assertExists()
@@ -132,19 +124,14 @@ class ReleasePolishUiTest {
         assertNotEquals(labs.rtensor.music.ui.SignalAccent.toArgb(), fill)
     }
 
-    @Test fun listeningRoomWordingIsPlainAndClassicKeepsItsOwn() {
+    @Test fun wordingIsPlainAndSettingsIsNamedOnce() {
         val now = System.currentTimeMillis()
         assertEquals("5 min ago", labs.rtensor.music.ui.whenLabel(now - 5 * 60_000L, now, classic = false))
         assertEquals("Just now", labs.rtensor.music.ui.whenLabel(now, now, classic = false))
-        assertEquals("NOW", labs.rtensor.music.ui.whenLabel(now, now, classic = true))
-        val state = androidx.compose.runtime.mutableStateOf(MusicState(theme = "dark", reducedMotion = true))
-        compose.setContent { MusicApp(state.value, initialPage = "settings") }
+        compose.setContent { MusicApp(MusicState(theme = "dark", reducedMotion = true), initialPage = "settings") }
         // Settings is named once, by the header, and that name is the page heading.
         compose.onAllNodesWithText("Settings").assertCountEquals(1)
         compose.onNode(hasText("Settings") and isHeading()).assertExists()
-        compose.onNodeWithText("Channel monitor, and live speaker levels on Home and in the player").performScrollTo().assertExists()
-        compose.runOnIdle { state.value = state.value.copy(look = LookChoice.CLASSIC) }
-        compose.onNodeWithText("Square controls, monospace labels and Signal orange.").performScrollTo().assertExists()
         compose.onNodeWithText("0.3.32", substring = true).assertDoesNotExist()
     }
 
@@ -152,7 +139,7 @@ class ReleasePolishUiTest {
     @Test fun thePlaybackClockTicksAboutTenTimesASecondNotEveryFrame() {
         compose.mainClock.autoAdvance = false
         val position = kotlinx.coroutines.flow.MutableStateFlow(72_000L)
-        compose.setContent { MusicApp(MusicState(theme = "dark", reducedMotion = false, current = track, playing = true, positionMs = 72_000, durationMs = 224_000),
+        compose.setContent { MusicApp(MusicState(look = labs.rtensor.music.data.LookChoice.ROOM, theme = "dark", reducedMotion = false, current = track, playing = true, positionMs = 72_000, durationMs = 224_000),
             initialPage = "now", playbackPosition = position) }
         repeat(3) { compose.mainClock.advanceTimeByFrame() }; compose.waitForIdle()
         val line = compose.onNodeWithContentDescription("Playback position")

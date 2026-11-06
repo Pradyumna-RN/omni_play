@@ -154,7 +154,7 @@ internal fun ListeningRoom(state: MusicState, levels: StateFlow<AudioLevelFrame?
         } else {
             Column(Modifier.align(Alignment.BottomStart).padding(start = 18.dp, end = 18.dp, bottom = 16.dp)) {
                 Text("Pick something to fill the room", fontSize = 16.sp, lineHeight = 21.sp, fontWeight = FontWeight.SemiBold, color = look.stageText)
-                Text("Search above, or start a song below.", fontSize = 12.sp, lineHeight = 17.sp, color = look.stageMuted, modifier = Modifier.padding(top = 2.dp))
+                Text("Search, or start a song below.", fontSize = 12.sp, lineHeight = 17.sp, color = look.stageMuted, modifier = Modifier.padding(top = 2.dp))
             }
         }
     }

@@ -78,7 +78,6 @@ class ControlInventoryTest {
             onSeek = { rec("onSeek", it) }, onSave = { rec("onSave", it) },
             onTheme = { rec("onTheme", it) },
             onAccent = { rec("onAccent", it.wire) },
-            onLook = { rec("onLook", it.wire) },
             onOpenLocal = { rec("onOpenLocal") }, onChooseMasters = { rec("onChooseMasters") }, onClearMasters = { rec("onClearMasters") },
             onConnectSource = { p, pr, u, t -> rec("onConnectSource", p, pr, u, t) }, onRemoveSource = { rec("onRemoveSource", it) },
             onConnectTidal = { rec("onConnectTidal") }, onDisconnectTidal = { rec("onDisconnectTidal") }, onCancelTidal = { rec("onCancelTidal") },
@@ -104,7 +103,8 @@ class ControlInventoryTest {
             dismissPlaylistImport = { rec("dismissPlaylistImport"); update { it.copy(playlistImport = labs.rtensor.music.imports.PlaylistImportState()) } },
             importPlaylistAccount = { rec("importPlaylistAccount", it) }, importPlaylistLink = { rec("importPlaylistLink", it) },
             choosePlaylistFile = { rec("choosePlaylistFile") }, choosePlaylistFolder = { rec("choosePlaylistFolder") },
-            selectPlaylistImport = { rec("selectPlaylistImport", it.id) }, confirmPlaylistImport = { rec("confirmPlaylistImport") }),
+            selectPlaylistImport = { rec("selectPlaylistImport", it.id) }, confirmPlaylistImport = { rec("confirmPlaylistImport") },
+            download = { rec("download", it) }, removeDownload = { rec("removeDownload", it) }),
         )
     }
 
@@ -220,7 +220,7 @@ class ControlInventoryTest {
         assertTrue("Controls with problems:\n" + bad.joinToString("\n") { "${it.index}. [${it.label}] ${it.verdict} ${it.calls}" }, bad.isEmpty())
     }
 
-    private fun base(theme: String = "light") = MusicState(reducedMotion = true, theme = theme)
+    private fun base(theme: String = "light") = MusicState(look = labs.rtensor.music.data.LookChoice.ROOM, reducedMotion = true, theme = theme)
     private val playing get() = base().copy(current = track, playing = true, positionMs = 72_000, durationMs = 224_000,
         queue = listOf(track, other, third), queueIndex = 0, history = listOf(track, other), playEvents = events, saved = listOf(other))
 
@@ -268,7 +268,7 @@ class ControlInventoryTest {
 
     @Test fun inventorySettingsSourcesEditorOpen() = assertEveryControlWorks(inventory("13-settings-sources-editor",
         base().copy(tidalAccount = AccountState(connected = true), playbackSources = listOf(SourceSummary("s1", "Home server", "Apple Music", "Gateway"))),
-        "settings") { compose.onNodeWithText("Playback sources").performScrollTo().performClick() })
+        "settings") { compose.settingsTab("Sources"); compose.onNodeWithText("Playback sources").performScrollTo().performClick() })
 
     @Test fun inventoryErrorBannerOnHome() = assertEveryControlWorks(inventory("14-error-banner",
         playing.copy(error = "YouTube rejected the audio stream (HTTP 403).", errorDiagnostic = "probe 403"), "home"))
@@ -574,14 +574,18 @@ class ControlInventoryTest {
     @Test fun settingsTogglesThemeEngineAndUpdatesFireWithTheRightValues() {
         host(base().copy(autoplay = true, trackHistory = true, playEvents = events,
             update = UpdateState(release = AppRelease("9.9.9", "u", "c", "a.apk", 1))), "settings")
+        compose.settingsTab("Playback")
         compose.onNodeWithContentDescription("Spotify recommendations").performScrollTo().performClick()
         compose.onNodeWithContentDescription("YouTube Music recommendations").performClick()
         compose.onNodeWithContentDescription("Autoplay radio").performScrollTo().performClick()
         compose.onNodeWithText("Autoplay radio").performClick()
+        compose.settingsTab("Appearance")
         compose.onNodeWithContentDescription("Dark theme").performScrollTo().performClick()
         compose.onNodeWithContentDescription("Device theme").performClick()
         compose.onNodeWithContentDescription("Moss accent colour").performScrollTo().performClick()
+        compose.settingsTab("Privacy")
         compose.onNodeWithContentDescription("Keep listening history").performScrollTo().performClick()
+        compose.settingsTab("About")
         compose.onNodeWithText("Check updates").performScrollTo().performClick()
         compose.onNodeWithText("Download").performScrollTo().performClick()
         compose.onNodeWithContentDescription("Developer options").performScrollTo().performClick()
@@ -593,6 +597,7 @@ class ControlInventoryTest {
 
     @Test fun clearHistoryAsksFirstAndKeepCancels() {
         host(base().copy(playEvents = events, history = listOf(track, other)), "settings")
+        compose.settingsTab("Privacy")
         compose.onNodeWithText("Clear listening history").performScrollTo().performClick()
         compose.onNodeWithText("Keep history").performClick()
         compose.runOnIdle { assertTrue(calls.isEmpty()) }
@@ -626,7 +631,9 @@ class ControlInventoryTest {
     @Test fun providerAccountButtonsInTheSourcesEditor() {
         host(base().copy(tidalAccount = AccountState(connected = true), appleAccount = labs.rtensor.music.apple.AppleAccountState(connected = true),
             spotifyAccount = AccountState(connected = true, name = "S"), playbackSources = listOf(SourceSummary("s1", "Home server", "Apple Music", "Gateway"))), "settings")
+        compose.settingsTab("Playback")
         compose.onNodeWithText("Disconnect Spotify").performScrollTo().performClick()
+        compose.settingsTab("Sources")
         compose.onNodeWithText("Playback sources").performScrollTo().performClick()
         compose.onNodeWithText("Sign in · AAC stereo").performScrollTo().performClick()
         compose.onNodeWithText("Disconnect Apple Music").performScrollTo().performClick()
@@ -668,6 +675,7 @@ class ControlInventoryTest {
     @Test fun openSourcesEditorAndTypedUrlSurviveRecreation() {
         val restore = StateRestorationTester(compose)
         restore.setContent { App(base(), "settings") }
+        compose.settingsTab("Sources")
         compose.onNodeWithText("Playback sources").performScrollTo().performClick()
         compose.onNodeWithText("Add a source").performScrollTo().performClick()
         compose.onNodeWithText("HTTPS server URL").performScrollTo().performTextInput("https://personal.example")

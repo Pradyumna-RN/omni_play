@@ -78,7 +78,7 @@ class ChannelMonitorTest {
     @Test fun stereoShowsOnlyLeftRightAndMeterUpdatesDoNotRecomposeThePlayer() {
         val levels = MutableStateFlow<AudioLevelFrame?>(null)
         val track = Track("fixture:monitor", "Afterimage", "Serein", "content://owned/audio")
-        val state = MusicState(current = track, playing = true, reducedMotion = true, theme = "dark", developerOptions = true,
+        val state = MusicState(look = labs.rtensor.music.data.LookChoice.ROOM, current = track, playing = true, reducedMotion = true, theme = "dark", developerOptions = true,
             audioProcessing = AudioProcessingState(available = true, report = DownmixReport(48000, stereo,
                 processingEnabled = false, comparisonAvailable = false)))
         var roots = 0;var toggles = 0

@@ -156,7 +156,11 @@ data class MusicState(
     val sourceMessage: String? = null,
     val tidalAccount: labs.rtensor.music.data.AccountState = labs.rtensor.music.data.AccountState(),
     val appleAccount: labs.rtensor.music.apple.AppleAccountState = labs.rtensor.music.apple.AppleAccountState(),
-) { val playlistBusy: Boolean get() = playlistLoading || playlistMutating }
+    /** Songs saved on this device (newest first), and progress 0..1 (-1 waiting) of those being fetched. */
+    val downloads: List<labs.rtensor.music.data.DownloadedSong> = emptyList(),
+    val downloading: Map<String, Float> = emptyMap(),
+) { val downloadedKeys: Set<String> get() = downloads.mapTo(HashSet()) { it.track.libraryKey() }
+    val playlistBusy: Boolean get() = playlistLoading || playlistMutating }
 
 @UnstableApi
 class MusicViewModel(application: Application) : AndroidViewModel(application) {
@@ -258,7 +262,19 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private val downloadsHolder = labs.rtensor.music.data.Downloads.get(application)
+    private var reportedDownloadFailures: Set<String> = emptySet()
     init {
+        downloadsHolder.onChange = { mutable.update { it.copy(downloads = downloadsHolder.store.all) } }
+        mutable.update { it.copy(downloads = downloadsHolder.store.all) }
+        viewModelScope.launch {
+            downloadsHolder.manager.progress.collect { progress ->
+                mutable.update { it.copy(downloading = progress.active) }
+                val failed = progress.failed.keys.firstOrNull { it !in reportedDownloadFailures }
+                reportedDownloadFailures = progress.failed.keys
+                if (failed != null) actionMessage("A download failed: ${progress.failed[failed]}")
+            }
+        }
         AudioPipeline.selectProcessing(library.processedAudio)
         viewModelScope.launch {
             AudioPipeline.state.collect { audio -> mutable.update { it.copy(audioProcessing = audio, routeLabel = currentRoute(audio)) } }
@@ -434,6 +450,13 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         mutable.update { it.copy(homeFilter = value) }
         refreshFeed()
     }
+
+    private val lyricsCache = object : LinkedHashMap<String, labs.rtensor.music.data.Lyrics>(16, .75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, labs.rtensor.music.data.Lyrics>) = size > 24
+    }
+    /** Lyrics for the player; kept for the last few songs so reopening is instant. */
+    suspend fun lyrics(track: Track): labs.rtensor.music.data.Lyrics =
+        lyricsCache[track.id] ?: youtube.lyrics(track).also { lyricsCache[track.id] = it }
 
     fun refreshExplore() {
         exploreJob?.cancel()
@@ -960,7 +983,6 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         library.theme = value; mutable.update { it.copy(theme = value) }
     }
     fun accent(value: AccentChoice) { library.accent = value; mutable.update { it.copy(accent = value) } }
-    fun look(value: LookChoice) { library.look = value; mutable.update { it.copy(look = value) } }
     fun reducedMotion(value: Boolean) { library.reducedMotion = value; mutable.update { it.copy(reducedMotion = value) } }
     fun clearError() { mutable.update { it.copy(error = null, errorDiagnostic = "") } }
     fun clearHistory() {
@@ -1011,6 +1033,23 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         play(track)
     }
     fun actionMessage(message: String?) { mutable.update { it.copy(actionMessage = message) } }
+
+    /** Saves YouTube songs on this device; Spotify-only and local songs have nothing to download. */
+    fun download(tracks: List<Track>) {
+        val eligible = tracks.filter { it.source == Source.YOUTUBE && !library.isRemoved(it) }.distinctBy { it.libraryKey() }
+        if (eligible.isEmpty()) { actionMessage("Only YouTube songs can be downloaded."); return }
+        val fresh = eligible.count { !downloadsHolder.store.has(it) }
+        downloadsHolder.manager.enqueue(eligible)
+        actionMessage(when { fresh == 0 -> "Already downloaded."; fresh == 1 -> "Downloading ${eligible.first().title}"; else -> "Downloading $fresh songs" })
+    }
+    fun removeDownload(track: Track) {
+        downloadsHolder.manager.remove(track)
+        actionMessage("Removed download: ${track.title}")
+    }
+    fun clearDownloads() {
+        downloadsHolder.manager.cancelAll(); downloadsHolder.store.clear()
+        mutable.update { it.copy(downloads = emptyList()) }
+    }
 
     private suspend fun syncVideoId(track: Track): String {
         require(track.source != Source.LOCAL) { "Local files can be added to device playlists. YouTube playlists need a YouTube song." }
