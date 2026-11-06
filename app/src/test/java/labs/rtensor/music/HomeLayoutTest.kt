@@ -77,7 +77,7 @@ class HomeLayoutTest {
         // The section after Last played is the mix built from what you play.
         val mix = Track("fixture:mix", "Mix song", "Mix artist", "https://music.youtube.com/watch?v=ccccccccccc")
         val state = mutableStateOf(MusicState(history = listOf(song), forYou = listOf(mix, mix.copy(id = "fixture:fresh", title = "Fresh song")), reducedMotion = true))
-        compose.setContent { MusicApp(state.value) }
+        compose.setContent { MusicApp(state.value, initialPage = "explore") }
         val playTop = top("Play")
         val recentTop = top("Play mix")
         for (track in listOf(song.copy(title = longTitle, artist = longArtist), song, song.copy(artist = longArtist))) {

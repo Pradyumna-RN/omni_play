@@ -43,7 +43,7 @@ class ListeningRoomUiTest {
 
     @Test fun theRoomDrawsTheSpeakersOfWhatYouHear() {
         val state = mutableStateOf(playing(AudioProcessingState(available = true, report = DownmixReport(48000, surround))))
-        compose.setContent { MusicApp(state.value) }
+        compose.setContent { MusicApp(state.value, initialPage = "explore") }
         // 5.1, processed: six speakers, placed as in the channel monitor (left on the left).
         assertEquals(surround.map { it.name }.toSet(), speakers().map { it.first }.toSet())
         val at = speakers().toMap()
@@ -71,7 +71,7 @@ class ListeningRoomUiTest {
     }
 
     @Test fun theRoomShowsTheSongAndOpensThePlayer() {
-        compose.setContent { MusicApp(playing(AudioProcessingState(available = true, report = DownmixReport(48000, surround)))) }
+        compose.setContent { MusicApp(playing(AudioProcessingState(available = true, report = DownmixReport(48000, surround))), initialPage = "explore") }
         compose.onNodeWithText("Pick something to fill the room").assertDoesNotExist()
         compose.onNodeWithContentDescription("Open the player: Afterimage, Serein · processed").assertIsDisplayed().performClick()
         compose.onNodeWithText("Now playing").assertIsDisplayed()
@@ -79,13 +79,13 @@ class ListeningRoomUiTest {
     }
 
     @Test fun anEmptyRoomSaysWhatToDo() {
-        compose.setContent { MusicApp(MusicState(reducedMotion = true, theme = "dark")) }
+        compose.setContent { MusicApp(MusicState(reducedMotion = true, theme = "dark"), initialPage = "explore") }
         compose.onNodeWithText("Pick something to fill the room").assertIsDisplayed()
         compose.onNodeWithContentDescription("Your room, quiet").assertExists()
         compose.onNodeWithContentDescription("Open the player", substring = true).assertDoesNotExist()
         assertEquals(2, speakers().size)
         // The existing Home sections follow the room unchanged.
-        compose.onNodeWithText("Room to listen").assertIsDisplayed()
+        compose.onNodeWithText("Explore").assertIsDisplayed()
         compose.onNodeWithText("Find music").assertExists()
     }
 
@@ -96,7 +96,7 @@ class ListeningRoomUiTest {
         // Without Developer options metering never runs, so the room never asks.
         val plain = mutableStateOf(playing(audio))
         compose.mainClock.autoAdvance = false
-        compose.setContent { MusicApp(plain.value, audioLevels = levels, onMetering = requests::add) }
+        compose.setContent { MusicApp(plain.value, initialPage = "explore", audioLevels = levels, onMetering = requests::add) }
         fun frames() { repeat(20) { compose.mainClock.advanceTimeByFrame(); compose.waitForIdle() } }
         frames()
         assertTrue(requests.isEmpty())
@@ -116,7 +116,7 @@ class ListeningRoomUiTest {
     @Test fun newSongsShowAsATwoColumnGridAndStillPlayAlone() {
         val songs = (1..6).map { FeedEntry("yt:song$it", "Song $it", "Artist $it", "", "song", "", "song0000$it") }
         val played = mutableListOf<Pair<Track, List<Track>>>()
-        compose.setContent { MusicApp(MusicState(feed = listOf(FeedSection("Picks", songs)), reducedMotion = true, theme = "dark"),
+        compose.setContent { MusicApp(MusicState(feed = listOf(FeedSection("Picks", songs)), reducedMotion = true, theme = "dark"), initialPage = "explore",
             onPlay = { t, q -> played += t to q }) }
         compose.onAllNodes(hasScrollToKeyAction()).onFirst().performScrollToKey("unheard")
         compose.onNodeWithText("New to your ears").assertIsDisplayed()

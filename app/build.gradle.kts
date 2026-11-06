@@ -21,8 +21,8 @@ android {
         applicationId = "labs.rtensor.music"
         minSdk = 30
         targetSdk = 35
-        versionCode = 42
-        versionName = "0.3.39"
+        versionCode = 43
+        versionName = "0.3.40"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("boolean", "APPLE_NATIVE_INCLUDED", providers.gradleProperty("rtensorAppleJniDir").isPresent.toString())
         buildConfigField("boolean", "APPLE_RUNTIME_INCLUDED", providers.gradleProperty("rtensorAppleRuntimeAssetsDir").isPresent.toString())
@@ -60,6 +60,8 @@ android {
     testOptions {
         unitTests.isIncludeAndroidResources = true
         unitTests.all { test ->
+            // Resource-backed Compose tests and the bundled-runtime fixture share this JVM.
+            test.maxHeapSize = "1g"
             test.systemProperty("robolectric.dependency.repo.url", "https://repo.maven.apache.org/maven2")
             // Android accepts Origin; JDK HttpURLConnection silently removes it by default.
             // Let the loopback Media3 regression test observe the actual Android headers.

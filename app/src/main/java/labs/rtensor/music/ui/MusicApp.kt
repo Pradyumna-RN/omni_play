@@ -120,6 +120,8 @@ import coil.imageLoader
 import coil.request.ImageRequest
 import kotlinx.coroutines.launch
 import labs.rtensor.dsp.ListeningMode
+import labs.rtensor.music.ExploreShelves
+import labs.rtensor.music.exploreShelves
 import labs.rtensor.music.MusicState
 import labs.rtensor.music.R
 import labs.rtensor.music.data.AccentChoice
@@ -375,6 +377,7 @@ fun MusicApp(
     var expandedSectionTitle by rememberSaveable { mutableStateOf<String?>(null) }
     var expandedFromExplore by rememberSaveable { mutableStateOf(false) }
     var expandedFromCollection by rememberSaveable { mutableStateOf(false) }
+    var expandedExploreTab by rememberSaveable { mutableStateOf("discover") }
     var exploreTab by rememberSaveable(state.recommendationEngine) { mutableStateOf("for-you") }
     var back by rememberSaveable { mutableStateOf("home") }
     var root by rememberSaveable { mutableStateOf(startPage.takeIf { it in rootPages } ?: "home") }
@@ -382,12 +385,13 @@ fun MusicApp(
     val collectionStates = rememberSaveableStateHolder()
     // Opening the player must not repartition the shelves when the selected song enters history.
     val homeRecommendations = remember(state.feed, state.forYou, state.trackHistory) { homeRecommendationGroups(state) }
+    val exploreContent = remember(state.explore, state.feed, state.feedContinuations) { exploreShelves(state.explore, state.feed + state.feedContinuations) }
     val homeScroll = rememberLazyListState()
     val exploreScroll = rememberLazyListState()
-    val exploreRecommendationsScroll = rememberLazyListState()
+    val explorePersonalScroll = rememberLazyListState()
     val exploreBrowseScroll = rememberLazyListState()
     val providerScroll = rememberLazyListState()
-    val sectionScroll = key(expandedSectionTitle, expandedFromExplore, expandedFromCollection) { rememberLazyListState() }
+    val sectionScroll = key(expandedSectionTitle, expandedFromExplore, expandedFromCollection, expandedExploreTab) { rememberLazyListState() }
     val searchFocus = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
     val reduced = state.reducedMotion
@@ -443,6 +447,7 @@ fun MusicApp(
             if (page != "feed-section") {
                 expandedFromExplore = page == "explore" && exploreTab != "for-you"
                 expandedFromCollection = page == "collection"
+                if (expandedFromExplore) expandedExploreTab = exploreTab
             }
             expandedSectionTitle = section?.title
             page = if (section == null) "provider-feed" else "feed-section"
@@ -514,15 +519,19 @@ fun MusicApp(
                         RetainedBrowserScreen(browserStates, target) {
                         when (target) {
                             "search" -> if (!state.searched) SearchSuggestionList(state, onSuggestion, { play(it, listOf(it)) }) else SearchResults(state, ::play, onSave)
-                            "explore" -> ExploreScreen(state, exploreTab, { exploreTab = it }, ::openEntry,
-                                onRefreshFeed, onMoreFeed, onRefreshExplore, exploreRecommendationsScroll, exploreScroll, exploreBrowseScroll,
-                                active = page == "explore" && !showResults)
+                            "explore" -> ExploreScreen(state, exploreContent, exploreTab, { exploreTab = it }, ::openEntry,
+                                onRefreshFeed, onRefreshExplore, exploreScroll, exploreBrowseScroll,
+                                active = page == "explore" && !showResults) {
+                                PersonalScreen(state, ::focusSearch, ::play, onToggle, ::openEntry, { onRefreshFeed(); onRefreshForYou() }, onMoreFeed, onConnect,
+                                    onOpenPlayer = { navigate("now") }, audioLevels = audioLevels, metering = metering, listState = explorePersonalScroll,
+                                    active = page == "explore" && exploreTab == "for-you" && !showResults, recommendations = homeRecommendations)
+                            }
                             "library" -> LibraryScreen(state, ::play, onSave, ::focusSearch, onRemovePlay)
                             "now" -> NowScreen(state, onToggle, onPrevious, onNext, onSeek, onSave, onSkipTo, onProcessing, playbackPosition, onRetryRadio, audioLevels, metering)
                             "provider-feed", "feed-section" -> {
                                 val exploreSection = target == "feed-section" && expandedFromExplore
                                 val sections = when { expandedFromCollection && target == "feed-section" -> state.collectionSections
-                                    exploreSection -> state.explore
+                                    exploreSection -> if (expandedExploreTab == "browse") exploreContent.browse else exploreContent.discover
                                     else -> state.feed + state.feedContinuations }
                                 ProviderHome(state.copy(feed = if (target == "provider-feed") sections else sections.filter { it.title == expandedSectionTitle },
                                     feedBusy = when { expandedFromCollection && target == "feed-section" -> state.collectionBusy; exploreSection -> state.exploreBusy; else -> state.feedBusy },
@@ -547,8 +556,8 @@ fun MusicApp(
                                 onAutoplay, onTrackHistory, onConnectSource, onRemoveSource, onConnectTidal, onDisconnectTidal, onCancelTidal,
                                 onConnectApple, onNativeApple, onDisconnectApple, onCancelApple, onDeveloperOptions,
                                 onRecommendationEngine, onConnectSpotify, onDisconnectSpotify)
-                            else -> HomeScreen(state, ::focusSearch, ::play, onToggle, ::openEntry, { onRefreshFeed(); onRefreshForYou() }, onMoreFeed, onConnect,
-                                onOpenPlayer = { navigate("now") }, audioLevels = audioLevels, metering = metering, listState = homeScroll, active = page == "home" && !showResults, recommendations = homeRecommendations)
+                            else -> ProviderHome(state.copy(feed = state.feed + state.feedContinuations), ::openEntry,
+                                onRefreshFeed, onMoreFeed, listState = homeScroll, active = page == "home" && !showResults)
                         }
                         }
                     }
@@ -775,7 +784,7 @@ internal class MeteringClaims {
 }
 
 @Composable
-private fun HomeScreen(state: MusicState, onSearch: () -> Unit, onPlay: (Track, List<Track>) -> Unit, onToggle: () -> Unit,
+private fun PersonalScreen(state: MusicState, onSearch: () -> Unit, onPlay: (Track, List<Track>) -> Unit, onToggle: () -> Unit,
     onEntry: (FeedEntry) -> Unit, onRefresh: () -> Unit, onMore: () -> Unit, onConnect: () -> Unit,
     onOpenPlayer: () -> Unit = {}, audioLevels: StateFlow<labs.rtensor.dsp.AudioLevelFrame?>? = null, metering: MeteringClaims? = null, listState: LazyListState = rememberLazyListState(), active: Boolean = true,
     recommendations: HomeRecommendationGroups = homeRecommendationGroups(state)) {
@@ -811,9 +820,6 @@ private fun HomeScreen(state: MusicState, onSearch: () -> Unit, onPlay: (Track, 
         }
         item(key = "title") {
             Column(Modifier.padding(bottom = 4.dp)) {
-                PageTitle(if (recent != null) "Back to your music" else if (hasFeed) "For your ears" else "Room to listen")
-                Text("${state.recommendationEngine.label} recommendations", fontSize = 12.sp, maxLines = 1,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = if (look.classic) 6.dp else 0.dp))
                 Spacer(Modifier.height(8.dp))
                 LoadingLine(state.feedBusy && !state.feedAppending, state.reducedMotion)
             }
@@ -1254,21 +1260,14 @@ private fun ScrollingMetadata(text: String, style: TextStyle, modifier: Modifier
         overflow = if (reduced) TextOverflow.Ellipsis else TextOverflow.Clip)
 }
 
-/** The recommendation feed moves here; the provider's separate discovery/category data stays separate. */
+/** Personal listening, discovery and provider collections keep independent browsing state. */
 @Composable
-private fun ExploreScreen(state: MusicState, tab: String, onTab: (String) -> Unit, onEntry: (FeedEntry) -> Unit,
-    onRefreshFeed: () -> Unit, onMoreFeed: () -> Unit, onRefreshExplore: () -> Unit,
-    recommendationsScroll: LazyListState, discoverScroll: LazyListState, browseScroll: LazyListState, active: Boolean) {
+private fun ExploreScreen(state: MusicState, content: ExploreShelves, tab: String, onTab: (String) -> Unit, onEntry: (FeedEntry) -> Unit,
+    onRefreshFeed: () -> Unit, onRefreshExplore: () -> Unit,
+    discoverScroll: LazyListState, browseScroll: LazyListState, active: Boolean, personal: @Composable () -> Unit) {
     val tabs = listOf("for-you" to "For you", "discover" to "Discover", "browse" to "Browse")
     val position = tabs.indexOfFirst { it.first == tab }.coerceAtLeast(0)
     val pages = rememberSaveableStateHolder()
-    val browse = remember(state.explore, state.recommendationEngine) {
-        val navigation = state.explore.map { section -> section.copy(items = section.items.filter { it.kind == "browse" }) }.filter { it.items.isNotEmpty() }
-        if (navigation.isNotEmpty()) navigation else state.explore.map { section -> section.copy(items = section.items.filter {
-            it.kind in setOf("album", "playlist", "artist", "library_artist", "spotify_album", "spotify_playlist", "spotify_artist")
-        }) }.filter { it.items.isNotEmpty() }
-    }
-    val discover = remember(state.explore) { state.explore.map { section -> section.copy(items = section.items.filter { it.kind != "browse" }) }.filter { it.items.isNotEmpty() } }
     Column(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 10.dp)) {
             PageTitle("Explore")
@@ -1278,13 +1277,18 @@ private fun ExploreScreen(state: MusicState, tab: String, onTab: (String) -> Uni
         }
         Box(Modifier.weight(1f)) {
             pages.SaveableStateProvider(tab) {
-                if (tab == "for-you") ProviderHome(state.copy(feed = state.feed + state.feedContinuations), onEntry,
-                    onRefreshFeed, onMoreFeed, listState = recommendationsScroll, active = active, showTitle = false)
-                else ProviderHome(state.copy(feed = if (tab == "browse") browse else discover,
-                    feedBusy = state.exploreBusy, feedAppending = false, feedError = state.exploreError,
-                    feedHasMore = false, feedEnded = false, homeFilters = emptyList(), homeFilter = null), onEntry,
-                    onRefreshExplore, {}, listState = if (tab == "browse") browseScroll else discoverScroll,
-                    active = active, showTitle = false)
+                if (tab == "for-you") personal()
+                else {
+                    val sections = if (tab == "browse") content.browse else content.discover
+                    val sourceEmpty = state.feed.isEmpty() && state.feedContinuations.isEmpty()
+                    ProviderHome(state.copy(feed = sections,
+                        feedBusy = state.exploreBusy || sections.isEmpty() && state.feedBusy, feedAppending = false,
+                        feedError = state.exploreError ?: state.feedError.takeIf { sections.isEmpty() },
+                        feedHasMore = false, feedEnded = false, homeFilters = emptyList(), homeFilter = null), onEntry,
+                        { onRefreshExplore(); if (sourceEmpty) onRefreshFeed() }, {},
+                        listState = if (tab == "browse") browseScroll else discoverScroll,
+                        active = active, showTitle = false)
+                }
             }
         }
     }

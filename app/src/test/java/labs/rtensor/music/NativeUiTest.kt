@@ -45,7 +45,7 @@ class NativeUiTest {
 
     @Test fun homeAndNavigation() {
         compose.setContent { MusicApp(MusicState(theme = "light", reducedMotion = true)) }
-        compose.onNodeWithText("Room to listen").assertIsDisplayed()
+        compose.onNodeWithText("For your ears").assertIsDisplayed()
         compose.onNodeWithText("Already yours").assertDoesNotExist()
         capture("home")
         compose.onNodeWithContentDescription("Search music").assertIsDisplayed()
@@ -183,7 +183,7 @@ class NativeUiTest {
     @Test fun googleSelectionWithoutYoutubePromptsToFinishSyncOnHome() {
         var connected = false
         val profile = labs.rtensor.music.auth.GoogleProfile("fixture-subject", "listener@example.test", "Fixture listener")
-        compose.setContent { MusicApp(MusicState(googleProfile = profile, reducedMotion = true, theme = "light"), onConnect = { connected = true }) }
+        compose.setContent { MusicApp(MusicState(googleProfile = profile, reducedMotion = true, theme = "light"), initialPage = "explore", onConnect = { connected = true }) }
         compose.onNodeWithText("Finish syncing YouTube Music").assertIsDisplayed()
         compose.onNodeWithText("Connect").performClick()
         org.junit.Assert.assertTrue(connected)

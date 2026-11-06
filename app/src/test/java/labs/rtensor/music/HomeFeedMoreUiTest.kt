@@ -28,7 +28,7 @@ class HomeFeedMoreUiTest {
         val feed = PagedFeed(listOf(firstPage, (0..2).map { song("p2-$it") }))
         val state = mutableStateOf(start(feed).copy(reducedMotion = true))
         var requests = 0
-        compose.setContent { MusicApp(state.value, initialPage = "explore", onMoreFeed = { requests++; state.value = tap(state.value, feed) }) }
+        compose.setContent { MusicApp(state.value, initialPage = "home", onMoreFeed = { requests++; state.value = tap(state.value, feed) }) }
         home().performScrollToKey("feed-tail")
         compose.waitUntil(5_000) { requests == 1 }
         compose.runOnIdle { assertEquals(firstPage, state.value.feed.single().items) }
@@ -46,7 +46,7 @@ class HomeFeedMoreUiTest {
         val repeat = listOf(song("f0"), song("p1-4"))
         val feed = PagedFeed(listOf(firstPage, repeat, repeat, repeat, listOf(song("p5-0"))))
         val state = mutableStateOf(start(feed).copy(reducedMotion = true))
-        compose.setContent { MusicApp(state.value, initialPage = "explore", onMoreFeed = { state.value = tap(state.value, feed) }) }
+        compose.setContent { MusicApp(state.value, initialPage = "home", onMoreFeed = { state.value = tap(state.value, feed) }) }
         home().performScrollToKey("feed-tail")
         compose.waitUntil(5_000) { !state.value.feedHasMore }
         compose.runOnIdle {

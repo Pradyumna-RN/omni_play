@@ -48,7 +48,7 @@ class SignalReviewUiTest {
         val state=MusicState(history=listOf(current),forYou=listOf(next),feed=listOf(FeedSection("Genres",listOf(album))),
             explore=listOf(FeedSection("Collections",listOf(album))),reducedMotion=true)
         var selected:Track?=null;var queued=emptyList<Track>()
-        compose.setContent{MusicApp(state,onPlay={t,q->selected=t;queued=q})}
+        compose.setContent{MusicApp(state, initialPage = "explore",onPlay={t,q->selected=t;queued=q})}
         compose.onNodeWithText("Genre playlist").assertDoesNotExist()
         compose.onNodeWithText("New to your ears").performScrollTo().assertIsDisplayed();capture("home")
         compose.onNodeWithText(next.title).performScrollTo().performClick()
@@ -59,7 +59,7 @@ class SignalReviewUiTest {
         compose.onNodeWithText("Genre playlist").assertExists()
     }
     @Test fun disabledHistoryUsesDiscoveryWordingWithoutInventingUnheardClaims() {
-        compose.setContent{MusicApp(MusicState(forYou=listOf(next),trackHistory=false,reducedMotion=true))}
+        compose.setContent{MusicApp(MusicState(forYou=listOf(next),trackHistory=false,reducedMotion=true), initialPage = "explore")}
         compose.onNodeWithText("Discover more").performScrollTo().assertExists()
         compose.onNodeWithText("0 PLAYS HERE").assertDoesNotExist()
         compose.onNodeWithText("New to your ears").assertDoesNotExist()

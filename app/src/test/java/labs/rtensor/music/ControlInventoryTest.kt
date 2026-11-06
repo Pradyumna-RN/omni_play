@@ -472,16 +472,19 @@ class ControlInventoryTest {
     }
 
     @Test fun homeFindMusicFocusesTheSearchField() {
-        host(base())
-        compose.onNodeWithText("Find music").performClick()
+        host(base(), "explore")
+        compose.onAllNodes(hasScrollToKeyAction()).onFirst().performScrollToKey("hero")
+        compose.onNodeWithText("Find music").performScrollTo().performClick()
         compose.onNodeWithContentDescription("Search music").assertIsFocused()
     }
 
     @Test fun homeHeroAndRecommendationControls() {
-        host(playing.copy(current = other, queue = listOf(other), queueIndex = 0, forYou = listOf(third, other), feedHasMore = true, feedError = "Feed unavailable"))
+        host(playing.copy(current = other, queue = listOf(other), queueIndex = 0, forYou = listOf(third, other), feedHasMore = true, feedError = "Feed unavailable"), "explore")
+        calls.clear()
         compose.onNodeWithText("Retry").performClick()
         compose.runOnIdle { assertEquals(listOf("onRefreshFeed()", "onRefreshForYou()"), calls) }
         calls.clear()
+        compose.onAllNodes(hasScrollToKeyAction()).onFirst().performScrollToKey("for-you")
         compose.onNodeWithText("Play mix").performScrollTo().performClick()
         compose.runOnIdle { assertEquals(listOf("onPlay(${third.id}, [${third.id},${other.id}])"), calls) }
         assertEquals("now", screen())

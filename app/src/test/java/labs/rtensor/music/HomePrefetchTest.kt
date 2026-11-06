@@ -39,7 +39,7 @@ class HomePrefetchTest {
         Coil.setImageLoader(ImageLoader.Builder(context).okHttpClient(client).build())
         val playlist = FeedEntry("VLmix", "A genre playlist", "", "https://example.test/collection.jpg", "playlist", "VLmix", "")
         val songs = (1..4).map { FeedEntry("yt:s$it", "Song $it", "Artist", "https://example.test/song$it.jpg", "song", "", "song0000000$it") }
-        compose.setContent { labs.rtensor.music.ui.MusicApp(MusicState(feed = listOf(FeedSection("Picks", listOf(playlist) + songs)), reducedMotion = true)) }
+        compose.setContent { labs.rtensor.music.ui.MusicApp(MusicState(feed = listOf(FeedSection("Picks", listOf(playlist) + songs)), reducedMotion = true), initialPage = "explore") }
         repeat(40) { Thread.sleep(20); compose.mainClock.advanceTimeBy(32); compose.waitForIdle() }
         assertTrue("the shown songs' covers are fetched: $requested", requested.any { it.contains("song") })
         assertFalse("the collection's cover is not: $requested", requested.any { it.contains("collection") })

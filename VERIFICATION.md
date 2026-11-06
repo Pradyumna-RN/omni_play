@@ -1,3 +1,25 @@
+# Music 0.3.40 / Home feed and populated Explore tabs
+
+- Home and Explore For you exchange their contents: Home holds the full provider
+  feed, filters and automatic continuation. Explore For you holds personal
+  listening, last played, the room view, recent songs and mixes.
+- Discover and Browse use actual loaded provider shelves alongside the separate
+  Explore response. An empty or failed response no longer hides content already
+  available on Home. Browse retains albums/playlists alongside category links;
+  providers with only songs show those actual shelves. Empty sources produce no
+  invented categories or music. Provider order and first occurrences are retained
+  within each group, including distinct navigation parameters.
+- Expanded Discover/Browse shelves use the same combined content as their parent
+  tab. Playback return, separate scroll positions and Home-only automatic paging
+  are covered by Compose regressions. Screenshots are rendered on the host.
+
+Resource-backed host tests use a 1 GB JVM heap. The large runtime fixture is
+also checked in a fresh worker; this does not change Android app heap settings.
+No subscriber account or physical phone was used. Exact checks and publication
+verification are in the release's decoder-validation.json.
+
+## Previous release baseline
+
 # Music 0.3.39 / Explore tabs and focused Home
 
 - The full provider recommendation shelves and continuous loading move from

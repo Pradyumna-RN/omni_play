@@ -56,14 +56,14 @@ class ClassicLookUiTest {
 
     @Test fun classicHomeAndTabsUseFullStopHeadlinesAndNoRoom() {
         compose.setContent { MusicApp(classic()) }
-        compose.onNodeWithText("Room to listen.").assertIsDisplayed()
-        compose.onNodeWithText("START WITH A SONG").assertIsDisplayed()
-        compose.onNodeWithText("Find your\nnext repeat.").assertExists()
+        compose.onNodeWithText("For your ears.").assertIsDisplayed()
         compose.onNodeWithText("Pick something to fill the room").assertDoesNotExist()
         compose.onNodeWithContentDescription("Your room", substring = true).assertDoesNotExist()
         compose.onNodeWithContentDescription("Home").assertIsSelected()
         compose.onNodeWithContentDescription("Explore").performClick()
         compose.onNodeWithText("Explore.").assertIsDisplayed()
+        compose.onNodeWithText("START WITH A SONG").assertIsDisplayed()
+        compose.onNodeWithText("Find your\nnext repeat.").assertExists()
         compose.onNodeWithContentDescription("Library").performClick()
         compose.onNodeWithText("Library.").assertIsDisplayed()
         compose.onNodeWithContentDescription("Open settings").performClick()
@@ -75,10 +75,10 @@ class ClassicLookUiTest {
         val played = mutableListOf<Pair<Track, List<Track>>>()
         val feed = listOf(FeedSection("Picks", listOf(song("ccccccccccc"), song("ddddddddddd"))))
         compose.setContent {
-            MusicApp(classic().copy(history = listOf(track, other), feed = feed, feedError = "Feed unavailable"),
+            MusicApp(classic().copy(history = listOf(track, other), feed = feed, feedError = "Feed unavailable"), initialPage = "explore",
                 onRefreshFeed = { refreshed++ }, onPlay = { t, q -> played += t to q })
         }
-        compose.onNodeWithText("Back to your music.").assertIsDisplayed()
+        compose.onNodeWithText("Explore.").assertIsDisplayed()
         compose.onNodeWithText("LAST PLAYED").assertIsDisplayed()
         compose.onNodeWithText("RETRY").performClick()
         compose.runOnIdle { assertEquals(1, refreshed) }

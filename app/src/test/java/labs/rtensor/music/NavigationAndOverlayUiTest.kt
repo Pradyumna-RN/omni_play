@@ -179,7 +179,7 @@ class NavigationAndOverlayUiTest {
     }
 
     @Test fun homeHeroDoesNotOfferATapThatDoesNothingWhileFindingAudio() {
-        compose.setContent { MusicApp(MusicState(history = listOf(track), current = track, queue = listOf(track), queueIndex = 0, resolving = true, reducedMotion = true)) }
+        compose.setContent { MusicApp(MusicState(history = listOf(track), current = track, queue = listOf(track), queueIndex = 0, resolving = true, reducedMotion = true), initialPage = "explore") }
         compose.onNode(hasClickAction() and hasText("Loading")).assertIsNotEnabled()
     }
 

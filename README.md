@@ -51,19 +51,20 @@ those features improve.
 
 ## Quick guide
 
-1. **Install or update.** Get the [current preview release](https://github.com/RTensorLabs/music-app/releases/tag/v0.3.39).
+1. **Install or update.** Get the [current preview release](https://github.com/RTensorLabs/music-app/releases/tag/v0.3.40).
    Existing installations can use **Settings → About → Check updates**.
 2. **Choose recommendations.** Open **Settings → Playback → Recommendation source**.
    YouTube Music is the default. Selecting Spotify starts its sign-in; the choice
    is saved after verification. See the [Spotify guide](SPOTIFY_RECOMMENDATIONS.md).
-3. **Search or browse.** Home keeps recent listening and personal highlights.
-   **Explore → For you** contains the full recommendation feed and YouTube mood
-   filters; keep scrolling to load the next available page. **Discover** contains
-   the provider's discovery shelves, and **Browse** contains its category links
-   or available collections. New pages append below existing content. Each tab
-   keeps its own position, including after opening and leaving the player.
-   Categories such as Charts and Moods & genres open inside Music. Search uses
-   YouTube and offers suggestions as you type.
+3. **Search or browse.** Home contains the full provider recommendation feed
+   and YouTube mood filters. Keep scrolling to load the next available page.
+   **Explore → For you** holds last played, recent listening and personal highlights.
+   **Discover** shows provider discovery shelves; **Browse** combines category links
+   with albums, playlists and artists. Both can use genuine already-loaded Home
+   shelves when the separate Explore request is empty or fails. Song-only feeds
+   remain browsable. No categories or music are invented to fill a tab.
+   Each page keeps its position when opening and leaving the player.
+   Search uses YouTube and offers suggestions as you type.
 4. **Add your files or playback sources.** Use **Settings → Sources → Import audio**
    for a file or folder. **Playback sources** contains provider and personal-server
    connections. Supported files can be stereo, lossless or multichannel.
@@ -117,9 +118,8 @@ See [verification and current limits](VERIFICATION.md).
 
 **Listening room** is the default look, with cover colours and a room panel.
 **Soft** has rounded artwork, a centred transport row and Like beside the song
-information; **Classic** retains the Signal design. Home separates the last song,
-recommendations shaped by listening and new-to-history songs. Explore holds the
-full provider feed, discovery shelves and category navigation in separate tabs. Android Auto shares the
+information; **Classic** retains the Signal design. Home holds the full provider
+feed. Explore separates personal listening, discovery shelves and browsing. Android Auto shares the
 phone's playback engine, library and provider routing. See
 [verification and current limits](VERIFICATION.md).
 
@@ -321,11 +321,12 @@ code. The Android installer asks the user to confirm installation.
 
 ## Current release
 
-[Music 0.3.39](https://github.com/RTensorLabs/music-app/releases/tag/v0.3.39)
-moves the full recommendation feed to Explore's For you tab, alongside Discover
-and Browse. Home keeps personal listening highlights. Each tab retains its own
-scroll position, including when returning from the player; For you loads more
-as you scroll. All three existing appearance choices remain available.
+[Music 0.3.40](https://github.com/RTensorLabs/music-app/releases/tag/v0.3.40)
+puts the full recommendation feed and continuous loading on Home. Explore's For you
+keeps personal listening highlights. Discover and Browse retain actual provider
+content even when the separate Explore response is empty or fails; category links
+no longer hide available albums and playlists. All three looks and independent
+scroll positions remain available.
 
 Automated app checks cover the player, navigation, account recovery, car browsing
 and queue selection. Existing DSP and browser results remain baseline evidence;

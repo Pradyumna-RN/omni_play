@@ -48,15 +48,15 @@ class SoftLookUiTest {
 
     @Test fun softHomeHasTheOriginalHeroAndKeepsTodaysBehaviour() {
         val played = mutableListOf<Pair<Track, List<Track>>>(); var searched = false
-        compose.setContent { MusicApp(soft(), onSearch = { searched = true }, onPlay = { t, q -> played += t to q }) }
-        compose.onNodeWithText("Room to listen").assertIsDisplayed()
+        compose.setContent { MusicApp(soft(), initialPage = "explore", onSearch = { searched = true }, onPlay = { t, q -> played += t to q }) }
+        compose.onNodeWithText("Explore").assertIsDisplayed()
         compose.onNodeWithText("START WITH A SONG").assertIsDisplayed()
         compose.onNodeWithText("Find your\nnext repeat.").assertIsDisplayed()
         compose.onNodeWithText("Pick something to fill the room").assertDoesNotExist()
         compose.onNodeWithText("Find music").performClick()
         // The dock keeps its tab roles and selection.
-        compose.onNodeWithContentDescription("Home").assertIsSelected()
-        compose.onNodeWithContentDescription("Explore").assertIsNotSelected()
+        compose.onNodeWithContentDescription("Home").assertIsNotSelected()
+        compose.onNodeWithContentDescription("Explore").assertIsSelected()
     }
 
     @Test fun softPlayerShowsTheCoverWashAndTheSameControls() {

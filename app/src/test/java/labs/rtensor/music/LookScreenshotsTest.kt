@@ -140,7 +140,7 @@ class LookScreenshotsTest {
         val flow = MutableStateFlow<AudioLevelFrame?>(frame())
         compose.mainClock.autoAdvance = false
         val state = mutableStateOf(fixture(LookChoice.ROOM, "dark").copy(developerOptions = true, reducedMotion = false))
-        compose.setContent { MusicApp(state.value, audioLevels = flow) }
+        compose.setContent { MusicApp(state.value, initialPage = "explore", audioLevels = flow) }
         fun shot(name: String) {
             repeat(10) { flow.value = frame(); Thread.sleep(10); compose.mainClock.advanceTimeByFrame(); compose.waitForIdle() }
             compose.runOnIdle {

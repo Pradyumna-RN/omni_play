@@ -27,8 +27,8 @@ class HomePlaybackTest {
         val state = mutableStateOf(MusicState(history = listOf(one, two), current = alias, playing = true,
             positionMs = 42000, queue = listOf(alias, two), queueIndex = 0, reducedMotion = true))
         var toggles = 0; var starts = 0
-        compose.setContent { MusicApp(state.value, onToggle = { toggles++; state.value = state.value.copy(playing = !state.value.playing) }, onPlay = { _, _ -> starts++ }) }
-        compose.onNodeWithText("Pause").performClick()
+        compose.setContent { MusicApp(state.value, initialPage = "explore", onToggle = { toggles++; state.value = state.value.copy(playing = !state.value.playing) }, onPlay = { _, _ -> starts++ }) }
+        compose.onNodeWithText("Pause").performScrollTo().performClick()
         compose.onNodeWithText("Play").assertIsDisplayed().performClick()
         compose.onNodeWithText("Pause").assertIsDisplayed()
         compose.runOnIdle {
@@ -44,14 +44,14 @@ class HomePlaybackTest {
     @Test fun lastPlayedStartsOnlyThatSongWhenAnotherSongIsPlaying() {
         val state = MusicState(history = listOf(one, two), current = two, playing = true, queue = listOf(two), queueIndex = 0, reducedMotion = true)
         var selected: Track? = null; var queue = emptyList<Track>(); var toggles = 0
-        compose.setContent { MusicApp(state, onPlay = { t, q -> selected = t; queue = q }, onToggle = { toggles++ }) }
-        compose.onNodeWithText("Play").performClick()
+        compose.setContent { MusicApp(state, initialPage = "explore", onPlay = { t, q -> selected = t; queue = q }, onToggle = { toggles++ }) }
+        compose.onNodeWithText("Play").performScrollTo().performClick()
         compose.runOnIdle { assertEquals(one, selected); assertEquals(listOf(one), queue); assertEquals(0, toggles) }
     }
 
     @Test fun recentlyPlayedSelectionDoesNotPassHistoryAsTheQueue() {
         var queue = emptyList<Track>()
-        compose.setContent { MusicApp(MusicState(history = listOf(one, two), reducedMotion = true), onPlay = { _, q -> queue = q }) }
+        compose.setContent { MusicApp(MusicState(history = listOf(one, two), reducedMotion = true), initialPage = "explore", onPlay = { _, q -> queue = q }) }
         compose.onNodeWithText(two.title).performScrollTo().performClick()
         compose.runOnIdle { assertEquals(listOf(two), queue) }
     }
@@ -59,7 +59,7 @@ class HomePlaybackTest {
     @Test fun mixedSongSelectionSeedsRadioAndPlayMixKeepsTheExplicitMix() {
         val state = mutableStateOf(MusicState(forYou = listOf(one, two), reducedMotion = true))
         val queues = mutableListOf<List<Track>>()
-        compose.setContent { MusicApp(state.value, onPlay = { t, q -> queues += q; state.value = state.value.copy(current = t, queue = q, queueIndex = 0) }) }
+        compose.setContent { MusicApp(state.value, initialPage = "explore", onPlay = { t, q -> queues += q; state.value = state.value.copy(current = t, queue = q, queueIndex = 0) }) }
         // Home's shelves are lazy items: bring each one into view before using it.
         compose.onAllNodes(hasScrollToKeyAction()).onFirst().performScrollToKey("unheard")
         compose.onNodeWithText(two.title).performScrollTo().performClick()

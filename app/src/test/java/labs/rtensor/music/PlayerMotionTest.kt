@@ -206,7 +206,7 @@ class PlayerMotionTest {
         frame(500); cover().assertIsDisplayed()
         compose.onNodeWithContentDescription("Back").performClick()
         frame(500); capture("mini-player-returned")
-        compose.onNodeWithText("Room to listen").assertIsDisplayed()
+        compose.onNodeWithText("For your ears").assertIsDisplayed()
         compose.onNodeWithText(one.title).assertIsDisplayed()
     }
 
@@ -230,7 +230,7 @@ class PlayerMotionTest {
         compose.setContent { MusicApp(state.value, onRefreshFeed = { home++; state.value = state.value.copy(feedBusy = true) }, onRefreshExplore = { explore++; state.value = state.value.copy(exploreBusy = true) }) }
         frame()
         fun pull(title: String) {
-            compose.onNode(hasScrollAction() and hasAnyDescendant(hasText(title))).performTouchInput { swipeDown(durationMillis = 600) }
+            compose.onNode(SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange)).performTouchInput { swipeDown(durationMillis = 600) }
             frame(600)
         }
         pull("For your ears"); assertEquals(1, home)

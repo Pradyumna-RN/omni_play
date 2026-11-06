@@ -55,7 +55,7 @@ class HomeShelvesUiTest {
 
     @Test fun eachShelfRendersWithAHeadingInEveryLook() {
         val state = mutableStateOf(fixture())
-        compose.setContent { MusicApp(state.value) }
+        compose.setContent { MusicApp(state.value, initialPage = "explore") }
         for (look in LookChoice.values()) {
             compose.runOnIdle { state.value = fixture(look) }
             for ((key, title) in listOf("for-you" to "Next up for you", "again" to "Play it again", "mixes" to "Your mixes")) {
@@ -72,7 +72,7 @@ class HomeShelvesUiTest {
     }
 
     @Test fun nextUpIsAPagedGridOfFourRowsThatSnapsAndScrollsForTalkBack() {
-        compose.setContent { MusicApp(fixture(LookChoice.CLASSIC, "light")) }
+        compose.setContent { MusicApp(fixture(LookChoice.CLASSIC, "light"), initialPage = "explore") }
         home().performScrollToKey("for-you")
         val grid = compose.onNodeWithTag("shelf:next-up")
         grid.assert(SemanticsMatcher.keyIsDefined(SemanticsActions.ScrollBy))
@@ -97,7 +97,7 @@ class HomeShelvesUiTest {
 
     @Test fun tappingASongPlaysThatSongAloneAndMixesPlayTheirQueue() {
         val played = mutableListOf<Pair<Track, List<Track>>>()
-        compose.setContent { MusicApp(fixture(), onPlay = { t, q -> played += t to q }) }
+        compose.setContent { MusicApp(fixture(), initialPage = "explore", onPlay = { t, q -> played += t to q }) }
         home().performScrollToKey("for-you")
         compose.onNodeWithText("Pick 2").assertHasClickAction().performClick()
         compose.runOnIdle { assertEquals(picks[1] to listOf(picks[1]), played.last()) }
@@ -121,7 +121,7 @@ class HomeShelvesUiTest {
     }
 
     @Test fun rowsAndTilesDescribeThemselvesAndAreAtLeast48dp() {
-        compose.setContent { MusicApp(fixture()) }
+        compose.setContent { MusicApp(fixture(), initialPage = "explore") }
         home().performScrollToKey("for-you")
         val row = compose.onNodeWithContentDescription("Pick 1 by Artist 1")
         row.assertHasClickAction()
@@ -134,7 +134,7 @@ class HomeShelvesUiTest {
 
     @Test fun playItAgainIsHiddenWhenHistoryIsOff() {
         val state = mutableStateOf(fixture())
-        compose.setContent { MusicApp(state.value) }
+        compose.setContent { MusicApp(state.value, initialPage = "explore") }
         home().performScrollToKey("again")
         compose.onNodeWithText("Play it again").assertIsDisplayed()
         compose.runOnIdle { state.value = state.value.copy(trackHistory = false) }
@@ -149,8 +149,6 @@ class HomeShelvesUiTest {
         compose.setContent { MusicApp(state.value, onMoreFeed = { more++; state.value = state.value.copy(feedBusy = true, feedAppending = true) }) }
         compose.onNodeWithText("More from your feed").assertDoesNotExist()
         compose.onNodeWithText("Your YouTube Music feed").assertDoesNotExist()
-        compose.runOnIdle { assertEquals(0, more) }
-        compose.onNodeWithContentDescription("Explore").performClick()
         compose.onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange)).onFirst().performScrollToKey("feed-tail")
         compose.waitUntil(5_000) { more == 1 }
         compose.mainClock.advanceTimeBy(1_000)
@@ -189,7 +187,7 @@ class HomeShelvesUiTest {
 
     private fun shoot(look: LookChoice, name: String) {
         val state = mutableStateOf(withCovers(fixture(look, "light")))
-        compose.setContent { MusicApp(state.value) }
+        compose.setContent { MusicApp(state.value, initialPage = "explore") }
         for (theme in listOf("light", "dark")) {
             compose.runOnIdle { state.value = state.value.copy(theme = theme) }
             home().performScrollToKey("for-you")
