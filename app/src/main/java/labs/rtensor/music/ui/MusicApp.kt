@@ -170,7 +170,7 @@ private val AppleFont = FontFamily.SansSerif
 /** The reading face of the current look: Archivo, DM Sans in Soft, or the system font in Apple. */
 private val font: FontFamily
     @Composable @ReadOnlyComposable get() = if (LocalLook.current.soft || LocalLook.current.hum) SoftFont
-        else if (LocalLook.current.apple) AppleFont else ArchivoFont
+        else ArchivoFont
 internal val Mono = FontFamily(Font(R.font.dm_mono_regular), Font(R.font.dm_mono_medium, FontWeight.Medium))
 internal val Ink = Color(0xFF111111)
 internal val Paper = Color(0xFFEDEDEA)
@@ -199,7 +199,6 @@ internal val LabelText: TextStyle
     @Composable @ReadOnlyComposable get() = when {
         LocalLook.current.classic -> MonoLabel
         LocalLook.current.soft || LocalLook.current.hum -> TextStyle(fontFamily = SoftFont, fontWeight = FontWeight.Medium, fontSize = 13.sp)
-        LocalLook.current.apple -> TextStyle(fontFamily = AppleFont, fontWeight = FontWeight.Medium, fontSize = 13.sp)
         else -> LabelStyle
     }
 internal val MonoLabel = TextStyle(fontFamily = Mono, fontWeight = FontWeight.Medium, fontSize = 13.sp, letterSpacing = .06.em)
@@ -308,11 +307,6 @@ fun MusicTheme(theme: String = "light", darkNavigationBar: Boolean = false, acce
         else if (tokens.hum && (chosen == AccentChoice.SIGNAL || (chosen == AccentChoice.COVER && coverAccent == null))) (if (dark) HumPink else HumPinkDay).let { AccentColours(it, onAccentFor(it), visibleOnDock(it)) }
         else {
             when {
-                tokens.apple -> {
-                    val fallback = if (dark) AppleBlueNight else AppleBlue
-                    val picked = fixedAccent(chosen, dark) ?: coverAccent ?: fallback
-                    AccentColours(picked, onAccentFor(picked), visibleOnDock(picked))
-                }
                 tokens.classic -> accentColours(AccentChoice.SIGNAL, dark, null)
                 else -> accentColours(chosen, dark, coverAccent.takeIf { tokens.room })
             }
@@ -326,10 +320,9 @@ fun MusicTheme(theme: String = "light", darkNavigationBar: Boolean = false, acce
     val onDock by animateColorAsState(target.onDock, blend, label = "dock accent")
     // Material components that use the container roles (selected chips) follow the accent too.
     val scheme = remember(tokens, target) {
-        if (tokens.soft) softScheme(tokens)
-        else if (tokens.hum) humScheme(tokens, target)
-        else if (tokens.apple) appleScheme(tokens, target)
-        else (if (tokens.room) roomScheme(tokens) else if (dark) Dark else Light).copy(primaryContainer = target.accent, onPrimaryContainer = target.onAccent,
+        if (tokens.hum) humScheme(tokens, target)
+        else if (tokens.room) roomScheme(tokens)
+        else (if (dark) Dark else Light).copy(primaryContainer = target.accent, onPrimaryContainer = target.onAccent,
             secondaryContainer = target.accent, onSecondaryContainer = target.onAccent)
     }
     val view = LocalView.current
@@ -342,7 +335,7 @@ fun MusicTheme(theme: String = "light", darkNavigationBar: Boolean = false, acce
         }
     }
     val base = Typography()
-    val reading = if (tokens.soft || tokens.hum) SoftFont else if (tokens.apple) AppleFont else ArchivoFont
+    val reading = if (tokens.soft || tokens.hum) SoftFont else ArchivoFont
     CompositionLocalProvider(LocalAccent provides AccentColours(fill, onFill, onDock), LocalLook provides tokens) { MaterialTheme(
         colorScheme = scheme,
         typography = Typography(
@@ -355,16 +348,13 @@ fun MusicTheme(theme: String = "light", darkNavigationBar: Boolean = false, acce
             titleLarge = base.titleLarge.copy(fontFamily = reading),
             titleMedium = base.titleMedium.copy(fontFamily = reading),
             titleSmall = base.titleSmall.copy(fontFamily = reading),
-            headlineLarge = if (tokens.soft) base.headlineLarge.copy(fontFamily = SoftFont) else if (tokens.hum) base.headlineLarge.copy(fontFamily = HumDisplay, fontWeight = FontWeight.ExtraBold, letterSpacing = (-.02).em) else if (tokens.apple) base.headlineLarge.copy(fontFamily = AppleFont, fontWeight = FontWeight.Bold, letterSpacing = (-.5).sp) else base.headlineLarge.copy(fontFamily = Display, fontWeight = FontWeight.ExtraBold),
-            headlineMedium = if (tokens.soft) base.headlineMedium.copy(fontFamily = SoftFont) else if (tokens.hum) base.headlineMedium.copy(fontFamily = HumDisplay, fontWeight = FontWeight.ExtraBold, letterSpacing = (-.02).em) else if (tokens.apple) base.headlineMedium.copy(fontFamily = AppleFont, fontWeight = FontWeight.Bold, letterSpacing = (-.4).sp) else base.headlineMedium.copy(fontFamily = Display, fontWeight = FontWeight.ExtraBold),
-            headlineSmall = if (tokens.soft) base.headlineSmall.copy(fontFamily = SoftFont) else if (tokens.hum) base.headlineSmall.copy(fontFamily = HumDisplay, fontWeight = FontWeight.ExtraBold, letterSpacing = (-.02).em) else if (tokens.apple) base.headlineSmall.copy(fontFamily = AppleFont, fontWeight = FontWeight.SemiBold, letterSpacing = (-.3).sp) else base.headlineSmall.copy(fontFamily = Display, fontWeight = FontWeight.ExtraBold),
+            headlineLarge = if (tokens.soft) base.headlineLarge.copy(fontFamily = SoftFont) else if (tokens.hum) base.headlineLarge.copy(fontFamily = HumDisplay, fontWeight = FontWeight.ExtraBold, letterSpacing = (-.02).em) else base.headlineLarge.copy(fontFamily = Display, fontWeight = FontWeight.ExtraBold),
+            headlineMedium = if (tokens.soft) base.headlineMedium.copy(fontFamily = SoftFont) else if (tokens.hum) base.headlineMedium.copy(fontFamily = HumDisplay, fontWeight = FontWeight.ExtraBold, letterSpacing = (-.02).em) else base.headlineMedium.copy(fontFamily = Display, fontWeight = FontWeight.ExtraBold),
+            headlineSmall = if (tokens.soft) base.headlineSmall.copy(fontFamily = SoftFont) else if (tokens.hum) base.headlineSmall.copy(fontFamily = HumDisplay, fontWeight = FontWeight.ExtraBold, letterSpacing = (-.02).em) else base.headlineSmall.copy(fontFamily = Display, fontWeight = FontWeight.ExtraBold),
         ),
-        // Classic is square: menus, dialogs, sheets and fields lose their corners too. Apple and
-        // the Listening room are rounded throughout, with Apple's slightly tighter radii.
-        shapes = if (tokens.apple) Shapes(
-            extraSmall = RoundedCornerShape(6.dp), small = RoundedCornerShape(10.dp), medium = RoundedCornerShape(12.dp),
-            large = RoundedCornerShape(16.dp), extraLarge = RoundedCornerShape(22.dp),
-        ) else if (tokens.classic) Shapes(
+        // Classic is square: menus, dialogs, sheets and fields lose their corners too. The Listening room
+        // is rounded throughout.
+        shapes = if (tokens.classic) Shapes(
             extraSmall = RoundedCornerShape(0.dp), small = RoundedCornerShape(0.dp), medium = RoundedCornerShape(0.dp),
             large = RoundedCornerShape(0.dp), extraLarge = RoundedCornerShape(0.dp),
         ) else Shapes(
@@ -498,7 +488,7 @@ fun MusicApp(
     // "From the cover" reads the artwork; Apple's player also always tints itself from the cover,
     // whatever the chosen accent. Classic always uses the Signal orange, so it never reads it.
     val cover = if (state.look != LookChoice.CLASSIC &&
-        (state.accent == AccentChoice.COVER || state.look == LookChoice.HUM || state.look == LookChoice.ROOM || (state.look == LookChoice.APPLE && page == "now")))
+        (state.accent == AccentChoice.COVER || state.look == LookChoice.HUM || state.look == LookChoice.ROOM))
         rememberCoverColours(state.current?.artwork) else null
     // The channel monitor, the room and the level meter can all want live levels; metering runs
     // while any of them does, so one leaving the screen never switches it off for another.
@@ -518,7 +508,7 @@ fun MusicApp(
             page = if (section == null) "provider-feed" else "feed-section"
         }) {
         // Apple's dock is a light, translucent bar; the other looks' dock is always dark.
-        MusicTheme(state.theme, darkNavigationBar = (state.look != LookChoice.APPLE && page in rootPages + listOf("collection", "provider-feed", "feed-section")) || tones != null, accent = state.accent,
+        MusicTheme(state.theme, darkNavigationBar = page in rootPages + listOf("collection", "provider-feed", "feed-section") || tones != null, accent = state.accent,
             coverAccent = cover?.accent, darkStatusBar = tones != null, look = state.look) {
     SongActionsHost(state, songActions, onSave, onPlay = { play(it, listOf(it)) },
         onArtist = { onQuery(it); onSearch(); page = root }) {
@@ -532,8 +522,8 @@ fun MusicApp(
                     if (page in rootPages + listOf("collection", "provider-feed", "feed-section")) {
                         // The dock is always dark, in light and dark themes alike.
                         val hum = LocalLook.current.hum
-                        Column(Modifier.background(if (hum || LocalLook.current.apple) MaterialTheme.colorScheme.background else LocalLook.current.stage).navigationBarsPadding()) {
-                            if (LocalLook.current.soft || LocalLook.current.apple) HorizontalDivider(thickness = .5.dp, color = MaterialTheme.colorScheme.outline)
+                        Column(Modifier.background(if (hum) MaterialTheme.colorScheme.background else LocalLook.current.stage).navigationBarsPadding()) {
+                            if (LocalLook.current.soft) HorizontalDivider(thickness = .5.dp, color = MaterialTheme.colorScheme.outline)
                             AnimatedVisibility(
                                 visible = state.current != null,
                                 enter = if (reduced) EnterTransition.None else slideInVertically(DockSpring) { it } + fadeIn(tween(EnterMs)),
@@ -543,9 +533,8 @@ fun MusicApp(
                             }
                             when (LocalLook.current.choice) {
                                 LookChoice.CLASSIC -> ClassicNavigation(if (page !in rootPages) root else page, reduced, ::navigate)
-                                LookChoice.APPLE -> AppleNavigation(if (page !in rootPages) root else page, reduced, ::navigate)
                                 LookChoice.ROOM -> AppNavigation(if (page !in rootPages) root else page, reduced, ::navigate)
-                                // While searching, the pill rises to the top as the search field; closing brings it back.
+                                LookChoice.SOFT -> HumNavigation(if (page !in rootPages) root else page, reduced, false, ::navigate) { }
                                 LookChoice.HUM -> AnimatedVisibility(!searchOpen,
                                     enter = if (reduced) EnterTransition.None else slideInVertically(tween(300, easing = EmphasizedDecelerate)) { it } + fadeIn(tween(EnterMs)),
                                     exit = if (reduced) ExitTransition.None else slideOutVertically(tween(220, easing = EmphasizedAccelerate)) { it } + fadeOut(tween(QuickMs))) {
@@ -599,7 +588,7 @@ fun MusicApp(
                                     active = page == "explore" && exploreTab == "for-you" && !showResults, recommendations = homeRecommendations)
                             }
                             "library" -> LibraryScreen(state, ::play, onSave, ::focusSearch, onRemovePlay)
-                            "now" -> NowScreen(state, onToggle, onPrevious, onNext, onSeek, onSave, onSkipTo, onProcessing, playbackPosition, onRetryRadio, onLyrics, audioLevels, metering, ::goBack, cover)
+                            "now" -> NowScreen(state, onToggle, onPrevious, onNext, onSeek, onSave, onSkipTo, onProcessing, playbackPosition, onRetryRadio, audioLevels, metering, ::goBack, cover)
                             "provider-feed", "feed-section" -> {
                                 val exploreSection = target == "feed-section" && expandedFromExplore
                                 val sections = when { expandedFromCollection && target == "feed-section" -> state.collectionSections
@@ -646,24 +635,13 @@ private fun AppHeader(page: String, searchOpen: Boolean, onCloseSearch: () -> Un
         verticalAlignment = Alignment.CenterVertically) {
         if (page in listOf("now", "settings", "collection", "provider-feed", "feed-section")) {
             val look = LocalLook.current
-            // Apple: a bare blue chevron with a 48dp target, the way navigation reads on iOS.
-            if (look.apple) IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
-                Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back", Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary)
-            }
-            else OutlinedIconButton(onClick = onBack, shape = ButtonShape, border = BorderStroke(if (look.classic) 2.dp else 1.dp,
+            OutlinedIconButton(onClick = onBack, shape = ButtonShape, border = BorderStroke(if (look.classic) 2.dp else 1.dp,
                 if (look.classic) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.onSurfaceVariant),
                 modifier = Modifier.size(48.dp)) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back", Modifier.size(20.dp)) }
             Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                 val caption = when (page) { "now" -> "Now playing"; "collection" -> "Collection"; "provider-feed" -> "Your feed"; "feed-section" -> "Browse music"; else -> "Settings" }
                 when {
                     look.classic -> Caption(caption.uppercase(Locale.ROOT))
-                    // Apple centres a compact, semibold page title in the bar. On Settings the page's
-                    // own large title is the one spoken heading, so the bar repeats it only visually.
-                    look.apple -> Text(caption,
-                        if (page == "settings") Modifier.clearAndSetSemantics { }
-                        else Modifier.semantics { heading() },
-                        fontFamily = AppleFont, fontSize = 16.sp,
-                        lineHeight = 20.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-.2).sp)
                     // In the Listening room the caption is the page's name (Settings has no second title).
                     else -> Text(caption, Modifier.semantics { heading() }, fontFamily = font, fontSize = 14.sp,
                         lineHeight = 18.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -687,11 +665,6 @@ private fun AppHeader(page: String, searchOpen: Boolean, onCloseSearch: () -> Un
                     Text("M", fontFamily = SoftFont, fontSize = 18.sp, lineHeight = 18.sp, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(4.dp))
                     Box(Modifier.width(12.dp).height(2.dp).background(MaterialTheme.colorScheme.primary, RoundedCornerShape(1.dp)))
-                } else if (LocalLook.current.apple) {
-                    // Apple's app mark: a rounded system-blue tile with a white monogram.
-                    Box(Modifier.size(30.dp).clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.primary), contentAlignment = Alignment.Center) {
-                        Text("M", fontFamily = AppleFont, fontSize = 17.sp, lineHeight = 17.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary)
-                    }
                 } else {
                     Text("M", style = DisplayStyle, fontSize = 24.sp, lineHeight = 22.sp)
                     Spacer(Modifier.height(3.dp))
@@ -1060,7 +1033,7 @@ private fun PersonalScreen(state: MusicState, onSearch: () -> Unit, onPlay: (Tra
         }
         // Home shelves (ui/HomeShelves.kt): "Next up for you", "Play it again" and "Your mixes".
         homeShelves(state, recommendations.fromListening, topArtists, onPlay)
-        if (unheard.isNotEmpty() && look.apple) item(key = "unheard") {
+        if (unheard.isNotEmpty()) item(key = "unheard") {
             // Apple sets these songs as a plain grouped list on the page's surface, so songs
             // added by "More from your feed" still arrive below.
             Column(motionModifier().padding(top = 20.dp).fillMaxWidth()) {
@@ -1427,24 +1400,6 @@ private fun SyncBanner(email: String, onConnect: () -> Unit, modifier: Modifier 
 @Composable
 private fun NoticeBanner(title: String, detail: String, action: String, onAction: () -> Unit, modifier: Modifier = Modifier) {
     val accent = LocalAccent.current
-    if (LocalLook.current.apple) {
-        // Apple: a grouped card, a semibold title, muted detail and a small blue capsule.
-        Surface(color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(16.dp), border = BorderStroke(.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = .6f)),
-            modifier = modifier.fillMaxWidth()) {
-            Row(Modifier.padding(start = 16.dp, end = 12.dp, top = 14.dp, bottom = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(title, fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold)
-                    Text(detail, fontSize = 12.sp, lineHeight = 17.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 3.dp))
-                }
-                Spacer(Modifier.width(12.dp))
-                Button(onClick = onAction, shape = CircleShape, contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary)) {
-                    Text(action, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                }
-            }
-        }
-        return
-    }
     Surface(color = accent.accent, shape = LocalLook.current.card, modifier = modifier.fillMaxWidth()) {
         Row(Modifier.padding(start = 16.dp, end = 12.dp, top = 14.dp, bottom = 14.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
@@ -1495,17 +1450,7 @@ private fun LazyListScope.feedSections(sections: List<FeedSection>, onEntry: (Fe
 
 @Composable
 private fun MediaCard(title: String, subtitle: String, art: Track, size: Dp, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    val apple = LocalLook.current.apple
-    val shape = if (apple) RoundedCornerShape(12.dp) else LocalLook.current.art
-    if (apple) {
-        // Apple's album card: 12dp corners and the smaller system metadata under the cover.
-        Column(modifier.width(size).clip(shape).then(if (art.url.isNotBlank()) Modifier.songClickable(art, onClick = onClick) else Modifier.pressable(onClick = onClick))) {
-            Artwork(art, Modifier.size(size).clip(shape), size = size)
-            ScrollingMetadata(title, TextStyle(fontFamily = AppleFont, fontSize = 13.sp, lineHeight = 18.sp, fontWeight = FontWeight.Medium), Modifier.padding(top = 8.dp))
-            ScrollingMetadata(subtitle, TextStyle(fontFamily = AppleFont, fontSize = 11.sp, lineHeight = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant), Modifier.padding(top = 2.dp, bottom = 4.dp))
-        }
-        return
-    }
+    val shape = LocalLook.current.art
     Column(modifier.width(size).clip(shape).then(if (art.url.isNotBlank()) Modifier.songClickable(art, onClick = onClick) else Modifier.pressable(onClick = onClick))) {
         Artwork(art, Modifier.size(size).clip(shape), size = size)
         ScrollingMetadata(title, TextStyle(fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold), Modifier.padding(top = 8.dp))
@@ -1894,12 +1839,8 @@ private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () ->
     val scheme = MaterialTheme.colorScheme
     val look = LocalLook.current
     val tones = LocalPlayerTones.current
-    // Apple keeps the platform's labels but paints the player from the current cover, blending
-    // its deep tone into the grouped background in both themes.
-    val appleGround = if (look.apple) cover?.let { applePlayerTones(it.deep, scheme.background) } else null
     val ground = when {
         tones != null -> Modifier.background(tones.top)
-        appleGround != null -> Modifier.background(appleGround.top)
         else -> Modifier.background(scheme.background)
     }
     // "Swipe down to minimise" descends the whole player and fades it with it (like iOS), not
@@ -1907,7 +1848,7 @@ private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () ->
     val lift = remember { mutableFloatStateOf(0f) }
     // The cover tone for the contents: Apple's tint on Apple, Room's room tone on Room (null
     // leaves the page's own look alone).
-    CompositionLocalProvider(LocalPlayerTones provides (appleGround ?: tones)) {
+    CompositionLocalProvider(LocalPlayerTones provides tones) {
     OnPlayerTones(ground) {
     val saved = state.saved.any { it.libraryKey() == track.libraryKey() }
     BoxWithConstraints(Modifier.fillMaxSize().graphicsLayer {
@@ -1916,22 +1857,12 @@ private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () ->
         alpha = 1f - (lift.floatValue / (size.height.toFloat() * 1.05f)).coerceIn(0f, 1f)
     }) {
         val screenHeight = constraints.maxHeight.toFloat().coerceAtLeast(1f)
-        // Apple: a blurred wash of the cover covers the whole player, fading with the track. It is
-        // drawing only and never takes touches or focus. No gradient — one flat field of cover.
-        if (look.apple) Crossfade(track, Modifier.matchParentSize().testTag("apple-cover-wash").clearAndSetSemantics {},
-            animationSpec = tween(if (reduced) 0 else 240), label = "backdrop") { shown ->
-            Box(Modifier.fillMaxSize()) {
-                Artwork(shown, Modifier.fillMaxSize().graphicsLayer { alpha = .42f }.blur(72.dp), size = 160.dp)
-                Box(Modifier.matchParentSize().background(scheme.background.copy(alpha = .22f)))
-            }
-        }
         // The cover fills the width between the gutters, sized to leave the title, meter and
         // controls in view. Classic keeps its smaller 0.3.32 cover.
-        val gutter = if (look.apple) 24.dp else 20.dp
+        val gutter = 20.dp
         val coverSize = when (look.choice) {
             LookChoice.CLASSIC -> (maxHeight * .31f).coerceIn(150.dp, 250.dp)
-            LookChoice.APPLE -> minOf(maxWidth - gutter * 2, maxHeight * .46f).coerceAtLeast(150.dp)
-            LookChoice.ROOM -> minOf(maxWidth - 40.dp, maxHeight * .37f).coerceAtLeast(150.dp)
+            LookChoice.SOFT, LookChoice.ROOM -> minOf(maxWidth - 40.dp, maxHeight * .37f).coerceAtLeast(150.dp)
             LookChoice.HUM -> minOf(maxWidth - 40.dp, maxHeight * .30f).coerceAtLeast(150.dp)
         }
         // The queue continues right under the controls, so scrolling down shows what plays next.
@@ -1941,12 +1872,11 @@ private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () ->
                     if (showsAudioComparison(state)) {
                         when (look.choice) {
                             LookChoice.CLASSIC -> ClassicAudioComparison(state, onProcessing)
-                            LookChoice.SOFT -> SoftAudioComparison(state, onProcessing)
+                            LookChoice.SOFT -> AudioComparison(state, onProcessing)
                             LookChoice.ROOM, LookChoice.HUM -> AudioComparison(state, onProcessing)
                         }
                     }
                     if (state.developerOptions) ChannelMonitor(state.audioProcessing.report, playing && !loading, track.id, audioLevels) { metering.claim("monitor", it) }
-                    LyricsPanel(track, onLyrics, reduced, Modifier.padding(top = 16.dp))
                     Spacer(Modifier.height(30.dp))
                     Row(Modifier.fillMaxWidth().signalRule(bottom = true).padding(bottom = 8.dp), verticalAlignment = Alignment.Bottom) {
                         when (look.choice) {
@@ -1968,24 +1898,7 @@ private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () ->
                                 lift = lift, screenHeight = screenHeight)
                         }
                     }
-                    if (look.apple) {
-                        // Apple: the seek line under the cover, a bold system title, then Previous,
-                        // a blue Play, Next and Save, centred like the system player.
-                        Spacer(Modifier.height(16.dp))
-                        PlaybackTimeline(playbackPosition, position, duration, playing, reduced, pending, null, onSeek)
-                        Spacer(Modifier.height(18.dp))
-                        NowTitle(track, reduced, saved, { onSave(track) }) { shown ->
-                            ScrollingMetadata(shown.title, TextStyle(fontFamily = AppleFont, fontSize = 26.sp, lineHeight = 31.sp, fontWeight = FontWeight.Bold, letterSpacing = (-.7).sp), Modifier.semantics { heading() })
-                            ScrollingMetadata(shown.artist, TextStyle(fontFamily = AppleFont, fontSize = 16.sp, lineHeight = 22.sp, color = scheme.onSurfaceVariant), Modifier.padding(top = 4.dp))
-                        }
-                        LoadingNote(state, loading, reduced, top = 8.dp)
-                        Spacer(Modifier.height(14.dp))
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { TransportButton("Previous", Glyph.Previous, onPrevious, canSkip) }
-                            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { PlayButton(if (loading) 0 else if (playing) 1 else 2, !state.resolving, reduced, onToggle) }
-                            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { TransportButton("Next", Glyph.Next, onNext, canSkip && hasNext) }
-                        }
-                    } else if (look.classic) {
+                    if (look.classic) {
                         // Classic, as in 0.3.32: the seek line under the cover, a display title, square
                         // Previous/Next either side of one wide Play button.
                         Spacer(Modifier.height(16.dp))
@@ -2106,7 +2019,7 @@ private fun LoadingNote(state: MusicState, loading: Boolean, reduced: Boolean, t
     Box(Modifier.padding(top = top).height(16.dp)) {
         androidx.compose.animation.AnimatedVisibility(loading, enter = fadeIn(tween(if (reduced) 0 else QuickMs)), exit = fadeOut(tween(if (reduced) 0 else QuickMs))) {
             Text(look.label(if (state.resolving) "Finding audio…" else "Buffering…"), style = if (look.classic) MonoSmall else TextStyle(fontFamily = font, fontSize = 12.sp),
-                color = if (look.apple) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface, lineHeight = 16.sp)
+                color = MaterialTheme.colorScheme.onSurface, lineHeight = 16.sp)
         }
     }
 }
@@ -2149,24 +2062,14 @@ private fun OnPlayerTones(modifier: Modifier = Modifier, content: @Composable ()
     val look = LocalLook.current
     val lifted = remember(accent.accent, tones) { accentOnTone(accent.accent, tones.top) }
     val base = MaterialTheme.colorScheme
-    val scheme = remember(base, tones, lifted, look.apple) {
+    val scheme = remember(base, tones, lifted) {
         val ground = tones.top
-        if (look.apple) {
-            // The cover ground needs the platform's text at full strength and a secondary that
-            // still passes AA on it, whatever the cover: the look's muted colour moves in
-            // lightness only as far as it has to.
-            val on = look.text
-            val secondary = closestLightness(look.muted) { contrastRatio(it, ground) >= MinTextContrast } ?: on
-            base.copy(background = ground, onBackground = on, surface = ground, onSurface = on,
-                onSurfaceVariant = secondary, outline = on.copy(alpha = .3f).compositeOver(ground),
-                outlineVariant = on.copy(alpha = .18f).compositeOver(ground),
-                surfaceVariant = on.copy(alpha = .12f).compositeOver(ground))
-        } else base.copy(primary = Paper, onPrimary = Ink, background = ground, onBackground = Paper, surface = ground, onSurface = Paper,
+        base.copy(primary = Paper, onPrimary = Ink, background = ground, onBackground = Paper, surface = ground, onSurface = Paper,
             surfaceVariant = Paper.copy(alpha = .12f).compositeOver(ground), onSurfaceVariant = PaperMuted,
             outline = Paper.copy(alpha = .3f).compositeOver(ground), outlineVariant = Paper.copy(alpha = .18f).compositeOver(ground),
             primaryContainer = lifted, onPrimaryContainer = onAccentFor(lifted), secondaryContainer = lifted, onSecondaryContainer = onAccentFor(lifted))
     }
-    val actor = if (look.apple) accent else AccentColours(lifted, onAccentFor(lifted), accent.onDock)
+    val actor = AccentColours(lifted, onAccentFor(lifted), accent.onDock)
     CompositionLocalProvider(LocalAccent provides actor) {
         MaterialTheme(colorScheme = scheme, typography = MaterialTheme.typography, shapes = MaterialTheme.shapes) {
             Box(modifier) { CompositionLocalProvider(LocalContentColor provides scheme.onSurface) { content() } }
@@ -2692,8 +2595,7 @@ private fun ProgressLine(position: Long, duration: Long, playing: Boolean, reduc
     val seek by rememberUpdatedState(onSeek)
     val scope = rememberCoroutineScope()
     val classic = LocalLook.current.classic
-    val apple = LocalLook.current.apple
-    // Classic's line is ink on a square track; Apple and the Listening room use the accent, with a thumb.
+    // Classic's line is ink on a square track; the Listening room uses the accent, with a thumb.
     // The accent as a mark: lifted or deepened until it stands out 3:1 from the page (a fixed
     // orange on paper was 2.7:1).
     val ground = MaterialTheme.colorScheme.background
@@ -2740,17 +2642,6 @@ private fun ProgressLine(position: Long, duration: Long, playing: Boolean, reduc
             }
             return@Canvas
         }
-        if (apple) {
-            // Apple: a thin system track with a round thumb, as on the lock screen.
-            val h = (4.dp + 2.dp * g).toPx()
-            val y = center.y - h / 2
-            drawRoundRect(line, Offset(0f, y), Size(size.width, h), CornerRadius(h / 2))
-            val played = size.width * fraction()
-            drawRoundRect(accent, Offset(0f, y), Size(played.coerceAtLeast(if (played > 0f) h else 0f), h), CornerRadius(h / 2))
-            val r = (6.dp + 3.dp * g).toPx()
-            drawCircle(accent, r, Offset(played.coerceIn(r, size.width - r), center.y))
-            return@Canvas
-        }
         val h = (6.dp + 2.dp * g).toPx()
         val y = center.y - h / 2
         val round = CornerRadius(h / 2)
@@ -2762,9 +2653,8 @@ private fun ProgressLine(position: Long, duration: Long, playing: Boolean, reduc
         drawCircle(accent, r, Offset(played.coerceIn(r, size.width - r), center.y))
     }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-        // Apple's times are small system numerals in the muted colour; the others use DM Mono.
-        val times = if (apple) TextStyle(fontFamily = AppleFont, fontSize = 11.sp, letterSpacing = .2.sp) else MonoSmall
-        val timeColour = if (apple) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface
+        val times = MonoSmall
+        val timeColour = MaterialTheme.colorScheme.onSurface
         Text(clock(seconds * 1000), style = times, color = timeColour)
         if (badge != null) Text(badge, style = MonoSmall, fontSize = 11.sp, lineHeight = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1,
             modifier = Modifier.padding(horizontal = 8.dp).border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(6.dp))
@@ -2904,7 +2794,6 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onAccen
                     LookChoice.HUM -> "Plum-black night, pink-tinted paper, one hot pink accent."
                 },
                     fontSize = 12.sp, lineHeight = 17.sp, color = scheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp, bottom = 10.dp))
-                LookSelector(state.look, state.reducedMotion, onLook)
                 Spacer(Modifier.height(18.dp))
                 Text("Theme", fontSize = 16.sp, fontWeight = FontWeight.Medium)
                 Spacer(Modifier.height(10.dp))
@@ -2917,7 +2806,7 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onAccen
                         else "Soft always uses its raspberry. Choose Listening room to pick an accent colour or take it from the cover.",
                         fontSize = 12.sp, lineHeight = 17.sp, color = scheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp))
                 } else {
-                    val fallback = if (state.look == LookChoice.APPLE) "System blue" else "Signal"
+                    val fallback = "Signal"
                     Text(if (state.accent == AccentChoice.COVER) "Taken from the artwork of the song that is playing. $fallback is used when there is none."
                         else "The one strong colour on Play, highlights and the dock.",
                         fontSize = 12.sp, lineHeight = 17.sp, color = scheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp, bottom = 8.dp))
@@ -3223,7 +3112,7 @@ private fun SettingsCard(content: @Composable ColumnScope.() -> Unit) {
     val look = LocalLook.current
     // Classic: a hairline-bordered square card. Apple and the Listening room: a rounded grouped surface.
     Surface(shape = look.card, color = look.cardFill, contentColor = MaterialTheme.colorScheme.onSurface,
-        border = if (look.room || look.apple) null else BorderStroke(.5.dp, MaterialTheme.colorScheme.outline), modifier = Modifier.fillMaxWidth()) {
+        border = if (look.room) null else BorderStroke(.5.dp, MaterialTheme.colorScheme.outline), modifier = Modifier.fillMaxWidth()) {
         // Critically damped: the card grows to fit an opened editor without overshooting.
         Column(Modifier.padding(vertical = 4.dp).animateContentSize(animationSpec = if (LocalReducedMotion.current) snap() else spring(dampingRatio = 1f, stiffness = Spring.StiffnessMediumLow)), content = content)
     }
@@ -3258,13 +3147,6 @@ private fun SettingItem(title: String, detail: String? = null, icon: ImageVector
 @Composable
 private fun IconTile(icon: ImageVector) {
     val accent = LocalAccent.current
-    if (LocalLook.current.apple) {
-        // Apple's settings tile: a small, filled system-blue square with a white glyph.
-        Box(Modifier.size(29.dp).background(MaterialTheme.colorScheme.primary, RoundedCornerShape(7.dp)), contentAlignment = Alignment.Center) {
-            Icon(icon, null, Modifier.size(17.dp), tint = MaterialTheme.colorScheme.onPrimary)
-        }
-        return
-    }
     Box(Modifier.size(36.dp).background(accent.accent, LocalLook.current.tile), contentAlignment = Alignment.Center) {
         Icon(icon, null, Modifier.size(19.dp), tint = accent.onAccent)
     }
@@ -3486,11 +3368,7 @@ private fun LabelledControl(label: String, image: ImageVector, onClick: () -> Un
 @Composable
 private fun PageTitle(text: String) {
     val look = LocalLook.current
-    if (look.apple) {
-        // Apple's large title: the system face, bold, with tighter tracking as it grows.
-        Text(text, Modifier.clearAndSetSemantics { this.text = AnnotatedString(text); heading() }, fontFamily = AppleFont, fontSize = 34.sp,
-            lineHeight = 39.sp, fontWeight = FontWeight.Bold, letterSpacing = (-.8).sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-    } else if (look.classic) Column(Modifier.fillMaxWidth().signalRule(bottom = true).padding(top = 8.dp, bottom = 16.dp)) {
+    if (look.classic) Column(Modifier.fillMaxWidth().signalRule(bottom = true).padding(top = 8.dp, bottom = 16.dp)) {
         Text(look.headline(text), style = DisplayStyle, fontSize = 44.sp, lineHeight = 40.sp, letterSpacing = (-.02).em, modifier = Modifier.semantics { heading() })
     } else Column(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 6.dp)) {
         PosterText(text, PosterStyle.copy(fontSize = 36.sp, lineHeight = 34.sp), heading = true)
@@ -3502,18 +3380,14 @@ private val SectionStyle = PosterStyle.copy(fontSize = 24.sp, lineHeight = 25.sp
 
 @Composable
 private fun SectionTitle(text: String, modifier: Modifier = Modifier) {
-    if (LocalLook.current.apple) Text(text, modifier.semantics { heading() }, fontFamily = AppleFont, fontSize = 20.sp, lineHeight = 24.sp,
-        fontWeight = FontWeight.Bold, letterSpacing = (-.3).sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-    else if (LocalLook.current.classic) Text(text, style = DisplayStyle, fontSize = 24.sp, lineHeight = 26.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = modifier)
+    if (LocalLook.current.classic) Text(text, style = DisplayStyle, fontSize = 24.sp, lineHeight = 26.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = modifier)
     else PosterText(text, SectionStyle, modifier, maxLines = 2)
 }
 
 /** A big display line inside a section: as written in Classic, system bold in Apple, poster capitals otherwise. */
 @Composable
 private fun Headline(text: String, size: androidx.compose.ui.unit.TextUnit, height: androidx.compose.ui.unit.TextUnit, maxLines: Int = Int.MAX_VALUE) {
-    if (LocalLook.current.apple) Text(text, fontFamily = AppleFont, fontWeight = FontWeight.Bold, fontSize = size, lineHeight = height,
-        letterSpacing = (-.8).sp, maxLines = maxLines)
-    else if (LocalLook.current.classic) Text(text, style = DisplayStyle, fontSize = size, lineHeight = height, maxLines = maxLines)
+    if (LocalLook.current.classic) Text(text, style = DisplayStyle, fontSize = size, lineHeight = height, maxLines = maxLines)
     else PosterText(text, PosterStyle.copy(fontSize = size, lineHeight = height), maxLines = maxLines)
 }
 
@@ -3533,10 +3407,7 @@ private fun PosterText(text: String, style: TextStyle, modifier: Modifier = Modi
 
 @Composable
 private fun Caption(text: String, modifier: Modifier = Modifier) {
-    // Apple's small section caption is quiet, spaced system type; the others use DM Mono.
-    if (LocalLook.current.apple) Text(text.uppercase(Locale.ROOT), fontFamily = AppleFont, fontSize = 11.sp, lineHeight = 14.sp, fontWeight = FontWeight.SemiBold,
-        letterSpacing = .6.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = modifier)
-    else Text(text, style = MonoSmall, lineHeight = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = modifier)
+    Text(text, style = MonoSmall, lineHeight = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = modifier)
 }
 
 @Composable
@@ -3553,13 +3424,12 @@ private fun ErrorBanner(message: String, onDismiss: () -> Unit, onRetry: () -> U
     val context = LocalContext.current
     val look = LocalLook.current
     val scheme = MaterialTheme.colorScheme
-    // An error must not look like Play: a quiet grouped card (Apple) with a warning icon in the
+    // An error must not look like Play: a quiet grouped card with a warning icon in the
     // accent, ordinary text, and TalkBack announces it when it appears.
-    val fill = if (look.apple) scheme.surface else look.panel
+    val fill = look.panel
     val mark = markOn(LocalAccent.current.accent, fill, scheme.onSurface)
     val headline = friendlyError(message)
-    Surface(color = fill, contentColor = scheme.onSurface, shape = if (look.apple) RoundedCornerShape(16.dp) else look.card,
-        border = if (look.apple) BorderStroke(.5.dp, scheme.outline.copy(alpha = .6f)) else null,
+    Surface(color = fill, contentColor = scheme.onSurface, shape = look.card,
         modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp).semantics { liveRegion = LiveRegionMode.Polite }) {
         Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 8.dp, top = 12.dp)) {
             Icon(Icons.Outlined.Warning, "Error", Modifier.padding(top = 1.dp, end = 10.dp).size(20.dp), tint = mark)
@@ -3567,7 +3437,7 @@ private fun ErrorBanner(message: String, onDismiss: () -> Unit, onRetry: () -> U
                 if (headline != null) Text(headline, fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold)
                 Text(message, fontSize = if (headline != null) 12.sp else 14.sp, lineHeight = if (headline != null) 17.sp else 20.sp,
                     color = if (headline != null) scheme.onSurfaceVariant else scheme.onSurface)
-                val ink = ButtonDefaults.textButtonColors(contentColor = if (look.apple) scheme.primary else scheme.onSurface)
+                val ink = ButtonDefaults.textButtonColors(contentColor = scheme.onSurface)
                 FlowRow(Modifier.align(Alignment.End), horizontalArrangement = Arrangement.End) {
                     if (diagnostic.isNotBlank()) TextButton(onClick = {
                         (context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("Playback details", "Music ${BuildConfig.VERSION_NAME} · $videoId\n$diagnostic"))
