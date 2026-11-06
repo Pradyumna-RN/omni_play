@@ -42,6 +42,7 @@ class FeedScrollUiTest {
         val sections = (0..12).map { i -> FeedSection("Explore $i", (0..11).map { song(i * 20 + it) }) }
         val state = mutableStateOf(MusicState(look = LookChoice.SOFT, reducedMotion = true, explore = sections, current = song(999).asTrack()))
         compose.setContent { MusicApp(state.value, initialPage = "explore", onPlay = { track, _ -> state.value = state.value.copy(current = track, playing = true) }) }
+        compose.onNodeWithContentDescription("Discover").performClick()
         vertical().performScrollToKey("provider-shelf:5:Explore 5")
         compose.onNode(SemanticsMatcher.keyIsDefined(SemanticsProperties.HorizontalScrollAxisRange) and hasAnyDescendant(hasText("Song 100"))).performScrollToIndex(2)
         val title = "Song 108"

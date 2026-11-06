@@ -10,6 +10,8 @@
 - Each tab retains its own vertical and horizontal positions. Returning from the
   player restores the selected tab and position. Pagination is active only for
   the selected recommendation tab, keeping inactive tabs from consuming pages.
+- For you is the default even when the initial recommendations arrive after
+  startup. A late response preserves a tab the listener selected explicitly.
 - Shelf expansion reads from the correct recommendation/discovery/category
   source. Category shelf Back returns to its category page. The three existing
   appearance choices, provider accounts, playlist tools and audio engine remain.

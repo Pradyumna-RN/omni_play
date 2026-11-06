@@ -375,7 +375,7 @@ fun MusicApp(
     var expandedSectionTitle by rememberSaveable { mutableStateOf<String?>(null) }
     var expandedFromExplore by rememberSaveable { mutableStateOf(false) }
     var expandedFromCollection by rememberSaveable { mutableStateOf(false) }
-    var exploreTab by rememberSaveable(state.recommendationEngine) { mutableStateOf(if (state.feed.isNotEmpty() || state.feedBusy) "for-you" else "discover") }
+    var exploreTab by rememberSaveable(state.recommendationEngine) { mutableStateOf("for-you") }
     var back by rememberSaveable { mutableStateOf("home") }
     var root by rememberSaveable { mutableStateOf(startPage.takeIf { it in rootPages } ?: "home") }
     val browserStates = rememberSaveableStateHolder()

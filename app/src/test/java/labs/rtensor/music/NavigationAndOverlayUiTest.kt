@@ -140,6 +140,7 @@ class NavigationAndOverlayUiTest {
             MusicApp(MusicState(exploreError = "YouTube Music did not answer.", reducedMotion = true), initialPage = "explore",
                 onRefreshExplore = { refreshes++ })
         }
+        compose.onNodeWithContentDescription("Discover").performClick()
         compose.onNodeWithText("YouTube Music did not answer.").assertIsDisplayed()
         val before = compose.runOnIdle { refreshes }
         compose.onNodeWithText("Retry").performClick()

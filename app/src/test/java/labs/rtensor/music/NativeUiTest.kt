@@ -122,6 +122,7 @@ class NativeUiTest {
         var submitted = false
         compose.setContent { MusicApp(state.value, onQuery = { state.value = state.value.copy(query = it, searched = false) }, onSearch = { submitted = true; state.value = state.value.copy(searched = true, results = listOf(track)) }) }
         compose.onNodeWithContentDescription("Explore").performClick()
+        compose.onNodeWithContentDescription("Discover").performClick()
         compose.onNodeWithText("Fresh discoveries").assertIsDisplayed()
         capture("explore-provider")
         compose.onNodeWithContentDescription("Search music").performTextInput("Serein")

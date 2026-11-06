@@ -55,6 +55,7 @@ class SignalReviewUiTest {
         compose.runOnIdle{assertEquals(next,selected);assertEquals(listOf(next),queued)}
         compose.onNodeWithContentDescription("Back").performClick()
         compose.onNodeWithContentDescription("Explore").performClick()
+        compose.onNodeWithContentDescription("Discover").performClick()
         compose.onNodeWithText("Genre playlist").assertExists()
     }
     @Test fun disabledHistoryUsesDiscoveryWordingWithoutInventingUnheardClaims() {

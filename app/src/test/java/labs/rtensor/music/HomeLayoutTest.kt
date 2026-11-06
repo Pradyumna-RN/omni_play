@@ -53,6 +53,7 @@ class HomeLayoutTest {
             val density = LocalDensity.current
             CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale)) { MusicApp(state.value, initialPage = "explore") }
         }
+        compose.onNodeWithContentDescription("Discover").performClick()
         val originalTop = top("Next row")
         // Ten songs are shown in three four-row columns; the last column has two blanks.
         for (index in listOf(2, 0, 2)) {

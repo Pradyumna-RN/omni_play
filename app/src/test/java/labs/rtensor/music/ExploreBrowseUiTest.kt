@@ -71,6 +71,7 @@ class ExploreBrowseUiTest {
     @Test fun emptyExploreWithAnExplanationDoesNotPretendThatDiscoveriesAreLoading() {
         compose.setContent { MusicApp(MusicState(look = LookChoice.SOFT, reducedMotion = true,
             exploreError = "YouTube Music returned no Explore items. Pull down to retry."), initialPage = "explore") }
+        compose.onNodeWithContentDescription("Discover").performClick()
         compose.onNodeWithText("YouTube Music returned no Explore items. Pull down to retry.").assertIsDisplayed()
         compose.onNodeWithText("More music awaits").assertDoesNotExist()
         compose.onNodeWithText("Retry").assertIsDisplayed()

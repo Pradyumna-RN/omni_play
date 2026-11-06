@@ -23,6 +23,27 @@ import org.robolectric.annotation.GraphicsMode
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class ExploreTabsUiTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
+
+    @Test fun forYouIsTheDefaultWhenTheFeedArrivesAfterStartup() {
+        val state = mutableStateOf(MusicState(look = LookChoice.SOFT, reducedMotion = true))
+        compose.setContent { MusicApp(state.value) }
+        compose.runOnIdle { state.value = state.value.copy(feed = listOf(FeedSection("Late recommendations", listOf(song(1))))) }
+        compose.onNodeWithContentDescription("Explore").performClick()
+        compose.onNodeWithContentDescription("For you").assertIsSelected()
+        compose.onNodeWithText("Late recommendations").assertIsDisplayed()
+    }
+
+    @Test fun aLateRecommendationResponseDoesNotOverrideTheChosenTab() {
+        val state = mutableStateOf(MusicState(look = LookChoice.SOFT, reducedMotion = true,
+            explore = listOf(FeedSection("New music", listOf(album)))))
+        compose.setContent { MusicApp(state.value, initialPage = "explore") }
+        compose.onNodeWithContentDescription("For you").assertIsSelected()
+        compose.onNodeWithContentDescription("Discover").performClick()
+        compose.runOnIdle { state.value = state.value.copy(feed = listOf(FeedSection("Late recommendations", listOf(song(1))))) }
+        compose.onNodeWithContentDescription("Discover").assertIsSelected()
+        compose.onNodeWithText(album.title).assertIsDisplayed()
+        compose.onNodeWithText("Late recommendations").assertDoesNotExist()
+    }
     private fun song(i: Int) = FeedEntry("yt:${"%011d".format(i)}", "Song $i", "Artist $i", "", "song", "", "%011d".format(i))
     private val verticalMatcher = SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange)
     private fun list() = compose.onAllNodes(verticalMatcher).onFirst()
