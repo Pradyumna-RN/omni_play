@@ -82,6 +82,17 @@ data class MusicState(
     val searched: Boolean = false,
     val searching: Boolean = false,
     val results: List<Track> = emptyList(),
+    val suggestions: List<labs.rtensor.music.data.SearchSuggestion> = emptyList(),
+    val suggestionsBusy: Boolean = false,
+    val playlists: List<labs.rtensor.music.data.UserPlaylist> = emptyList(),
+    val playlistsBusy: Boolean = false,
+    val playlistLoading: Boolean = false,
+    val playlistMutating: Boolean = false,
+    val playlistError: String? = null,
+    val playlistSelection: labs.rtensor.music.data.UserPlaylist? = null,
+    val playlistTracks: List<Track> = emptyList(),
+    val playlistHasMore: Boolean = false,
+    val actionMessage: String? = null,
     val saved: List<Track> = emptyList(),
     val history: List<Track> = emptyList(),
     val queue: List<Track> = emptyList(),
@@ -103,6 +114,8 @@ data class MusicState(
     val googleError: String? = null,
     val feed: List<FeedSection> = emptyList(),
     val feedBusy: Boolean = false,
+    val homeFilters: List<String> = emptyList(),
+    val homeFilter: String? = null,
     val feedHasMore: Boolean = false,
     /** Songs "More from your feed" added below Home's recommendations, in the order they arrived. */
     val feedMore: List<Track> = emptyList(),
@@ -136,7 +149,7 @@ data class MusicState(
     val sourceMessage: String? = null,
     val tidalAccount: labs.rtensor.music.data.AccountState = labs.rtensor.music.data.AccountState(),
     val appleAccount: labs.rtensor.music.apple.AppleAccountState = labs.rtensor.music.apple.AppleAccountState(),
-)
+) { val playlistBusy: Boolean get() = playlistLoading || playlistMutating }
 
 @UnstableApi
 class MusicViewModel(application: Application) : AndroidViewModel(application) {
@@ -145,6 +158,15 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val initialEvents = listening.events.also { library.reconcileImports(it.map { event -> event.track }) }
     private val googleProfiles = GoogleProfileStore(application)
     private val youtube = YouTubeSource(application)
+    private val devicePlaylists = labs.rtensor.music.data.DevicePlaylists(application)
+    private val youtubePlaylists = labs.rtensor.music.data.YouTubePlaylists(youtube.runtime::call)
+    private var playlistEpoch = 0L
+    private var playlistsJob: Job? = null
+    private var playlistJob: Job? = null
+    private var playlistMutation: Job? = null
+    private val searchSuggestions by lazy { SearchSuggestions(viewModelScope, youtube::suggestions, publish = { query, suggestions, busy ->
+        mutable.update { if (it.query == query) it.copy(suggestions = suggestions, suggestionsBusy = busy) else it }
+    }) }
     private val updater = GitHubUpdater(application)
     private val masters = LocalMasters(application)
     private val sources = PlaybackSources.get(application)
@@ -182,6 +204,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private var controller: MediaController? = null
     private var searchJob: Job? = null
     private var feedJob: Job? = null
+    private var feedRevision = 0L
     private var collectionJob: Job? = null
     private var exploreJob: Job? = null
     private var radio: RadioQueue? = null
@@ -212,7 +235,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         }
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             syncPlayer(includeQueue = true)
-            radio?.request()
+            radio?.followCurrent()
             mutable.update { it.copy(error = null, errorDiagnostic = "") }
         }
         override fun onPlayerError(error: PlaybackException) {
@@ -263,8 +286,13 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             youtube.runtime.account.collect { account ->
                 val changed = account.connected != mutable.value.account.connected || account.revision != mutable.value.account.revision
+                if (changed) {
+                    playlistEpoch++; playlistsJob?.cancel(); playlistJob?.cancel(); playlistMutation?.cancel()
+                    mutable.update { it.copy(playlists = devicePlaylists.lists(), playlistSelection = null, playlistTracks = emptyList(),
+                        playlistsBusy = false, playlistLoading = false, playlistMutating = false, playlistError = null) }
+                }
                 val refresh = changed && mutable.value.recommendationEngine == RecommendationEngine.YOUTUBE
-                mutable.update { it.copy(account = account, feed = if (refresh) emptyList() else it.feed, feedMore = if (refresh) emptyList() else it.feedMore,
+                mutable.update { it.copy(account = account, homeFilters = if (refresh) emptyList() else it.homeFilters, homeFilter = if (refresh) null else it.homeFilter, feed = if (refresh) emptyList() else it.feed, feedMore = if (refresh) emptyList() else it.feedMore,
                     feedEnded = it.feedEnded && !refresh, explore = if (refresh) emptyList() else it.explore) }
                 if (refresh) { clearCarHome(); refreshFeed(); refreshExplore() }
             }
@@ -370,22 +398,30 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         feedJob?.cancel()
         val revision = recommendationRevision
         val engine = mutable.value.recommendationEngine
+        val filter = mutable.value.homeFilter
+        val request = ++feedRevision
         feedJob = viewModelScope.launch {
             mutable.update { it.copy(feedBusy = true, feedError = null) }
             try {
-                val fetch: suspend (Boolean) -> HomeFeed = { next -> if (engine == RecommendationEngine.SPOTIFY) spotify.home() else youtube.home(next) }
+                val fetch: suspend (Boolean) -> HomeFeed = { next -> if (engine == RecommendationEngine.SPOTIFY) spotify.home() else youtube.home(next, filter) }
                 if (more) {
                     val added = loadMoreHomeFeed(mutable.value) { fetch(true) }
-                    if (revision == recommendationRevision) mutable.update { it.withMoreHomeFeed(added).copy(feedBusy = false) }
+                    if (revision == recommendationRevision && request == feedRevision) mutable.update { it.withMoreHomeFeed(added).copy(feedBusy = false) }
                     return@launch
                 }
                 val feed = fetch(false)
-                if (revision != recommendationRevision) return@launch
+                if (revision != recommendationRevision || request != feedRevision) return@launch
                 mutable.update { it.withHomeFeed(feed, engine == RecommendationEngine.SPOTIFY || !it.account.connected || feed.personalized).copy(feedBusy = false) }
                 if (mutable.value.forYou.isEmpty()) refreshForYou()
             } catch (e: CancellationException) { throw e }
-            catch (e: Exception) { if (revision == recommendationRevision) mutable.update { it.copy(feedBusy = false, feedError = catalogueErrorMessage(e, CatalogueMessages.FEED)) } }
+            catch (e: Exception) { if (revision == recommendationRevision && request == feedRevision) mutable.update { it.copy(feedBusy = false, feedError = catalogueErrorMessage(e, CatalogueMessages.FEED)) } }
         }
+    }
+
+    fun homeFilter(value: String?) {
+        if (mutable.value.recommendationEngine != RecommendationEngine.YOUTUBE || value != null && value !in mutable.value.homeFilters) return
+        mutable.update { it.copy(homeFilter = value) }
+        refreshFeed()
     }
 
     fun refreshExplore() {
@@ -477,7 +513,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         recommendationRevision++
         clearCarHome()
         feedJob?.cancel(); exploreJob?.cancel(); forYouJob?.cancel()
-        mutable.update { it.copy(feed = emptyList(), feedMore = emptyList(), feedEnded = false, explore = emptyList(), forYou = emptyList(), feedHasMore = false,
+        mutable.update { it.copy(feed = emptyList(), feedMore = emptyList(), feedEnded = false, homeFilters = emptyList(), homeFilter = null, explore = emptyList(), forYou = emptyList(), feedHasMore = false,
             feedError = null, exploreError = null, feedBusy = false, exploreBusy = false, forYouBusy = false) }
         radio?.changeProvider()
         refreshFeed(); refreshExplore(); refreshForYou()
@@ -647,16 +683,18 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun setQuery(query: String) {
-        if (query.isBlank()) {
-            searchJob?.cancel()
-            // Clearing the search removes only a search failure; a playback or collection error and its Retry stay.
-            mutable.update { it.clearedSearch() }
-        } else mutable.update { it.copy(query = query.take(400)) }
+        val value = query.take(400)
+        searchJob?.cancel()
+        if (value.isBlank()) mutable.update { it.clearedSearch().copy(suggestions = emptyList(), suggestionsBusy = false) }
+        else mutable.update { it.copy(query = value, searched = false, searching = false, results = emptyList()) }
+        searchSuggestions.query(value)
     }
+    fun selectSuggestion(query: String) { setQuery(query); search() }
 
     fun search() {
         val query = mutable.value.query.trim()
         if (query.isBlank()) return
+        searchSuggestions.cancel(mutable.value.query)
         searchJob?.cancel()
         searchJob = viewModelScope.launch {
             mutable.update { it.copy(searching = true, searched = true, error = null, errorDiagnostic = "", results = emptyList()) }
@@ -674,6 +712,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun start(track: Track, queue: List<Track>, startPositionMs: Long) {
         if (library.isRemoved(track)) return
+        searchSuggestions.cancel(mutable.value.query)
         val c = controller ?: run {
             // Keep the request instead of dropping it; it plays once the player has connected.
             pendingPlay = track to queue
@@ -682,7 +721,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         reconnects = 0
-        val ordered = queue.filterNot(library::isRemoved).take(100).let { if (it.any { t -> t.libraryKey() == track.libraryKey() }) it else listOf(track) + it }
+        val ordered = queue.filterNot(library::isRemoved).take(100).let { if (it.any { t -> t.libraryKey() == track.libraryKey() }) it else listOf(track) + it.take(99) }
         suppressedHistoryKey = null
         val selectedIndex = ordered.indexOfFirst { it === track }.takeIf { it >= 0 }
             ?: ordered.indexOfFirst { it.libraryKey() == track.libraryKey() }.coerceAtLeast(0)
@@ -910,12 +949,114 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         if (value) radio?.request() else radio?.reset()
     }
     fun trackHistory(value: Boolean) { library.trackHistory = value; if (!value) listen = null; mutable.update { it.copy(trackHistory = value) } }
-    /** Queue a song to play after the current one. */
-    fun playNext(track: Track) {
-        if (library.isRemoved(track)) return
-        val c = controller ?: return
+    /** Explicit queue choices preserve the current audio and take precedence over generated radio. */
+    fun playNext(track: Track) = queueSong(track, true)
+    fun addToQueue(track: Track) = queueSong(track, false)
+    private fun queueSong(track: Track, next: Boolean) {
+        if (library.isRemoved(track)) { actionMessage("This recording was removed from Music."); return }
+        val c = controller ?: run { actionMessage(PLAYER_STARTING); return }
         if (c.mediaItemCount == 0) { play(track); return }
-        c.addMediaItem(c.currentMediaItemIndex + 1, mediaItem(track)); syncPlayer(includeQueue = true)
+        try {
+            labs.rtensor.music.playback.SongQueueActions.add(c, mediaItem(track), next)
+            syncPlayer(includeQueue = true)
+            actionMessage(if (next) "Playing next: ${track.title}" else "Added to queue: ${track.title}")
+        } catch (e: IllegalArgumentException) { actionMessage(e.message.orEmpty()) }
+    }
+    fun removeQueued(index: Int, expected: Track) {
+        val c = controller ?: return
+        if (index > c.currentMediaItemIndex && index < c.mediaItemCount) {
+            val actual = catalogueCache.read(c.getMediaItemAt(index).mediaMetadata.extras?.getString("catalogue_track"))
+            if (actual?.libraryKey() != expected.libraryKey()) { actionMessage("The queue changed. Open the song options again."); return }
+            c.removeMediaItem(index); syncPlayer(includeQueue = true)
+        }
+    }
+    fun startRadio(track: Track) {
+        if (track.source == Source.LOCAL) { actionMessage("Choose a catalogue song to start radio."); return }
+        if (!mutable.value.autoplay) autoplay(true)
+        play(track)
+    }
+    fun actionMessage(message: String?) { mutable.update { it.copy(actionMessage = message) } }
+
+    private suspend fun syncVideoId(track: Track): String {
+        require(track.source != Source.LOCAL) { "Local files can be added to device playlists. YouTube playlists need a YouTube song." }
+        val resolved = spotifyMatches.resolve(track)
+        return resolved.id.removePrefix("yt:").takeIf { it.matches(Regex("[A-Za-z0-9_-]{11}")) }
+            ?: error("A matching YouTube song could not be identified.")
+    }
+    fun loadPlaylists(selected: Track? = null) {
+        playlistsJob?.cancel()
+        val ticket = playlistEpoch
+        playlistsJob = viewModelScope.launch {
+            val local = withContext(Dispatchers.IO) { devicePlaylists.lists(selected) }
+            mutable.update { it.copy(playlists = local, playlistsBusy = it.account.connected && selected?.source != Source.LOCAL, playlistError = null) }
+            if (!mutable.value.account.connected || selected?.source == Source.LOCAL) return@launch
+            try {
+                val remote = youtubePlaylists.lists(selected?.let { syncVideoId(it) })
+                if (ticket == playlistEpoch) mutable.update { it.copy(playlists = local + remote, playlistsBusy = false) }
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { if (ticket == playlistEpoch) mutable.update { it.copy(playlistsBusy = false, playlistError = e.message ?: "Your YouTube playlists could not be loaded.") } }
+        }
+    }
+    fun closePlaylist() { playlistJob?.cancel(); mutable.update { it.copy(playlistSelection = null, playlistTracks = emptyList(), playlistLoading = false, playlistHasMore = false, playlistError = null) } }
+    fun openPlaylist(playlist: labs.rtensor.music.data.UserPlaylist, more: Boolean = false) {
+        playlistJob?.cancel()
+        val ticket = playlistEpoch
+        playlistJob = viewModelScope.launch {
+            mutable.update { it.copy(playlistSelection = playlist, playlistTracks = if (more) it.playlistTracks else emptyList(), playlistLoading = true, playlistError = null) }
+            try {
+                val page = if (playlist.remote) youtubePlaylists.tracks(playlist.id, more)
+                    else withContext(Dispatchers.IO) { labs.rtensor.music.data.PlaylistPage(devicePlaylists.tracks(playlist.id)) }
+                if (ticket == playlistEpoch) mutable.update { if (it.playlistSelection?.id == playlist.id)
+                    it.copy(playlistTracks = if (more) it.playlistTracks + page.tracks else page.tracks, playlistHasMore = page.hasMore, playlistLoading = false) else it }
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { if (ticket == playlistEpoch) mutable.update { it.copy(playlistLoading = false, playlistError = e.message ?: "The playlist could not be loaded.") } }
+        }
+    }
+    private fun playlistChange(action: suspend () -> String) {
+        if (playlistMutation?.isActive == true) return
+        val ticket = playlistEpoch
+        playlistMutation = viewModelScope.launch {
+            mutable.update { it.copy(playlistMutating = true, playlistError = null) }
+            try {
+                val message = action()
+                if (ticket == playlistEpoch) { mutable.update { it.copy(playlistMutating = false, actionMessage = message) }; loadPlaylists() }
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { if (ticket == playlistEpoch) mutable.update { it.copy(playlistMutating = false, playlistError = e.message ?: "The playlist change could not be confirmed.") } }
+        }
+    }
+    fun createPlaylist(title: String, tracks: List<Track>, remote: Boolean) = playlistChange {
+        require(title.trim().length in 1..150) { "Enter a playlist name of 1–150 characters." }
+        val list = if (remote) {
+            check(mutable.value.account.connected) { "Sign in to YouTube Music to sync a playlist." }
+            youtubePlaylists.create(title.trim(), tracks.map { syncVideoId(it) })
+        } else withContext(Dispatchers.IO) { devicePlaylists.create(title, tracks) }
+        "Created ${list.title}" + if (remote) " · private on YouTube Music" else " · on this device"
+    }
+    fun addToPlaylist(playlist: labs.rtensor.music.data.UserPlaylist, track: Track) = playlistChange {
+        if (playlist.remote) youtubePlaylists.add(playlist.id, syncVideoId(track))
+        else withContext(Dispatchers.IO) { devicePlaylists.add(playlist.id, track) }
+        if (mutable.value.playlistSelection?.id == playlist.id) openPlaylist(playlist)
+        "Added to ${playlist.title}"
+    }
+    fun renamePlaylist(playlist: labs.rtensor.music.data.UserPlaylist, title: String) = playlistChange {
+        if (playlist.remote) youtubePlaylists.rename(playlist.id, title) else withContext(Dispatchers.IO) { devicePlaylists.rename(playlist.id, title) }
+        mutable.update { if (it.playlistSelection?.id == playlist.id) it.copy(playlistSelection = playlist.copy(title = title.trim())) else it }
+        "Playlist renamed"
+    }
+    fun deletePlaylist(playlist: labs.rtensor.music.data.UserPlaylist) = playlistChange {
+        if (playlist.remote) youtubePlaylists.delete(playlist.id) else withContext(Dispatchers.IO) { devicePlaylists.delete(playlist.id) }
+        if (mutable.value.playlistSelection?.id == playlist.id) closePlaylist()
+        "Playlist deleted"
+    }
+    fun removeFromPlaylist(playlist: labs.rtensor.music.data.UserPlaylist, track: Track, index: Int) = playlistChange {
+        if (playlist.remote) youtubePlaylists.remove(playlist.id, track.playlistItemId)
+        else withContext(Dispatchers.IO) { devicePlaylists.remove(playlist.id, index, track.libraryKey()) }
+        openPlaylist(playlist)
+        "Removed from ${playlist.title}"
+    }
+    fun rateSong(track: Track, rating: String) = playlistChange {
+        youtubePlaylists.rate(syncVideoId(track), rating)
+        when (rating) { "LIKE" -> "Liked on YouTube Music"; "DISLIKE" -> "Disliked on YouTube Music"; else -> "YouTube rating removed" }
     }
 
     override fun onCleared() {

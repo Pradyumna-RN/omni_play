@@ -49,6 +49,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
@@ -239,13 +240,15 @@ private fun SongRow(track: Track, index: Int, playing: Boolean, modifier: Modifi
     val look = LocalLook.current
     val scheme = MaterialTheme.colorScheme
     val accent = LocalAccent.current
+    val menus = LocalSongMenus.current
     val description = if (track.artist.isBlank()) track.title else "${track.title} by ${track.artist}"
     Row(modifier.height(RowHeight).then(if (look.soft) Modifier.clip(RoundedCornerShape(14.dp)) else Modifier)
-        .clickable(onClickLabel = "Play", role = Role.Button, onClick = onClick)
+        .songClickable(track, onClick = onClick)
         .clearAndSetSemantics {
             contentDescription = if (playing) "$description, playing" else description
             text = AnnotatedString(track.title); role = Role.Button
             onClick("Play") { onClick(); true }
+            onLongClick("Song options") { menus?.open?.invoke(SongMenuTarget(track)); menus != null }
         }
         .padding(horizontal = if (look.room) 10.dp else 0.dp), verticalAlignment = Alignment.CenterVertically) {
         if (look.classic) {
@@ -288,10 +291,11 @@ private fun TileGrid(tracks: List<Track>, onPlay: (Track) -> Unit) {
 private fun Tile(track: Track, onClick: () -> Unit) {
     val look = LocalLook.current
     val scheme = MaterialTheme.colorScheme
+    val menus = LocalSongMenus.current
     val description = if (track.artist.isBlank()) track.title else "${track.title} by ${track.artist}"
     Column(Modifier.width(TileSize)
-        .clickable(onClickLabel = "Play", role = Role.Button, onClick = onClick)
-        .clearAndSetSemantics { contentDescription = description; text = AnnotatedString(track.title); role = Role.Button; onClick("Play") { onClick(); true } }) {
+        .songClickable(track, onClick = onClick)
+        .clearAndSetSemantics { contentDescription = description; text = AnnotatedString(track.title); role = Role.Button; onClick("Play") { onClick(); true }; onLongClick("Song options") { menus?.open?.invoke(SongMenuTarget(track)); menus != null } }) {
         val frame = Modifier.size(TileSize).clip(look.card).then(
             if (look.classic) Modifier.border(2.dp, scheme.onBackground) else Modifier)
         Artwork(track, frame, size = TileSize)

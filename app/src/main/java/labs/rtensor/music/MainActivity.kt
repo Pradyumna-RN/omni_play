@@ -107,6 +107,13 @@ class MainActivity : ComponentActivity() {
             }
             MusicApp(
                 state = state,
+                songActions = remember { labs.rtensor.music.ui.SongActionCallbacks(
+                    playNext = model::playNext, addToQueue = model::addToQueue, startRadio = model::startRadio, removeQueued = model::removeQueued,
+                    loadPlaylists = model::loadPlaylists, openPlaylist = model::openPlaylist, closePlaylist = model::closePlaylist,
+                    createPlaylist = model::createPlaylist, addToPlaylist = model::addToPlaylist, renamePlaylist = model::renamePlaylist,
+                    deletePlaylist = model::deletePlaylist, removeFromPlaylist = model::removeFromPlaylist, rate = model::rateSong,
+                    connectYouTube = ::connectYouTube, dismissMessage = { model.actionMessage(null) }) },
+                onSuggestion = model::selectSuggestion, onHomeFilter = model::homeFilter,
                 onQuery = model::setQuery, onSearch = model::search,
                 onPlay = model::play, onToggle = model::toggle,
                 onPrevious = model::previous, onNext = model::next, onSkipTo = model::skipTo,

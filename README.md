@@ -4,8 +4,10 @@ Music is a native Android player from RTensorLabs, built around a simple goal:
 
 > **Find what you enjoy, then play the best available matching recording in one app.**
 
-The app keeps the current warm-paper interface, DM Sans typography, original
-provider artwork and raspberry controls. Android 11+ is the supported baseline.
+Choose Listening room, Soft or Classic under Settings → Appearance → Look.
+Soft keeps the warm-paper interface, DM Sans and raspberry controls. All three
+use original provider artwork and share the same playback features. Android 11+
+is the supported baseline.
 
 ## Our goals
 
@@ -49,29 +51,48 @@ those features improve.
 
 ## Quick guide
 
-1. **Install or update.** Get the [current preview release](https://github.com/RTensorLabs/music-app/releases/tag/v0.3.35).
+1. **Install or update.** Get the [current preview release](https://github.com/RTensorLabs/music-app/releases/tag/v0.3.36).
    Existing installations can use **Settings → About → Check updates**.
 2. **Choose recommendations.** Open **Settings → Playback → Recommendation source**.
    YouTube Music is the default. Selecting Spotify starts its sign-in; the choice
    is saved after verification. See the [Spotify guide](SPOTIFY_RECOMMENDATIONS.md).
 3. **Search or browse.** Home, Explore, Mixed for you and automatic Up next follow
-   the selected recommendation service. Search currently uses YouTube.
+   the selected recommendation service. Search uses YouTube, with query and song
+   suggestions as you type. Home also shows the provider's available mixes,
+   albums, artists and community playlists; open a shelf heading to browse it.
+   YouTube mood filters appear when the provider supplies them.
 4. **Add your files or playback sources.** Use **Settings → Sources → Import audio**
    for a file or folder. **Playback sources** contains provider and personal-server
    connections. Supported files can be stereo, lossless or multichannel.
 5. **Compare multichannel playback.** For supported input, the player offers
    **Original** and **Processed**. Stereo plays unchanged. The channel monitor
    appears only after enabling **Settings → About → Developer options**.
-6. **Keep control of your queue.** Individual songs can start provider radio;
+6. **Keep control of your queue.** Hold a song or tap its **⋮** menu for Play next,
+   Add to queue, Start radio, sharing and playlist actions. Explicit additions go
+   ahead of generated radio without restarting the playing song. Individual songs can start provider radio;
    albums, playlists and Play all preserve their explicit order. Changing the
    recommendation source preserves the current song, position and manual queue,
    replacing only future automatically generated tracks.
+7. **Make playlists.** Open **Library → Playlists**, create one from a song's menu,
+   or use **Save queue as playlist** in Up next. New online-song playlists default
+   to private YouTube Music sync and require the connected YouTube account. You
+   can choose a device-only playlist instead. Add, rename, remove a song or delete
+   a playlist; account changes are reported only after YouTube confirms them.
+   Local audio stays in device playlists and is never uploaded. Playlist details
+   load in pages: **Load more songs** extends them; Play loaded songs plays the
+   loaded portion, up to the queue's 100-song limit.
+
+**Saved in Music and YouTube likes are separate.** The heart saves a recording
+inside Music. For account likes, use **Like on YouTube Music**, **Dislike on
+YouTube Music** or **Remove YouTube rating** in the song menu. Device playlists
+are not automatically uploaded when you connect an account.
 
 ## What is ready and what is still a goal?
 
 | Area | Current position |
 | --- | --- |
 | Android player, Saved, history and local imports | Implemented, with automated regression coverage. |
+| Song menus, search suggestions and playlists | Implemented with fixture and Android host tests. YouTube playlist writes and ratings still need a signed-in device check. |
 | YouTube Music recommendations | Implemented, with provider radio rather than history copied into Up next. |
 | Spotify recommendations and collections | Experimental metadata integration. Public catalogue requests and browser tests pass; signed-in personalisation and phone performance still need verification. |
 | Local multichannel audio and DMR | Integrated. Host tests cover the real decoder/renderer path, stereo bypass and comparison switching. |
@@ -91,12 +112,13 @@ surround bed to DMR; this does not recover the full Atmos object scene. Discover
 metadata, a successful sign-in or an album badge does not prove the audio format.
 See [verification and current limits](VERIFICATION.md).
 
-The current UI builds on **Signal**, with compact Home recommendations, rounded
-player artwork and a centred round Play button. The default accent follows the
-cover; fixed accent choices are available in Settings. Home separates the last
-song, recommendations shaped by listening, and new-to-history songs. Collections
-stay in Explore. Android Auto shares the phone's playback engine, library and
-provider routing. See [verification and current limits](VERIFICATION.md).
+**Listening room** is the default look, with cover colours and a room panel.
+**Soft** has rounded artwork, a centred transport row and Like beside the song
+information; **Classic** retains the Signal design. Home separates the last song,
+recommendations shaped by listening and new-to-history songs, with additional
+provider shelves available below and in the full feed. Android Auto shares the
+phone's playback engine, library and provider routing. See
+[verification and current limits](VERIFICATION.md).
 
 [Shareable layout review](https://music-layout-review.chalkybongo1.chatgpt.site):
 smaller Home covers and three player options. This is a design prototype; it
@@ -115,7 +137,11 @@ flowchart TB
     UI["Compose interface<br/>Home / Explore / Library<br/>Player / Settings"]
     VM["MusicViewModel<br/>Screen state and queue actions"]
     UI <-->|"Actions / state"| VM
-    VM <--> STORE["Local library and settings<br/>Saved songs / history / files"]
+    VM <--> STORE["Local library and settings<br/>Saved songs / history / files / device playlists"]
+    UI -->|"Hold song / menu"| ACTIONS["Song actions<br/>Play next / add queue / playlists / ratings"]
+    ACTIONS --> VM
+    VM <--> LISTS["YouTube playlists<br/>Private create / add / exact-occurrence remove / rename / delete"]
+    LISTS <--> ENGINE
     VM <--> YT["YouTube data layer<br/>Catalogue and stream URLs"]
     VM --> RADIO["RadioQueue<br/>Provider recommendations / cancellation"]
     VM <--> RECS["Recommendation source<br/>YouTube Music / Spotify"]
@@ -150,7 +176,9 @@ The ViewModel uses local listening history only to choose seeds for Mixed for yo
 YouTube candidates retain the existing on-device ranking; Spotify pools retain
 provider order. Up next comes from the selected provider through `RadioQueue`, preserving provider order
 and excluding already-queued songs. Individual selections seed radio; explicit
-albums/playlists and Play all keep their lists. History is not an autoplay pool.
+albums/playlists and Play all keep their lists. History is not an autoplay pool. Play next and Add to queue keep manual choices
+ahead of the generated tail. Moving to a manually chosen song reseeds radio;
+late results for the previous seed cannot replace it.
 The catalogue item keeps its YouTube or Spotify discovery identity, artwork
 and history when another source supplies the audio. Matching checks title, artist, duration and edition.
 Available candidates rank **JOC first → discrete lossless multichannel → lossless
@@ -290,7 +318,7 @@ code. The Android installer asks the user to confirm installation.
 
 ## Current release
 
-[Music 0.3.35](https://github.com/RTensorLabs/music-app/releases/tag/v0.3.35)
+[Music 0.3.35](https://github.com/RTensorLabs/music-app/releases/tag/v0.3.36)
 adds a choice of three looks (Listening room, the new default; Soft, the original
 rounded design; and Classic), recommendation shelves on Home, the 0.3.32-style
 "More from your feed", player and notification fixes, and clearer sign-in errors.

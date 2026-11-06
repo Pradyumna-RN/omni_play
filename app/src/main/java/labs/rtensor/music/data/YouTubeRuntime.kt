@@ -68,6 +68,12 @@ class YouTubeRuntime private constructor(context: Context) {
             if (method == "resolve" && !args.optBoolean("background")) mutableProblem.value = PlaybackProblem(args.optString("videoId"), error.message.orEmpty(), error.code, "resolve: TIMEOUT")
             throw error
         }
+        catch (cancelled: CancellationException) {
+            if (method == "suggestions") withContext(NonCancellable + Dispatchers.Main.immediate) {
+                webView?.evaluateJavascript("musicCancelSuggestions(${JSONObject.quote(id)})", null)
+            }
+            throw cancelled
+        }
         finally { pending.remove(id) }
     }
     fun reportPlaybackHttpFailure(videoId: String, status: Int, paths: Collection<String> = emptyList()) {

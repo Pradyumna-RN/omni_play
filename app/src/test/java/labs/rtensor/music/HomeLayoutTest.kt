@@ -54,9 +54,15 @@ class HomeLayoutTest {
             CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale)) { MusicApp(state.value, initialPage = "explore") }
         }
         val originalTop = top("Next row")
-        for (index in listOf(8, 0, 8)) {
+        // Ten songs are shown in three four-row columns; the last column has two blanks.
+        for (index in listOf(2, 0, 2)) {
             compose.onAllNodes(horizontal).onFirst().performScrollToIndex(index)
-            assertEquals("A newly visible title/artist must not resize its song row", originalTop, top("Next row"), .5f)
+            assertEquals("Long text and a shorter final column must not resize the shelf", originalTop, top("Next row"), .5f)
+            if (index == 2) {
+                val layouts = mutableListOf<TextLayoutResult>()
+                compose.onNodeWithText(longTitle).performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+                assertTrue("Shelf metadata stays on one line", layouts.isNotEmpty() && layouts.all { it.lineCount == 1 })
+            }
         }
         // Artist details can arrive later for the same song identities.
         compose.runOnIdle {

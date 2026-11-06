@@ -135,7 +135,7 @@ internal fun ListeningRoom(state: MusicState, levels: StateFlow<AudioLevelFrame?
                 Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(8.dp).clip(RoundedCornerShape(14.dp))
                     // A dark glass under the song keeps its text readable over the brightest glow.
                     .background(RoomStage.copy(alpha = RoomScrim))
-                    .clickable(role = Role.Button, onClick = onOpen)
+                    .songClickable(track, onClick = onOpen)
                     .semantics { contentDescription = "Open the player: ${track.title}, $detail" }
                     .padding(6.dp),
                 verticalAlignment = Alignment.CenterVertically,

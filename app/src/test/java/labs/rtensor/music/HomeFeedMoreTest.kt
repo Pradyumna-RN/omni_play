@@ -131,4 +131,23 @@ class HomeFeedMoreTest {
         val feed = PagedFeed(listOf(firstPage, listOf(song("p2-0")), listOf(song("p3-0"))))
         assertTrue(track("p2-0") in carHomeTracks(tap(start(feed), feed)))
     }
+    @Test fun aCollectionOnlyPageAddsItsShelfWithoutEndingTheFeed() {
+        val newList = playlist.copy(id = "new-playlist", title = "Community mix", browseId = "VLnew-playlist")
+        val feed = PagedFeed(listOf(firstPage, listOf(newList), listOf(song("p3-0"))))
+        val before = start(feed)
+        val after = tap(before, feed)
+        assertEquals(listOf(0, 1), feed.served)
+        assertEquals(before.feed + FeedSection("Page 1", listOf(newList)), after.feed)
+        assertTrue(after.feedHasMore)
+        assertFalse(after.feedEnded)
+        assertEquals(before.feedMore, after.feedMore)
+        assertEquals(listOf(track("p3-0")), tap(after, feed).feedMore)
+    }
+    @Test fun refreshReplacesMoodFiltersAndTheirSelection() {
+        val before = MusicState(homeFilters = listOf("Relax"), homeFilter = "Relax")
+        val refreshed = before.withHomeFeed(HomeFeed(emptyList(), hasMore = false, filters = listOf("Energise")), personalized = false)
+        assertEquals(listOf("Energise"), refreshed.homeFilters)
+        assertNull(refreshed.homeFilter)
+    }
+
 }

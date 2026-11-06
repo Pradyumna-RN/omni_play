@@ -1,0 +1,92 @@
+package labs.rtensor.music.ui
+
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.PlayArrow
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import labs.rtensor.music.MusicState
+import labs.rtensor.music.data.FeedEntry
+import labs.rtensor.music.data.FeedSection
+import labs.rtensor.music.data.Track
+
+internal val LocalFeedSectionOpen = staticCompositionLocalOf<(FeedSection?) -> Unit> { {} }
+internal val LocalPlaySongs = staticCompositionLocalOf<(Track, List<Track>) -> Unit> { { _, _ -> } }
+internal val LocalHomeFilterSelect = staticCompositionLocalOf<(String?) -> Unit> { {} }
+
+@Composable
+internal fun ProviderFilters(state: MusicState) {
+    if (state.homeFilters.isEmpty()) return
+    val select = LocalHomeFilterSelect.current
+    LazyRow(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        item { FilterChip(state.homeFilter == null, { select(null) }, label = { Text("All") }) }
+        itemsIndexed(state.homeFilters, key = { i, title -> "$i:$title" }) { _, title ->
+            FilterChip(state.homeFilter == title, { select(title) }, label = { Text(title) })
+        }
+    }
+}
+
+/** Real provider sections and item order. No invented mixes, genres or community playlists. */
+internal fun LazyListScope.providerShelves(sections: List<FeedSection>, onEntry: (FeedEntry) -> Unit, gap: Dp = 20.dp) {
+    itemsIndexed(sections, key = { i, section -> "provider-shelf:$i:${section.title}" }) { _, section ->
+        val open = LocalFeedSectionOpen.current
+        val play = LocalPlaySongs.current
+        val songs = remember(section) { section.items.filter { it.videoId.isNotBlank() || it.kind == "spotify_track" }.map(FeedEntry::asTrack) }
+        Column(Modifier.fillMaxWidth().padding(top = gap)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = { open(section) }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(0.dp)) {
+                    Text(section.title, Modifier.weight(1f).semantics { heading() }, fontSize = 21.sp, fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface)
+                    Text("›", fontSize = 26.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                if (songs.isNotEmpty()) TextButton(onClick = { play(songs.first(), songs) }) {
+                    Icon(Icons.Outlined.PlayArrow, null, Modifier.size(16.dp)); Text("Play all", fontSize = 12.sp)
+                }
+            }
+            if (songs.size == section.items.size && songs.size >= 3) {
+                BoxWithConstraints(Modifier.fillMaxWidth()) {
+                    val width = minOf(maxWidth, 310.dp)
+                    val rowHeight = 24.5.dp + maxOf(48.dp, (35 * LocalDensity.current.fontScale + 3).dp)
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                        itemsIndexed(songs.chunked(4), key = { i, _ -> i }) { _, group ->
+                            Column(Modifier.width(width)) {
+                                repeat(4) { index ->
+                                    val track = group.getOrNull(index)
+                                    if (track == null) Spacer(Modifier.height(rowHeight))
+                                    else TrackRow(track, false, false, { play(track, listOf(track)) }, null, Modifier.height(rowHeight), singleLine = true)
+                                }
+                            }
+                        }
+                    }
+                }
+            } else LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                itemsIndexed(section.items, key = { i, entry -> "$i:${entry.id}" }) { _, entry ->
+                    val song = entry.takeIf { it.videoId.isNotBlank() || it.kind == "spotify_track" }?.asTrack()
+                    val artwork = song ?: Track(entry.id, entry.title, entry.subtitle, "", entry.artwork)
+                    Column(Modifier.width(140.dp).clip(LocalLook.current.art)
+                        .then(if (song != null) Modifier.songClickable(song) { onEntry(entry) } else Modifier.clickable { onEntry(entry) })) {
+                        Artwork(artwork, Modifier.size(140.dp).clip(LocalLook.current.art), size = 140.dp)
+                        Text(entry.title, Modifier.padding(top = 8.dp), maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium, fontSize = 13.sp)
+                        Text(entry.subtitle, Modifier.padding(top = 3.dp), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                    }
+                }
+            }
+        }
+    }
+}

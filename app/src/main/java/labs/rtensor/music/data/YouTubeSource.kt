@@ -8,10 +8,14 @@ class YouTubeSource(context: Context) {
     suspend fun metadata(track: Track) {
         if (track.source == Source.YOUTUBE) runtime.call("metadata", JSONObject().put("videoId", track.id.removePrefix("yt:")))
     }
+    suspend fun suggestions(query: String): List<SearchSuggestion> {
+        val data = runtime.call("suggestions", JSONObject().put("query", query)).getJSONArray("suggestions")
+        return (0 until data.length()).map { i -> data.getJSONObject(i).let { SearchSuggestion(it.getString("text"), it.optJSONObject("track")?.let(Track::fromJson)) } }
+    }
     suspend fun search(query: String): List<Track> = tracks(runtime.call("search", JSONObject().put("query", query)))
     suspend fun collection(entry: FeedEntry): List<Track> = tracks(runtime.call("collection", JSONObject().put("id", entry.browseId).put("kind", entry.kind)))
-    suspend fun home(more: Boolean = false): HomeFeed {
-        return feed(runtime.call("home", JSONObject().put("more", more)))
+    suspend fun home(more: Boolean = false, filter: String? = null): HomeFeed {
+        return feed(runtime.call("home", JSONObject().put("more", more).put("filter", filter)))
     }
     /** YouTube Music's radio for a song: the same up-next mix its own player continues with. */
     suspend fun radio(track: Track, exclude: Collection<String> = emptyList()): List<Track> {
@@ -31,7 +35,9 @@ class YouTubeSource(context: Context) {
         return HomeFeed((0 until sections.length()).map { i ->
             val s = sections.getJSONObject(i); val items = s.getJSONArray("items")
             FeedSection(s.getString("title"), (0 until items.length()).map { FeedEntry.parse(items.getJSONObject(it)) })
-        }, data.optBoolean("hasMore"), data.optBoolean("signedIn"), data.optBoolean("personalized"))
+        }, data.optBoolean("hasMore"), data.optBoolean("signedIn"), data.optBoolean("personalized"),
+            data.optJSONArray("filters")?.let { filters -> (0 until filters.length()).map { filters.getString(it) } }.orEmpty(),
+            data.optString("selectedFilter").takeUnless { it.isBlank() || it == "null" })
     }
 
     suspend fun resolve(track: Track, forceProof: Boolean = false, background: Boolean = false, rejectedPaths: Collection<String> = emptyList(), requiredFormat: ResolvedAudio? = null): ResolvedAudio {

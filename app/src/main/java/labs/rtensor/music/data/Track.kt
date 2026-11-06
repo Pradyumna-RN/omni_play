@@ -14,6 +14,8 @@ data class Track(
     val source: Source = Source.YOUTUBE,
     /** Discovery identity; the audio URL/source above still names the actual recording. */
     val spotifyId: String = "",
+    /** YouTube playlist occurrence; never part of the recording/cache identity. */
+    val playlistItemId: String = "",
 ) {
     /** Imports of the same document share an identity even if an older build used another id. */
     fun libraryKey(): String = if (source == Source.LOCAL) "local:$url" else if (spotifyId.isNotBlank()) "spotify:$spotifyId" else id.removePrefix("yt:")
@@ -23,6 +25,7 @@ data class Track(
         put("url", url); put("artwork", artwork); put("durationMs", durationMs)
         put("source", source.name)
         if (spotifyId.isNotBlank()) put("spotifyId", spotifyId)
+        if (playlistItemId.isNotBlank()) put("playlistItemId", playlistItemId)
     }
 
     companion object {
@@ -34,6 +37,7 @@ data class Track(
             artwork = o.optString("artwork"), durationMs = o.optLong("durationMs"),
             source = runCatching { Source.valueOf(o.optString("source")) }.getOrDefault(Source.YOUTUBE),
             spotifyId = o.optString("spotifyId").takeIf { it.matches(SpotifyId) }.orEmpty(),
+            playlistItemId = o.optString("playlistItemId"),
         )
     }
 }

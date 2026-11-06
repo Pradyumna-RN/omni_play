@@ -27,11 +27,12 @@ internal class RadioQueue(
 ) {
     private var job: Job? = null
     private var generation = 0L
+    private var fetchingSeed: String? = null
     private val tried = mutableSetOf<String>()
 
     fun reset() {
         generation++
-        job?.cancel(); job = null; tried.clear()
+        job?.cancel(); job = null; tried.clear(); fetchingSeed = null
         status(false, null)
     }
 
@@ -50,6 +51,26 @@ internal class RadioQueue(
         request()
     }
 
+    /** A manually selected next song must seed its own radio, rather than inherit the old song's tail. */
+    fun followCurrent() {
+        val current = player.currentMediaItem
+        val seed = track(current)
+        if (seed != null && current?.mediaMetadata?.extras?.getString(GENERATED) == null) {
+            val stale = (fetchingSeed != null && fetchingSeed != seed.libraryKey()) || (player.currentMediaItemIndex + 1 until player.mediaItemCount).any {
+                val extras = player.getMediaItemAt(it).mediaMetadata.extras
+                extras?.getString(GENERATED) != null && extras.getString(SEED) != seed.libraryKey()
+            }
+            if (stale) {
+                reset()
+                for (i in player.mediaItemCount - 1 downTo player.currentMediaItemIndex + 1)
+                    if (player.getMediaItemAt(i).mediaMetadata.extras?.getString(GENERATED) != null) player.removeMediaItem(i)
+                request(force = true)
+                return
+            }
+        }
+        request()
+    }
+
     fun request(force: Boolean = false) {
         if (!enabled() || job?.isActive == true || player.mediaItemCount == 0 || player.mediaItemCount >= LIMIT) return
         if (!force && player.currentMediaItemIndex < player.mediaItemCount - 2) return
@@ -57,6 +78,7 @@ internal class RadioQueue(
         val key = seed.libraryKey()
         if (!tried.add(key)) return
         val version = generation
+        fetchingSeed = key
         val next = scope.launch(start = CoroutineStart.LAZY) {
             status(true, null)
             try {
@@ -83,7 +105,7 @@ internal class RadioQueue(
                     val firstAdded = player.mediaItemCount
                     player.addMediaItems(added.map { candidate ->
                         val item = mediaItem(candidate)
-                        val extras = android.os.Bundle(item.mediaMetadata.extras ?: android.os.Bundle()).apply { putString(GENERATED, providerLabel()) }
+                        val extras = android.os.Bundle(item.mediaMetadata.extras ?: android.os.Bundle()).apply { putString(GENERATED, providerLabel()); putString(SEED, key) }
                         item.buildUpon().setMediaMetadata(item.mediaMetadata.buildUpon().setExtras(extras).build()).build()
                     })
                     if (finished && player.playWhenReady) player.seekToDefaultPosition(firstAdded)
@@ -97,7 +119,7 @@ internal class RadioQueue(
                     tried.remove(key)
                     status(false, "Couldn’t load ${providerLabel()} recommendations. Check the account or connection and retry.")
                 }
-            }
+            } finally { if (version == generation) fetchingSeed = null }
         }
         job = next
         next.start()
@@ -107,5 +129,5 @@ internal class RadioQueue(
         item?.mediaMetadata?.extras?.getString("catalogue_track")?.let { Track.fromJson(JSONObject(it)) }
     }.getOrNull()
 
-    private companion object { const val LIMIT = 100; const val GENERATED = "music_radio_provider" }
+    private companion object { const val LIMIT = 100; const val GENERATED = "music_radio_provider"; const val SEED = "music_radio_seed" }
 }

@@ -250,4 +250,29 @@ class PlayerMotionTest {
         compose.onNodeWithText(three.title).assertIsDisplayed()
         capture("player-compact-large-text")
     }
+    @Test fun softSkipAnimationUsesTheNewQueueIndexWhenTheSameSongWasRequeued() {
+        compose.mainClock.autoAdvance = false
+        val state = mutableStateOf(initial().copy(current = three, queueIndex = 2, look = labs.rtensor.music.data.LookChoice.SOFT))
+        var nextCalls = 0
+        compose.setContent { MusicApp(state.value, initialPage = "now", onNext = {
+            nextCalls++; state.value = state.value.copy(current = two, queueIndex = 1)
+        }, onPrevious = { state.value = state.value.copy(current = three, queueIndex = 0) }) }
+        frame(32)
+        val settled = x(cover(three))
+        // Starting the same recording on its own resets the queue index without changing its id.
+        compose.runOnIdle { state.value = state.value.copy(queue = listOf(three, two), queueIndex = 0) }
+        frame(32)
+        compose.onNodeWithContentDescription("Next").performClick()
+        frame(32)
+        assertEquals(1, nextCalls)
+        assertTrue("Next must arrive from the right after requeueing", x(cover(two)) > settled + 1f)
+        frame(400)
+        assertEquals(settled, x(cover(two)), .5f)
+        compose.onNodeWithContentDescription("Previous").performClick()
+        frame(32)
+        assertTrue("Previous must arrive from the left", x(cover(three)) < settled - 1f)
+        frame(400)
+        assertEquals(settled, x(cover(three)), .5f)
+    }
+
 }

@@ -1,3 +1,39 @@
+# Music 0.3.36 / song actions, playlists and player motion
+
+- Long-press songs or use their menu for Play next, Add to queue, Start radio,
+  Save, playlist actions, sharing, copying a link and artist search. Up next
+  supports removing a future item and saving the queue as a playlist.
+- Library has device playlists and connected YouTube Music playlists. New synced
+  playlists are private. Account mutations await provider acknowledgement; removal
+  uses the playlist occurrence ID so repeated songs are not confused. Deleting a
+  playlist requires confirmation and never deletes its audio recordings. Local
+  files stay in device playlists. Playlist contents load in pages; playback uses
+  the loaded portion within the 100-item queue limit.
+- Search offers real YouTube query/song suggestions after a short debounce.
+  Editing cancels obsolete HTTP requests and discards late results; failed
+  suggestions leave ordinary search available.
+- Home exposes genuine provider shelves and YouTube mood filters when supplied,
+  including mixes, albums, artists and community collections. Provider item order
+  is preserved. Collection-only continuation pages remain visible.
+- Explicit queue choices take priority over generated radio. Selecting a new
+  manual song reseeds the selected provider's radio, with old requests cancelled.
+  History is not used as the Up next queue.
+- Soft restores the centred Previous / Play / Next row, with Like by the song
+  information. Like feedback stays circular; play/pause icons have fixed bounds.
+  A reproduced cover-motion bug after requeueing the same song is fixed: the next
+  transition uses its current queue position, not the old position.
+
+Validation counts and release-binary checks are recorded in the release's
+`decoder-validation.json`. Tests include the actual bundled YouTube JavaScript
+against fixture endpoints, Android Compose screenshots and frame assertions,
+playlist persistence, acknowledgement/error cases and queue cancellation. No
+physical phone or live signed-in YouTube account was used: playlist sync, account
+ratings, provider availability and device frame rate still need device validation.
+Native decoder, private DSP, Apple runtime and Spotify catalogue bundle are
+unchanged from 0.3.35. Android 11+, ARM64/x86-64, existing OTA signing identity.
+
+## Previous release baseline
+
 # Music 0.3.35 / looks, Home shelves, player and sign-in fixes
 
 - **Three looks** (Settings › Appearance › Look): Listening room (new default; dark first,

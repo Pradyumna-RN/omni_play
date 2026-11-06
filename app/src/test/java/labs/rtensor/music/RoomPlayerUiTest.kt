@@ -59,7 +59,7 @@ class RoomPlayerUiTest {
         pill.assertIsOn().assertIsEnabled()
         compose.onNodeWithText("Original", substring = true).assertExists()
         compose.onNodeWithText("Processed · 5.1", substring = true).assertExists()
-        compose.onAllNodes(isToggleable()).assertCountEquals(1)
+        compose.onAllNodes(isToggleable() and hasContentDescription("Processed audio")).assertCountEquals(1)
         pill.performClick().assertIsOff()
         compose.onNodeWithText("Switching to original…").performScrollTo().assertIsDisplayed()
         compose.runOnIdle { state.value = state.value.copy(audioProcessing = state.value.audioProcessing.copy(

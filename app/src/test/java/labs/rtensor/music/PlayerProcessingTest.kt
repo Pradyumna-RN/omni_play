@@ -58,7 +58,7 @@ class PlayerProcessingTest {
     @Test fun playerOffersOnlyOriginalAndProcessedForTheUnmodifiedSurroundBed() {
         compose.setContent { MusicApp(initial(DownmixReport(48000, surround)), initialPage = "now") }
         compose.onNodeWithContentDescription("Processed audio").performScrollTo().assertIsOn().assertIsEnabled()
-        compose.onAllNodes(isToggleable()).assertCountEquals(1)
+        compose.onAllNodes(isToggleable() and hasContentDescription("Processed audio")).assertCountEquals(1)
         compose.onNodeWithText("Processed · 5.1", substring = true).assertExists()
         compose.onNodeWithContentDescription("Spatial headphone audio").assertDoesNotExist()
         compose.onNodeWithText("6 channels → stereo").assertIsDisplayed()

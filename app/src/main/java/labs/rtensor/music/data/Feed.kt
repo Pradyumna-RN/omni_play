@@ -12,4 +12,4 @@ data class FeedEntry(val id: String, val title: String, val subtitle: String,
 }
 data class FeedSection(val title: String, val items: List<FeedEntry>)
 /** [personalized] is false when YouTube answered as signed out even though an account is connected. */
-data class HomeFeed(val sections: List<FeedSection>, val hasMore: Boolean, val signedIn: Boolean = false, val personalized: Boolean = false)
+data class HomeFeed(val sections: List<FeedSection>, val hasMore: Boolean, val signedIn: Boolean = false, val personalized: Boolean = false, val filters: List<String> = emptyList(), val selectedFilter: String? = null)

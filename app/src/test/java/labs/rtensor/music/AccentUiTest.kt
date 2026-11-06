@@ -6,6 +6,7 @@ import androidx.activity.ComponentActivity
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -94,8 +95,11 @@ class AccentUiTest {
             assertTrue("$choice $theme Play fill", close(pixel(image, button.center.x - 22, button.center.y), expected.accent))
             assertTrue("$choice $theme Play glyph", anyPixel(image, Rect(button.center.x - 12, button.center.y - 12, button.center.x + 12, button.center.y + 12), expected.onAccent))
             val heart = bounds(compose.onNodeWithContentDescription("Saved"))
-            assertTrue("$choice $theme heart fill", close(pixel(image, heart.left + 6, heart.top + 6), expected.accent))
-            assertTrue("$choice $theme heart icon", anyPixel(image, Rect(heart.center.x - 12, heart.center.y - 12, heart.center.x + 12, heart.center.y + 12), expected.onAccent))
+            // The separate Like control has a subtle circular wash and an accent-coloured icon.
+            val behindHeart = Color(pixel(image, heart.left + 1, heart.top + 1))
+            val heartFill = expected.accent.copy(alpha = .14f).compositeOver(behindHeart)
+            assertTrue("$choice $theme heart fill", close(pixel(image, heart.left + 6, heart.center.y), heartFill))
+            assertTrue("$choice $theme heart icon", anyPixel(image, Rect(heart.center.x - 12, heart.center.y - 12, heart.center.x + 12, heart.center.y + 12), expected.accent))
             save(image, "player-accent-${choice.wire}-$theme")
             image.recycle()
         }

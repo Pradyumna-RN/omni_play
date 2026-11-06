@@ -1,5 +1,6 @@
 import { Innertube, Player, Platform, Log, Constants, ClientType } from 'youtubei.js/web';
 import { track, sections, safeError, largestArtwork, isMusic, audioVersion } from './mapping.mjs';
+import { createLibraryActions, libraryMethods, searchSuggestions } from './library-actions.mjs';
 import { evaluatePlayer } from './evaluator.mjs';
 import { nativeTransport } from './transport.mjs';
 import { readYtConfig, playerFailure } from './web-config.mjs';
@@ -15,8 +16,9 @@ const transportFetch = nativeTransport(native, 'musicHttpResult');
 // What YouTube said about the last music browse: a saved session that comes back
 // "loggedOut" means the feed is generic, not the account's own.
 let lastMusicLoggedOut = null;
+let desiredSuggestions = null;
 const MUSIC_ORIGIN = 'https://music.youtube.com';
-const MUSIC_PATHS = /^\/youtubei\/v1\/(browse|next|search|music\/get_search_suggestions)$/;
+const MUSIC_PATHS = /^\/youtubei\/v1\/(browse|next|search|music\/get_search_suggestions|browse\/edit_playlist|playlist\/(create|delete|get_add_to_playlist)|like\/(like|dislike|removelike))$/;
 /**
  * YouTube Music's own web client talks to music.youtube.com. Sending its requests to
  * www.youtube.com with a www-signed SAPISIDHASH can come back as a signed-out,
@@ -26,8 +28,14 @@ const nativeFetch = async (input, init = {}) => {
   const req = input instanceof Request ? input : new Request(input, init);
   const url = new URL(req.url);
   const body = typeof init.body === 'string' ? init.body : null;
+  let cancelKey;
+  if (url.pathname.endsWith('/music/get_search_suggestions')) {
+    let input; try { input = JSON.parse(body || '{}').input; } catch { /* handled by the provider parser */ }
+    if (!desiredSuggestions || input !== desiredSuggestions.query) throw new DOMException('Stale suggestions', 'AbortError');
+    cancelKey = 'suggestions:' + desiredSuggestions.id;
+  }
   if (url.origin !== 'https://www.youtube.com' || !MUSIC_PATHS.test(url.pathname) || !body || !body.includes('"clientName":"WEB_REMIX"'))
-    return transportFetch(input, init);
+    return transportFetch(input, { ...init, ...(cancelKey ? { cancelKey } : {}) });
   const headers = new Headers(init.headers || req.headers);
   headers.set('Origin', MUSIC_ORIGIN); headers.set('X-Origin', MUSIC_ORIGIN); headers.set('Referer', MUSIC_ORIGIN + '/');
   const cookie = savedSession()?.cookie;
@@ -36,13 +44,14 @@ const nativeFetch = async (input, init = {}) => {
     if (auth) headers.set('Authorization', auth);
   }
   url.host = 'music.youtube.com';
-  const response = await transportFetch(url.toString(), { method: req.method, headers, body });
+  const response = await transportFetch(url.toString(), { method: req.method, headers, body, signal: req.signal, ...(cancelKey ? { cancelKey } : {}) });
   if (url.pathname.endsWith('/browse') && response.ok) {
     try { const data = await response.clone().json(); const flag = data?.responseContext?.mainAppWebResponseContext?.loggedOut; if (typeof flag === 'boolean') lastMusicLoggedOut = flag; }
     catch { /* The provider parser reports unreadable bodies. */ }
   }
   return response;
 };
+let homeFilters = [], activeHomeFilter = null;
 let tubePromise, homeFeed, feedRequest = 0, playerPromise, playerScript = '', webConfigPromise, challengePromise, challengeExpires = 0, dataSyncId = '', accountProfilePromise;
 let contentBoundGvs = { YTMUSIC: false, WEB: false };
 // The last path confirmed by native playback, never a speculative/preloaded URL.
@@ -444,10 +453,25 @@ function sharedResolve(api, id, forceProof, rejectedPaths, requiredFormat) {
   if (!resolving.has(key)) resolving.set(key, resolve(api, id, forceProof, rejectedPaths, requiredFormat).finally(() => resolving.delete(key)));
   return resolving.get(key);
 }
+const libraryActions = createLibraryActions();
+globalThis.musicCancelSuggestions = id => {
+  if (desiredSuggestions?.id === id) desiredSuggestions = null;
+  transportFetch.cancel('suggestions:' + id);
+};
 globalThis.musicCall = async (id, method, args) => {
+  if (method === 'suggestions') {
+    if (desiredSuggestions) transportFetch.cancel('suggestions:' + desiredSuggestions.id);
+    desiredSuggestions = { id, query: String(args.query || '').trim().slice(0, 400) };
+  }
   try {
     const api = await tube(); let result;
+    if (libraryMethods.has(method)) {
+      native.result(id, JSON.stringify(await libraryActions(api, method, args))); return;
+    }
     switch (method) {
+      case 'suggestions':
+        if (desiredSuggestions?.id !== id) throw new DOMException('Stale suggestions', 'AbortError');
+        result = await searchSuggestions(api, args.query); break;
       case 'search': result = { tracks: await search(api, args.query) }; break;
       case 'resolve': {
         const rejected = Array.isArray(args.rejectedPaths) ? [...new Set(args.rejectedPaths.filter(p => PLAYBACK_PATHS.includes(p)))].sort() : [];
@@ -467,10 +491,18 @@ globalThis.musicCall = async (id, method, args) => {
       case 'verify-session': result = await accountProfile(api); break;
       case 'home': {
         const request = ++feedRequest;
-        const page = args.more && homeFeed?.has_continuation ? await homeFeed.getContinuation() : await api.music.getHomeFeed();
-        if (request === feedRequest) homeFeed = page;
+        let page, filters = homeFilters, selected = activeHomeFilter;
+        if (args.more && homeFeed?.has_continuation) page = await homeFeed.getContinuation();
+        else {
+          page = await api.music.getHomeFeed(); filters = page.filters || []; selected = args.filter || null;
+          if (selected) {
+            if (!filters.includes(selected)) throw failure('FEED_FILTER', 'This YouTube Music category is no longer available. Choose All to load the current categories.');
+            page = await page.applyFilter(selected);
+          }
+        }
+        if (request === feedRequest) { homeFeed = page; homeFilters = filters; activeHomeFilter = selected; }
         const signedIn = !!api.session.logged_in;
-        result = { sections: sections(page), hasMore: !!page.has_continuation, signedIn,
+        result = { sections: sections(page), hasMore: !!page.has_continuation, signedIn, filters, selectedFilter: selected,
           personalized: signedIn && lastMusicLoggedOut !== true }; break;
       }
       case 'radio': {
