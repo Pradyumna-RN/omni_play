@@ -140,6 +140,8 @@ data class MusicState(
     val exploreError: String? = null,
     val collection: List<Track> = emptyList(),
     val collectionEntry: FeedEntry? = null,
+    val collectionSections: List<FeedSection> = emptyList(),
+    val collectionBrowseError: String? = null,
     val collectionBusy: Boolean = false,
     val collectionHasMore: Boolean = false,
     val update: UpdateState = UpdateState(),
@@ -177,6 +179,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val spotify = SpotifyRecommendations(application)
     private val spotifyMatches = SpotifyTrackMatcher.get(application)
     private var recommendationRevision = 0L
+    private val collectionHistory = CollectionBrowsingHistory()
     private var collectionOffset: Int? = null
     /** The collection page most recently requested, so Retry repeats that page. */
     private var collectionRequestOffset = 0
@@ -295,6 +298,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                     mutable.update { it.copy(playlists = devicePlaylists.lists(), playlistSelection = null, playlistTracks = emptyList(),
                         playlistsBusy = false, playlistLoading = false, playlistMutating = false, playlistError = null) }
                 }
+                if (changed) collectionHistory.clear()
                 val refresh = changed && mutable.value.recommendationEngine == RecommendationEngine.YOUTUBE
                 mutable.update { it.copy(account = account, homeFilters = if (refresh) emptyList() else it.homeFilters, homeFilter = if (refresh) null else it.homeFilter, feed = if (refresh) emptyList() else it.feed, feedContinuations = if (refresh) emptyList() else it.feedContinuations, feedMore = if (refresh) emptyList() else it.feedMore,
                     feedEnded = it.feedEnded && !refresh, explore = if (refresh) emptyList() else it.explore) }
@@ -447,14 +451,14 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 val personal = seeds.mapIndexed { index, seed ->
                     async { runCatching { personalRows(seed, youtube.related(seed), events, first = index == 0) }.getOrElse { e -> if (e is CancellationException) throw e; emptyList() } }
                 }
-                val feed = youtube.explore()
+                val feed = runCatching { youtube.explore() }.onFailure { if (it !is Exception || it is CancellationException) throw it }
                 val rows = personal.awaitAll().flatten()
                 // Nothing appears twice: personal rows win, then YouTube's own order.
                 val seen = HashSet<String>()
-                val sections = (rows + feed.sections).mapNotNull { section ->
+                val sections = (rows + feed.getOrNull()?.sections.orEmpty()).mapNotNull { section ->
                     section.copy(items = section.items.filter { seen.add(it.id) }).takeIf { it.items.isNotEmpty() }
                 }
-                if (revision == recommendationRevision) mutable.update { it.copy(explore = sections, exploreBusy = false) }
+                if (revision == recommendationRevision) mutable.update { it.exploreLoaded(sections, feed.exceptionOrNull()?.let { e -> catalogueErrorMessage(e as Exception, CatalogueMessages.FEED) }) }
             }
             catch (e: CancellationException) { throw e }
             catch (e: Exception) { if (revision == recommendationRevision) mutable.update { it.copy(exploreBusy = false, exploreError = catalogueErrorMessage(e, CatalogueMessages.FEED)) } }
@@ -475,7 +479,19 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             }
         }.filter { it.items.isNotEmpty() }
 
-    fun browse(entry: FeedEntry) = browsePage(entry, 0)
+    fun browse(entry: FeedEntry) = browse(entry, false)
+    fun browse(entry: FeedEntry, nested: Boolean) {
+        if (nested && mutable.value.collectionBusy) return
+        collectionHistory.entering(mutable.value, nested, collectionOffset, collectionRequestOffset)
+        browsePage(entry, 0)
+    }
+    fun backCollection(): Boolean {
+        val previous = collectionHistory.pop() ?: return false
+        collectionJob?.cancel()
+        collectionOffset = previous.offset; collectionRequestOffset = previous.requestOffset
+        mutable.update(previous::restore)
+        return true
+    }
     fun moreCollection() { collectionOffset?.let { offset -> mutable.value.collectionEntry?.let { browsePage(it, offset) } } }
     private fun browsePage(entry: FeedEntry, offset: Int) {
         collectionJob?.cancel()
@@ -484,8 +500,15 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         collectionRequestOffset = offset
         collectionJob = viewModelScope.launch {
             mutable.update { it.copy(collectionEntry = entry, collection = if (offset == 0) emptyList() else it.collection,
+                collectionSections = if (offset == 0) emptyList() else it.collectionSections, collectionBrowseError = null,
                 collectionBusy = true, collectionHasMore = false, error = null) }
             try {
+                if (entry.kind == "browse") {
+                    val page = youtube.browse(entry, offset > 0)
+                    collectionOffset = if (page.hasMore) offset + 1 else null
+                    mutable.update { it.browsePageLoaded(page, offset > 0) }
+                    return@launch
+                }
                 val spotifyEntry = entry.kind.startsWith("spotify_")
                 val page = if (spotifyEntry) spotify.collection(entry, offset) else null
                 val tracks = if (page != null) spotify.tracks(page) else youtube.collection(entry)
@@ -498,7 +521,11 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 if (!isActive) throw e
                 mutable.update { it.collectionPageFailed(offset, CatalogueMessages.COLLECTION) }
             }
-            catch (e: Exception) { mutable.update { it.collectionPageFailed(offset, catalogueErrorMessage(e, CatalogueMessages.COLLECTION)) } }
+            catch (e: Exception) { mutable.update {
+                if (entry.kind == "browse") it.copy(collectionBusy = false, collectionHasMore = offset > 0,
+                    collectionBrowseError = catalogueErrorMessage(e, CatalogueMessages.COLLECTION))
+                else it.collectionPageFailed(offset, catalogueErrorMessage(e, CatalogueMessages.COLLECTION))
+            } }
         }
     }
     /** Retry the page that failed: a failed "Load more" keeps the songs already shown. */
@@ -515,6 +542,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private fun clearCarHome() { library.writeTracks(LibraryStore.HOME_RECOMMENDATIONS, emptyList()) }
     private fun reloadRecommendations() {
         recommendationRevision++
+        collectionHistory.clear()
         clearCarHome()
         feedJob?.cancel(); exploreJob?.cancel(); forYouJob?.cancel()
         mutable.update { it.copy(feed = emptyList(), feedContinuations = emptyList(), feedPage = 0, feedAppending = false, feedMore = emptyList(), feedEnded = false, homeFilters = emptyList(), homeFilter = null, explore = emptyList(), forYou = emptyList(), feedHasMore = false,

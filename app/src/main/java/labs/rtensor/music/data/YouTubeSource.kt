@@ -25,6 +25,7 @@ class YouTubeSource(context: Context) {
         return tracks(runtime.call("radio", JSONObject().put("videoId", videoId))).filter { it.id !in skip }
     }
     suspend fun explore(): HomeFeed = feed(runtime.call("explore"))
+    suspend fun browse(entry: FeedEntry, more: Boolean = false): HomeFeed = feed(runtime.call("browse", JSONObject().put("id", entry.browseId).put("params", entry.params).put("more", more)))
     /** YouTube Music's "Related" page for a song: similar songs, artists and playlists. */
     suspend fun related(track: Track): List<FeedSection> {
         val videoId = track.id.removePrefix("yt:").takeIf { track.source == Source.YOUTUBE && it.matches(Regex("[A-Za-z0-9_-]{11}")) } ?: return emptyList()

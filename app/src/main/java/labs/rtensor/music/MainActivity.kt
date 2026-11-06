@@ -114,6 +114,7 @@ class MainActivity : ComponentActivity() {
                     deletePlaylist = model::deletePlaylist, removeFromPlaylist = model::removeFromPlaylist, rate = model::rateSong,
                     connectYouTube = ::connectYouTube, dismissMessage = { model.actionMessage(null) }) },
                 onSuggestion = model::selectSuggestion, onHomeFilter = model::homeFilter,
+                onBrowseNavigation = { entry, nested -> model.browse(entry, nested) }, onCollectionBack = model::backCollection,
                 onQuery = model::setQuery, onSearch = model::search,
                 onPlay = model::play, onToggle = model::toggle,
                 onPrevious = model::previous, onNext = model::next, onSkipTo = model::skipTo,

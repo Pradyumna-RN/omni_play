@@ -1,3 +1,30 @@
+# Music 0.3.38 / real continuation envelopes and Explore navigation
+
+- Reproduced 0.3.37's generic next-page error with a response containing only
+  continuationContents. The earlier browser fixture added a Home tab wrapper,
+  hiding YouTube.js's requirement for that wrapper. Pagination now reads the
+  actual continuation container directly, including append-action responses.
+- Normal browse pages, ordinary music shelves, grids and newer shelf wrappers
+  are normalized without a carousel-only filter. Unknown response envelopes
+  produce a specific format error; loaded pages and the retry cursor remain.
+- Explore displays the category navigation supplied by YouTube (for example
+  Charts and Moods & genres), which the previous integration discarded. Category
+  parameters are kept, so different genres sharing one browse ID remain distinct.
+  Category pages, nested pages and their continuations open inside Music. Back
+  restores the parent page and paging position without rewinding playback.
+- Empty Explore refreshes report a reason and preserve previous usable rows.
+  Genuine Related rows remain visible if the general Explore request fails.
+- The existing looks, audio engine, provider accounts, continuous Home loading
+  and playback-return scroll preservation are retained.
+
+Regression fixtures reproduce both the missing-wrapper error and the discarded
+ordinary-shelf case. Browser tests exercise navigation parameters, independent
+Home/category cursors and retry after an unsupported envelope. Live Google HTTP
+access is blocked from this host; no subscriber account or physical phone was
+used. Exact host test counts and release checks are in decoder-validation.json.
+
+## Previous release baseline
+
 # Music 0.3.37 / continuous feeds and retained browsing position
 
 - Home loads genuine provider continuations automatically near the bottom, until

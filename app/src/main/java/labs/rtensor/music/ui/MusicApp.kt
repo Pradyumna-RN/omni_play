@@ -367,6 +367,8 @@ fun MusicApp(
     songActions: SongActionCallbacks = SongActionCallbacks(),
     onSuggestion: (String) -> Unit = {},
     onHomeFilter: (String?) -> Unit = {},
+    onBrowseNavigation: (FeedEntry, Boolean) -> Unit = { entry, _ -> onBrowse(entry) },
+    onCollectionBack: () -> Boolean = { false },
 ) {
     val startPage = if (initialPage == "saved") "library" else initialPage
     var page by rememberSaveable { mutableStateOf(startPage) }
@@ -375,6 +377,7 @@ fun MusicApp(
     var back by rememberSaveable { mutableStateOf("home") }
     var root by rememberSaveable { mutableStateOf(startPage.takeIf { it in rootPages } ?: "home") }
     val browserStates = rememberSaveableStateHolder()
+    val collectionStates = rememberSaveableStateHolder()
     // Opening the player must not repartition the shelves when the selected song enters history.
     val homeRecommendations = remember(state.feed, state.forYou, state.trackHistory) { homeRecommendationGroups(state) }
     val homeShown = remember(state.feed, state.forYou, state.trackHistory) {
@@ -400,7 +403,7 @@ fun MusicApp(
         when {
             entry.videoId.isNotBlank() || entry.kind == "spotify_track" -> { val t = entry.asTrack(); play(t, listOf(t)) }
             entry.kind in listOf("artist", "library_artist") -> { onQuery(entry.title); onSearch(); page = root }
-            else -> { onBrowse(entry); navigate("collection") }
+            else -> { onBrowseNavigation(entry, page == "collection"); navigate("collection") }
         }
     }
     LaunchedEffect(sharedQuery) {
@@ -412,7 +415,8 @@ fun MusicApp(
     fun goBack() {
         when (page) {
             "now" -> page = back
-            "settings", "collection", "provider-feed", "feed-section" -> page = root
+            "collection" -> if (!onCollectionBack()) page = root
+            "settings", "provider-feed", "feed-section" -> page = root
             else -> navigate("home")
         }
     }
@@ -521,7 +525,14 @@ fun MusicApp(
                                     if (target == "provider-feed") "Your ${state.recommendationEngine.label} feed" else expandedSectionTitle.orEmpty(),
                                     listState = if (target == "provider-feed") providerScroll else sectionScroll, active = page == target)
                             }
-                            "collection" -> CollectionScreen(state, ::play, onSave, onMoreCollection)
+                            "collection" -> collectionStates.SaveableStateProvider(state.collectionEntry?.id ?: "pending") {
+                                if (state.collectionEntry?.kind == "browse") ProviderHome(state.copy(feed = state.collectionSections,
+                                    feedBusy = state.collectionBusy, feedAppending = state.collectionBusy && state.collectionSections.isNotEmpty(),
+                                    feedHasMore = state.collectionHasMore, feedError = state.collectionBrowseError, feedEnded = false,
+                                    homeFilters = emptyList(), homeFilter = null), ::openEntry, onRetryCollection, onMoreCollection,
+                                    state.collectionEntry.title, active = page == "collection")
+                                else CollectionScreen(state, ::play, onSave, onMoreCollection)
+                            }
                             "settings" -> SettingsScreen(state, onTheme, onAccent, onLook, onOpenLocal, onChooseMasters, onClearMasters, onClearHistory,
                                 onConnect, onWebSignIn, onDisconnect, onCancelConnect, onGoogleSignIn, onGoogleSignOut, onCancelGoogle, onCheckUpdates, onDownloadUpdate, onInstallUpdate,
                                 onAutoplay, onTrackHistory, onConnectSource, onRemoveSource, onConnectTidal, onDisconnectTidal, onCancelTidal,

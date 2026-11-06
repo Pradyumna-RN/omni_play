@@ -1,3 +1,4 @@
+import { fetchBrowsePage, fetchBrowseContinuation } from './browse-pages.mjs';
 import { advanceHomeCursor } from './feed-cursor.mjs';
 import { Innertube, Player, Platform, Log, Constants, ClientType } from 'youtubei.js/web';
 import { track, sections, safeError, largestArtwork, isMusic, audioVersion } from './mapping.mjs';
@@ -456,6 +457,7 @@ function sharedResolve(api, id, forceProof, rejectedPaths, requiredFormat) {
 }
 const libraryActions = createLibraryActions();
 const homeCursors = new Set();
+const browsePages = new Map();
 globalThis.musicCancelSuggestions = id => {
   if (desiredSuggestions?.id === id) desiredSuggestions = null;
   transportFetch.cancel('suggestions:' + id);
@@ -497,7 +499,7 @@ globalThis.musicCall = async (id, method, args) => {
         }
         const request = ++feedRequest;
         let page, filters = homeFilters, selected = activeHomeFilter;
-        if (args.more && homeFeed?.has_continuation) page = await homeFeed.getContinuation();
+        if (args.more && homeFeed?.has_continuation) page = await fetchBrowseContinuation(api, homeFeed);
         else {
           page = await api.music.getHomeFeed(); filters = page.filters || []; selected = args.filter || null;
           if (selected) {
@@ -516,7 +518,23 @@ globalThis.musicCall = async (id, method, args) => {
         const seen = new Set([args.videoId]);
         result = { tracks: (panel?.contents || []).map(audioVersion).filter(isMusic).map(track).filter(t => t && !seen.has(t.id.slice(3)) && seen.add(t.id.slice(3))).slice(0, 50) }; break;
       }
-      case 'explore': result = { sections: sections(await api.music.getExplore()), hasMore: false }; break;
+      case 'explore': {
+        const page = await fetchBrowsePage(api, 'FEmusic_explore');
+        const entries = sections(page);
+        if (!entries.length) throw failure('EXPLORE_EMPTY', 'YouTube Music returned no Explore items. Pull down to retry or reconnect your account.');
+        result = { sections: entries, hasMore: false }; break;
+      }
+      case 'browse': {
+        const key = String(args.id) + ':' + String(args.params || '');
+        const previous = browsePages.get(key);
+        if (args.more && !previous) throw failure('BROWSE_CURSOR', 'Reopen this category before loading more.');
+        const page = args.more ? await fetchBrowseContinuation(api, previous.page) : await fetchBrowsePage(api, args.id, args.params || '');
+        const cursors = args.more ? previous.cursors : new Set();
+        advanceHomeCursor(cursors, page, !!args.more);
+        browsePages.delete(key); browsePages.set(key, { page, cursors });
+        if (browsePages.size > 12) browsePages.delete(browsePages.keys().next().value);
+        result = { sections: sections(page), hasMore: !!page.has_continuation }; break;
+      }
       case 'related': {
         // YouTube Music's "Related" tab for a song: similar songs, artists and playlists.
         if (!/^[A-Za-z0-9_-]{11}$/.test(args.videoId)) throw failure('LINK', 'Choose a valid YouTube recording.');

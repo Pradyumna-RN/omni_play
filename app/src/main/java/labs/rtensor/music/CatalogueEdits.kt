@@ -38,3 +38,16 @@ internal fun MusicState.clearedSearch(): MusicState {
     return copy(query = "", searched = false, searching = false, results = emptyList(),
         error = if (searchError) null else error, errorDiagnostic = if (searchError) "" else errorDiagnostic)
 }
+
+/** Preserve genuine related rows or the last good page when an Explore response is empty. */
+internal fun MusicState.exploreLoaded(sections: List<labs.rtensor.music.data.FeedSection>, problem: String? = null): MusicState =
+    copy(explore = sections.ifEmpty { explore }, exploreBusy = false,
+        exploreError = problem ?: if (sections.isEmpty()) "YouTube Music returned no Explore items. Pull down to retry." else null)
+
+/** Category navigation carries provider parameters; only new items append on continuation. */
+internal fun MusicState.browsePageLoaded(page: labs.rtensor.music.data.HomeFeed, more: Boolean): MusicState {
+    val previous = if (more) collectionSections else emptyList()
+    val seen = previous.flatMap { it.items }.mapTo(HashSet()) { it.id }
+    val added = page.sections.map { section -> section.copy(items = section.items.filter { seen.add(it.id) }) }.filter { it.items.isNotEmpty() }
+    return copy(collectionSections = previous + added, collectionBusy = false, collectionHasMore = page.hasMore, collectionBrowseError = null)
+}

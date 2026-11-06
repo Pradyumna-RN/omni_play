@@ -58,7 +58,11 @@ internal fun LazyListScope.providerShelves(sections: List<FeedSection>, onEntry:
                     Icon(Icons.Outlined.PlayArrow, null, Modifier.size(16.dp)); Text("Play all", fontSize = 12.sp)
                 }
             }
-            if (songs.size == section.items.size && songs.size >= 3) {
+            if (section.items.all { it.kind == "browse" }) LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                itemsIndexed(section.items, key = { i, entry -> "$i:${entry.id}" }) { _, entry ->
+                    OutlinedButton(onClick = { onEntry(entry) }, shape = LocalLook.current.card) { Text(entry.title, maxLines = 1) }
+                }
+            } else if (songs.size == section.items.size && songs.size >= 3) {
                 BoxWithConstraints(Modifier.fillMaxWidth()) {
                     val width = minOf(maxWidth, 310.dp)
                     val rowHeight = 24.5.dp + maxOf(48.dp, (35 * LocalDensity.current.fontScale + 3).dp)

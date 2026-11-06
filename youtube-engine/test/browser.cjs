@@ -22,7 +22,6 @@ const home = feed([carousel('Provider second alphabetically', [card('aaaaaaaaaaa
 const pagedHome = JSON.parse(JSON.stringify(home));
 pagedHome.contents.singleColumnBrowseResultsRenderer.tabs[0].tabRenderer.content.sectionListRenderer.continuations = [{ nextContinuationData: { continuation: 'HOME_ONE' } }];
 const continuedHome = (cursor, title) => ({
-  contents: { singleColumnBrowseResultsRenderer: { tabs: [{ tabRenderer: { selected: true, content: null } }] } },
   continuationContents: { sectionListContinuation: { contents: [carousel(title, [card('ccccccccccc', title)])],
     continuations: cursor ? [{ nextContinuationData: { continuation: cursor } }] : [] } }
 });
@@ -43,7 +42,12 @@ const playlistSong = (occurrence, id = 'aaaaaaaaaaa') => {
 const playlistPage = feed([{ musicPlaylistShelfRenderer: { playlistId: 'PLowned', contents: [playlistSong('FIRST_OCCURRENCE'), playlistSong('SECOND_OCCURRENCE')],
   continuations: [{ nextContinuationData: { continuation: 'PLAYLIST_NEXT' } }] } }]);
 const playlistNext = { continuationContents: { musicPlaylistShelfContinuation: { contents: [playlistSong('THIRD_OCCURRENCE', 'bbbbbbbbbbb')] } } };
-const explore = feed([carousel('New releases from provider', [card('bbbbbbbbbbb', 'Apple')])]);
+const nav = (title, id, params = '') => ({ musicNavigationButtonRenderer: { buttonText: { simpleText: title }, clickCommand: { browseEndpoint: { browseId: id, ...(params ? { params } : {}) } } } });
+const exploreNavigation = { gridRenderer: { items: [nav('Charts', 'FEmusic_charts'), nav('Moods & genres', 'FEmusic_moods_and_genres')] } };
+const charts = feed([carousel('Top songs', [card('ccccccccccc', 'Chart song')])]);
+const genres = feed([{ gridRenderer: { items: [nav('Rock', 'FEmusic_category', 'ROCK'), nav('Pop', 'FEmusic_category', 'POP')] } }]);
+const rock = feed([carousel('Rock from provider', [card('ccccccccccc', 'Rock song')])]);
+const explore = feed([exploreNavigation, { musicShelfRenderer: { title: { simpleText: 'New releases from provider' }, contents: [song('bbbbbbbbbbb', 'Apple')] } }]);
 const related = { contents: { sectionListRenderer: { contents: [carousel('You might also like', [card('ccccccccccc', 'Similar song')])] } } };
 const accounts = { actions: [{ getMultiPageMenuAction: { menu: { multiPageMenuRenderer: { sections: [{ accountSectionListRenderer: { contents: [{ accountItemSectionRenderer: { contents: [{ accountItem: { accountName: { simpleText: 'Fixture channel' }, isSelected: true, hasChannel: true, serviceEndpoint: { selectActiveIdentityEndpoint: {} } } }] } }] } }] } } } }] };
 const playerScript = `(function(g){var signatureTimestampFn=function(){return {signatureTimestamp:12345}};var transform=function(a,b="signature",c=""){a=new globalThis.URL(a);a.searchParams.set("alr","yes");if(c)a.searchParams.set(b,c.split("").reverse().join(""));if(a.searchParams.has("n"))a.searchParams.set("n",a.searchParams.get("n").split("").reverse().join(""));return Object.create({get:function(k){return a.searchParams.get(k)}})};})(globalThis);`;
@@ -76,7 +80,10 @@ const config = { VISITOR_DATA: 'fixture-visitor', INNERTUBE_CLIENT_VERSION: '1.2
       else if (u.pathname.endsWith('/browse/edit_playlist')) body = { status: 'STATUS_SUCCEEDED', playlistEditResults: [{}] };
       else if (u.pathname.endsWith('/playlist/delete') || /\/like\/(like|dislike|removelike)$/.test(u.pathname)) body = { status: 'STATUS_SUCCEEDED' };
       else if (u.pathname.endsWith('/search')) { body = search; if (rejectSearch) status = 403; }
-      else if (u.pathname.endsWith('/browse') && homePaging !== 'off' && (bodyIn?.browseId === 'FEmusic_home' || bodyIn?.continuation?.startsWith('HOME_'))) body = !bodyIn.continuation ? pagedHome : bodyIn.continuation === 'HOME_ONE' ? continuedHome(homePaging === 'repeat' ? 'HOME_ONE' : 'HOME_TWO', 'Second batch') : continuedHome(null, 'Last batch');
+      else if (u.pathname.endsWith('/browse') && bodyIn?.browseId === 'FEmusic_charts') body = charts;
+      else if (u.pathname.endsWith('/browse') && bodyIn?.browseId === 'FEmusic_moods_and_genres') body = genres;
+      else if (u.pathname.endsWith('/browse') && bodyIn?.browseId === 'FEmusic_category' && bodyIn?.params === 'ROCK') body = rock;
+      else if (u.pathname.endsWith('/browse') && homePaging !== 'off' && (bodyIn?.browseId === 'FEmusic_home' || bodyIn?.continuation?.startsWith('HOME_'))) body = !bodyIn.continuation ? pagedHome : bodyIn.continuation === 'HOME_ONE' ? homePaging === 'unsupported' ? { responseContext: {} } : continuedHome(homePaging === 'repeat' ? 'HOME_ONE' : 'HOME_TWO', 'Second batch') : continuedHome(null, 'Last batch');
       else if (u.pathname.endsWith('/browse')) body = bodyIn?.continuation === 'PLAYLIST_NEXT' ? playlistNext : bodyIn?.browseId === 'VLPLowned' ? playlistPage : bodyIn?.params === 'RELAX' ? relaxedHome : bodyIn?.browseId === 'FEmusic_explore' ? explore : bodyIn?.browseId === 'MPTRt_fixture' ? related : home;
       else if (u.pathname.endsWith('/next')) body = { contents: { singleColumnMusicWatchNextResultsRenderer: { tabbedRenderer: { watchNextTabbedResultsRenderer: { tabs: [
         { tabRenderer: { title: 'Up next', content: { musicQueueRenderer: {} } } },
@@ -156,7 +163,16 @@ const config = { VISITOR_DATA: 'fixture-visitor', INNERTUBE_CLIENT_VERSION: '1.2
     const homeResult = await rpc('home');
     assert.deepEqual(homeResult.sections?.map(s => s.title), ['Provider second alphabetically', 'Provider first alphabetically']);
     assert.deepEqual(homeResult.sections[0].items.map(i => i.id), ['yt:aaaaaaaaaaa', 'yt:bbbbbbbbbbb', 'yt:aaaaaaaaaaa']);
-    assert.deepEqual((await rpc('explore')).sections?.map(s => s.title), ['New releases from provider']);
+    assert.deepEqual((await rpc('explore')).sections?.map(s => s.title), ['Browse', 'New releases from provider']);
+    const discovery = await rpc('explore');
+    assert.deepEqual(discovery.sections[0].items.map(item => item.title), ['Charts', 'Moods & genres']);
+    const chartPage = await rpc('browse', { id: 'FEmusic_charts' });
+    assert.equal(chartPage.sections[0].items[0].title, 'Chart song');
+    const moods = await rpc('browse', { id: 'FEmusic_moods_and_genres' });
+    assert.deepEqual(moods.sections[0].items.map(item => item.params), ['ROCK', 'POP']);
+    assert.notEqual(moods.sections[0].items[0].id, moods.sections[0].items[1].id);
+    const rockPage = await rpc('browse', { id: moods.sections[0].items[0].browseId, params: moods.sections[0].items[0].params });
+    assert.equal(rockPage.sections[0].title, 'Rock from provider');
     const relatedPage = await rpc('related', { videoId: 'aaaaaaaaaaa' });
     assert.deepEqual(relatedPage.sections?.map(s => [s.title, s.items[0].videoId]), [['You might also like', 'ccccccccccc']], JSON.stringify(relatedPage));
     bootstrapMode = 'redirect';
@@ -200,7 +216,8 @@ const config = { VISITOR_DATA: 'fixture-visitor', INNERTUBE_CLIENT_VERSION: '1.2
     homePaging = 'paged';
     assert.equal((await rpc('home')).hasMore, true);
     const secondHome = await rpc('home', { more: true });
-    assert.equal(secondHome.hasMore, true); assert.equal(secondHome.sections[0].title, 'Second batch');
+    assert.equal(secondHome.hasMore, true, JSON.stringify(secondHome)); assert.equal(secondHome.sections[0].title, 'Second batch');
+    await rpc('browse', { id: 'FEmusic_charts' });
     const lastHome = await rpc('home', { more: true });
     assert.equal(lastHome.hasMore, false); assert.equal(lastHome.sections[0].title, 'Last batch');
     const browsedBeforeEnd = calls.filter(c => c.path.endsWith('/browse')).length;
@@ -208,6 +225,10 @@ const config = { VISITOR_DATA: 'fixture-visitor', INNERTUBE_CLIENT_VERSION: '1.2
     assert.equal(calls.filter(c => c.path.endsWith('/browse')).length, browsedBeforeEnd, 'An exhausted feed must not reload its first page');
     homePaging = 'repeat'; await rpc('home');
     assert.equal((await rpc('home', { more: true })).error?.code, 'FEED_CONTINUATION');
+    homePaging = 'unsupported'; await rpc('home');
+    assert.equal((await rpc('home', { more: true })).error?.code, 'BROWSE_RESPONSE');
+    homePaging = 'paged';
+    assert.equal((await rpc('home', { more: true })).sections[0].title, 'Second batch', 'Retry keeps the failed continuation instead of reloading Home');
     homePaging = 'off'; await rpc('home');
 
     assert(calls.some(c => c.path.endsWith('/player') && c.host === 'www.youtube.com'), 'Playback requests keep their current origin');
@@ -352,6 +373,6 @@ const config = { VISITOR_DATA: 'fixture-visitor', INNERTUBE_CLIENT_VERSION: '1.2
     const incompatible = await rpc('resolve', {videoId:'zAiIgYOH4Ys', requiredFormat:{formatId:251, mimeType:'audio/webm', contentLength:4096}});
     assert.equal(incompatible.error.code, 'FORMAT_UNAVAILABLE'); assert(!incompatible.url);
     assert.deepEqual(errors, []);
-    console.log(JSON.stringify({ passed: ['Home continuations stop at the provider end without reloading the first page', 'Repeated Home cursors cannot cause an automatic request loop', 'YouTube Music suggestions and direct song suggestions', 'editable account playlist picker', 'private playlist creation', 'exact duplicate playlist occurrences and continuation', 'account playlist add/remove/rename/delete', 'YouTube Music like/dislike/removal', 'Music-origin authenticated account writes', 'provider-supplied mood filters and unavailable-filter errors', 'bundled engine startup', 'upstream search parser and real artist', 'largest artwork selection', 'current WEB_REMIX bootstrap version', 'no duplicate pre-playback media download', 'signature timestamp on player request', 'actual upstream signature/n extraction in isolated Worker', 'provider feed and duplicate order', 'Explore provider browse', 'related songs for personal Explore rows', 'normal WEB cookie account verification', 'captured session confirms despite homepage302', 'actual Android login capture keeps selected metadata and ignores optional untrusted scripts', 'invalid account still fails confirmation', 'guest browser redirect is actionable', 'SAPISIDHASH authenticated feed', 'music-origin signed feed requests', 'safe HTTP diagnostics', 'real provider rejection preserved', 'SABR-only transport diagnosed', 'forced verification supplies signed media URL for native validation', 'guest music-client proof binding', 'full authenticated DataSyncID proof binding', 'current WEB att/get challenge without old Create discovery', 'forced retry skips unverified web player attempts', 'no OAuth, TV or VR calls; proof-free visionOS/embedded clients stay signed out', 'proof-rejected playback uses the current visionOS app with its own visitor', 'visionOS 0.1 on the music player endpoint as backup', 'embedded player uses embed-page host flags and visitor', 'playback confirmation selects the preferred path', 'worker has no account bridge', 'concurrent resolution is shared', 'missing artist refresh uses YouTube metadata', 'AAC preference for progressive playback', 'signed provider content length fallback', 'CDN rejection advances through all guest paths', 'preference updates only after native playback confirmation', 'exhausted paths fail without repeating player calls', 'wrong recording responses are rejected', 'direct visionOS playback does not wait for player-script download', 'concurrent profiles keep their own visitors and exclusions', 'seek retries retain the original encoded audio format and length', 'guest decipher waits for and receives the shared player instance'], requests: calls.length, liveProvider: false }, null, 2));
+    console.log(JSON.stringify({ passed: ['Explore navigation and ordinary music shelves are visible', 'Category browse parameters remain independent of Home pagination', 'Unsupported continuation responses retain a retryable cursor and a clear error', 'Home continuations stop at the provider end without reloading the first page', 'Repeated Home cursors cannot cause an automatic request loop', 'YouTube Music suggestions and direct song suggestions', 'editable account playlist picker', 'private playlist creation', 'exact duplicate playlist occurrences and continuation', 'account playlist add/remove/rename/delete', 'YouTube Music like/dislike/removal', 'Music-origin authenticated account writes', 'provider-supplied mood filters and unavailable-filter errors', 'bundled engine startup', 'upstream search parser and real artist', 'largest artwork selection', 'current WEB_REMIX bootstrap version', 'no duplicate pre-playback media download', 'signature timestamp on player request', 'actual upstream signature/n extraction in isolated Worker', 'provider feed and duplicate order', 'Explore provider browse', 'related songs for personal Explore rows', 'normal WEB cookie account verification', 'captured session confirms despite homepage302', 'actual Android login capture keeps selected metadata and ignores optional untrusted scripts', 'invalid account still fails confirmation', 'guest browser redirect is actionable', 'SAPISIDHASH authenticated feed', 'music-origin signed feed requests', 'safe HTTP diagnostics', 'real provider rejection preserved', 'SABR-only transport diagnosed', 'forced verification supplies signed media URL for native validation', 'guest music-client proof binding', 'full authenticated DataSyncID proof binding', 'current WEB att/get challenge without old Create discovery', 'forced retry skips unverified web player attempts', 'no OAuth, TV or VR calls; proof-free visionOS/embedded clients stay signed out', 'proof-rejected playback uses the current visionOS app with its own visitor', 'visionOS 0.1 on the music player endpoint as backup', 'embedded player uses embed-page host flags and visitor', 'playback confirmation selects the preferred path', 'worker has no account bridge', 'concurrent resolution is shared', 'missing artist refresh uses YouTube metadata', 'AAC preference for progressive playback', 'signed provider content length fallback', 'CDN rejection advances through all guest paths', 'preference updates only after native playback confirmation', 'exhausted paths fail without repeating player calls', 'wrong recording responses are rejected', 'direct visionOS playback does not wait for player-script download', 'concurrent profiles keep their own visitors and exclusions', 'seek retries retain the original encoded audio format and length', 'guest decipher waits for and receives the shared player instance'], requests: calls.length, liveProvider: false }, null, 2));
   } finally { await browser.close(); await new Promise(r => server.close(r)); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

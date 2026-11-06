@@ -4,9 +4,10 @@ const text = value => value == null ? '' : String(value);
 export function entry(node) {
   if (!node) return null;
   const payload = node.endpoint?.payload || {};
+  if (node.type === 'MusicNavigationButton' && !payload.browseId) return null;
   const candidate = payload.videoId || node.id;
   const videoId = videoPattern.test(candidate || '') ? candidate : null;
-  const title = text(node.title || node.name);
+  const title = text(node.title || node.name || node.button_text);
   if (!title) return null;
   let thumbs = node.thumbnails || node.thumbnail?.contents || node.thumbnail || [];
   if (!Array.isArray(thumbs)) thumbs = [];
@@ -14,11 +15,11 @@ export function entry(node) {
   const linked = value => (value?.runs || []).filter(r => r.endpoint?.payload?.browseId?.startsWith('UC')).map(r => r.text);
   const names = [...(node.artists || []), ...(node.authors || [])].map(a => a.name).filter(Boolean);
   const artist = [...new Set([...names, node.author?.name, ...linked(node.subtitle), ...(node.flex_columns || []).flatMap(c => linked(c.title))].filter(Boolean))].join(', ');
-  const kind = videoId ? 'song' : (node.item_type || 'browse');
+  const kind = videoId ? 'song' : node.type === 'MusicNavigationButton' ? 'browse' : (node.item_type || 'browse');
   const browseId = payload.browseId || payload.playlistId || node.id || '';
-  return { id: videoId ? `yt:${videoId}` : browseId, title,
+  return { id: videoId ? `yt:${videoId}` : kind === 'browse' && payload.params ? `${browseId}:${payload.params}` : browseId, title,
     subtitle: artist || text(node.subtitle), artist,
-    artwork, kind, browseId, videoId, durationMs: (node.duration?.seconds || 0) * 1000 };
+    artwork, kind, browseId, ...(kind === 'browse' && payload.params ? { params: payload.params } : {}), videoId, durationMs: (node.duration?.seconds || 0) * 1000 };
 }
 export function track(node) {
   const item = entry(node);
