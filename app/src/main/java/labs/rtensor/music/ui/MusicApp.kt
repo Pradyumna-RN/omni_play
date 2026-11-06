@@ -368,7 +368,8 @@ fun MusicApp(
 ) {
     val startPage = if (initialPage == "saved") "library" else initialPage
     var page by rememberSaveable { mutableStateOf(startPage) }
-    var expandedSection by remember { mutableStateOf<FeedSection?>(null) }
+    var expandedSectionTitle by rememberSaveable { mutableStateOf<String?>(null) }
+    var expandedFromExplore by rememberSaveable { mutableStateOf(false) }
     var back by rememberSaveable { mutableStateOf("home") }
     var root by rememberSaveable { mutableStateOf(startPage.takeIf { it in rootPages } ?: "home") }
     val searchFocus = remember { FocusRequester() }
@@ -420,7 +421,11 @@ fun MusicApp(
     val tones = remember(cover) { cover?.let { playerTones(it.deep) } }?.takeIf { page == "now" }
     CompositionLocalProvider(LocalReducedMotion provides reduced, LocalPlayerTones provides tones,
         LocalHomeFilterSelect provides onHomeFilter, LocalPlaySongs provides ::play,
-        LocalFeedSectionOpen provides { section -> expandedSection = section; page = if (section == null) "provider-feed" else "feed-section" }) {
+        LocalFeedSectionOpen provides { section ->
+            expandedFromExplore = page == "explore" || page == "feed-section" && expandedFromExplore
+            expandedSectionTitle = section?.title
+            page = if (section == null) "provider-feed" else "feed-section"
+        }) {
         // Soft's dock is its light surface; the other looks' dock is always dark.
         MusicTheme(state.theme, darkNavigationBar = (state.look != LookChoice.SOFT && page in rootPages + listOf("collection", "provider-feed", "feed-section")) || tones != null, accent = state.accent,
             coverAccent = cover?.accent, darkStatusBar = tones != null, look = state.look) {
@@ -487,11 +492,20 @@ fun MusicApp(
                     ) { target ->
                         when (target) {
                             "search" -> if (!state.searched) SearchSuggestionList(state, onSuggestion, { play(it, listOf(it)) }) else SearchResults(state, ::play, onSave)
-                            "explore" -> ProviderHome(state.copy(feed = state.explore, feedBusy = state.exploreBusy, feedError = state.exploreError, feedHasMore = false), ::openEntry, onRefreshExplore, {}, "Explore")
+                            "explore" -> ProviderHome(state.copy(feed = state.explore, feedBusy = state.exploreBusy, feedError = state.exploreError, feedHasMore = false, homeFilters = emptyList(), homeFilter = null), ::openEntry, onRefreshExplore, {}, "Explore")
                             "library" -> LibraryScreen(state, ::play, onSave, ::focusSearch, onRemovePlay)
                             "now" -> NowScreen(state, onToggle, onPrevious, onNext, onSeek, onSave, onSkipTo, onProcessing, playbackPosition, onRetryRadio, audioLevels, metering)
-                            "provider-feed", "feed-section" -> ProviderHome(state.copy(feed = if (target == "provider-feed") state.feed else state.feed.filter { it.title == expandedSection?.title }),
-                                ::openEntry, onRefreshFeed, onMoreFeed, if (target == "provider-feed") "Your ${state.recommendationEngine.label} feed" else expandedSection?.title.orEmpty())
+                            "provider-feed", "feed-section" -> {
+                                val exploreSection = target == "feed-section" && expandedFromExplore
+                                val sections = if (exploreSection) state.explore else state.feed
+                                ProviderHome(state.copy(feed = if (target == "provider-feed") sections else sections.filter { it.title == expandedSectionTitle },
+                                    feedBusy = if (exploreSection) state.exploreBusy else state.feedBusy,
+                                    feedError = if (exploreSection) state.exploreError else state.feedError,
+                                    feedHasMore = !exploreSection && state.feedHasMore,
+                                    homeFilters = if (target == "provider-feed") state.homeFilters else emptyList(), homeFilter = if (target == "provider-feed") state.homeFilter else null),
+                                    ::openEntry, if (exploreSection) onRefreshExplore else onRefreshFeed, onMoreFeed,
+                                    if (target == "provider-feed") "Your ${state.recommendationEngine.label} feed" else expandedSectionTitle.orEmpty())
+                            }
                             "collection" -> CollectionScreen(state, ::play, onSave, onMoreCollection)
                             "settings" -> SettingsScreen(state, onTheme, onAccent, onLook, onOpenLocal, onChooseMasters, onClearMasters, onClearHistory,
                                 onConnect, onWebSignIn, onDisconnect, onCancelConnect, onGoogleSignIn, onGoogleSignOut, onCancelGoogle, onCheckUpdates, onDownloadUpdate, onInstallUpdate,

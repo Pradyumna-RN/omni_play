@@ -14,7 +14,9 @@
   suggestions leave ordinary search available.
 - Home exposes genuine provider shelves and YouTube mood filters when supplied,
   including mixes, albums, artists and community collections. Provider item order
-  is preserved. Collection-only continuation pages remain visible.
+  is preserved. Collection-only continuation pages remain visible. Expanded
+  sections keep their originating Home/Explore feed through screen restoration;
+  Home mood filters are not shown for Explore.
 - Explicit queue choices take priority over generated radio. Selecting a new
   manual song reseeds the selected provider's radio, with old requests cancelled.
   History is not used as the Up next queue.

@@ -6,10 +6,13 @@ import androidx.activity.ComponentActivity
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.junit4.StateRestorationTester
 import labs.rtensor.music.data.AccountState
 import labs.rtensor.music.data.LookChoice
 import labs.rtensor.music.data.SearchSuggestion
 import labs.rtensor.music.data.Track
+import labs.rtensor.music.data.FeedEntry
+import labs.rtensor.music.data.FeedSection
 import labs.rtensor.music.data.UserPlaylist
 import labs.rtensor.music.ui.MusicApp
 import labs.rtensor.music.ui.SongActionCallbacks
@@ -73,6 +76,20 @@ class SongActionsUiTest {
         compose.onNodeWithText("Add to playlist").performClick()
         compose.onNodeWithText(playlist.title).performClick()
         compose.runOnIdle { assertEquals(listOf(playlist to first), added) }
+    }
+    @Test fun exploreShelfUsesItsOwnFeedAndSurvivesStateRestoration() {
+        val explore = FeedSection("Live performances", listOf(FeedEntry("aaaaaaaaaaa", first.title, first.artist, "", "song", "", "aaaaaaaaaaa")))
+        val home = FeedSection("Only at Home", listOf(FeedEntry("bbbbbbbbbbb", second.title, second.artist, "", "song", "", "bbbbbbbbbbb")))
+        val state = base().copy(feed = listOf(home), explore = listOf(explore), homeFilters = listOf("Relax"))
+        val restoration = StateRestorationTester(compose)
+        restoration.setContent { MusicApp(state, initialPage = "explore") }
+        compose.onNodeWithText("Relax").assertDoesNotExist()
+        compose.onNodeWithText("Live performances").performClick()
+        compose.onNodeWithText(first.title).assertIsDisplayed()
+        compose.onNodeWithText(second.title).assertDoesNotExist()
+        restoration.emulateSavedInstanceStateRestore()
+        compose.onNodeWithText(first.title).assertIsDisplayed()
+        compose.onNodeWithContentDescription("Back").assertExists()
     }
     @Test fun deletingASyncedPlaylistRequiresExplicitConfirmationAndCancelKeepsIt() {
         val playlist = UserPlaylist("PLowned", "My synced list", remote = true)
