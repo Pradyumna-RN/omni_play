@@ -1145,7 +1145,7 @@ private fun PullToRefresh(busy: Boolean, onRefresh: () -> Unit, content: @Compos
         }
     }
     PullToRefreshBox(
-        isRefreshing = busy, onRefresh = onRefresh, state = pull, modifier = Modifier.fillMaxSize(),
+        isRefreshing = busy, onRefresh = onRefresh, state = pull, modifier = Modifier.fillMaxSize().clipToBounds(),
         indicator = {
             PullToRefreshDefaults.Indicator(state = pull, isRefreshing = busy, modifier = Modifier.align(Alignment.TopCenter),
                 containerColor = MaterialTheme.colorScheme.surface, color = MaterialTheme.colorScheme.primary)
@@ -1275,7 +1275,8 @@ private fun ExploreScreen(state: MusicState, content: ExploreShelves, tab: Strin
                 color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 10.dp, bottom = 16.dp))
             SegmentedTabs(tabs.map { it.second }, position.toFloat()) { onTab(tabs[it].first) }
         }
-        Box(Modifier.weight(1f)) {
+        // Clip the shelves to their own area: scrolled up, they were drawn over the title and the tabs.
+        Box(Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
             pages.SaveableStateProvider(tab) {
                 if (tab == "for-you") personal()
                 else {
