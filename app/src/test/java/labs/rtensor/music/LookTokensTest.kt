@@ -18,6 +18,12 @@ import labs.rtensor.music.ui.SoftRaspberry
 import labs.rtensor.music.ui.SoftRaspberryNight
 import labs.rtensor.music.ui.softContainer
 import labs.rtensor.music.ui.softOnPrimary
+import labs.rtensor.music.ui.tintedTo
+import labs.rtensor.music.ui.humLook
+import labs.rtensor.music.ui.HumPink
+import labs.rtensor.music.ui.HumPinkDay
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import labs.rtensor.music.ui.stageLight
 import androidx.compose.ui.graphics.toArgb
 import org.junit.Assert.*
@@ -104,5 +110,30 @@ class LookTokensTest {
         assertTrue(lookFor(LookChoice.ROOM, true).room)
         assertEquals("RETRY", classicLook(false).label("Retry")); assertEquals("Retry", roomLook(false).label("Retry"))
         assertEquals("Explore.", classicLook(true).headline("Explore")); assertEquals("Explore", roomLook(true).headline("Explore"))
+    }
+
+    /** Hum's background follows the accent: any hue keeps text readable, Berry pink and other looks are untouched. */
+    @Test fun humBackgroundFollowsTheAccentAndStaysReadable() {
+        for (dark in listOf(true, false)) {
+            val base = humLook(dark)
+            assertEquals(base, base.tintedTo(if (dark) HumPink else HumPinkDay))
+            assertEquals(roomLook(dark), roomLook(dark).tintedTo(Color(0xFFD4A017)))
+            val accents = AccentChoice.entries.filter { it != AccentChoice.COVER }.map { accentColours(it, dark, null).accent } +
+                (0 until 360 step 20).map { Color(android.graphics.Color.HSVToColor(floatArrayOf(it.toFloat(), .85f, .9f))) }
+            for (accent in accents) {
+                val look = base.tintedTo(accent)
+                val label = "${if (dark) "dark" else "light"} accent #${Integer.toHexString(accent.toArgb())}"
+                for ((name, ground) in listOf("background" to look.background, "panel" to look.panel)) {
+                    assertTrue("$label text on $name", contrastRatio(look.text, ground) >= MinTextContrast)
+                    assertTrue("$label muted on $name", contrastRatio(look.muted, ground) >= MinTextContrast)
+                }
+                assertTrue("$label dock text", contrastRatio(look.stageText, look.stage) >= MinTextContrast)
+                assertTrue("$label dock muted", contrastRatio(look.stageMuted, look.stage) >= MinTextContrast)
+                assertEquals("$label stays ${if (dark) "dark" else "light"}", dark, look.background.luminance() < .2f)
+            }
+        }
+        // Gold gives a warm night: red leads blue, where Berry's plum leaned to blue.
+        val gold = humLook(true).tintedTo(Color(0xFFD4A017)).background
+        assertTrue(gold.red > gold.blue)
     }
 }

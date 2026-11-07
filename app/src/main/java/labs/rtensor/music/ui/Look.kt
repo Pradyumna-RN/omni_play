@@ -9,11 +9,15 @@ import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.toArgb
+import androidx.core.graphics.ColorUtils
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.dp
 import labs.rtensor.music.data.LookChoice
 import java.util.Locale
+import kotlin.math.max
+import kotlin.math.min
 
 /** Listening room, dark: near-black ground, a lifted panel, warm paper text and a muted grey. */
 internal val RoomNight = Color(0xFF0F1012)
@@ -109,6 +113,37 @@ internal fun humLook(dark: Boolean): Look = if (dark) Look(
     background = HumPaper, panel = HumDayPanel, text = HumInk, muted = HumDayMuted, line = Color(0xFFE4CBDA),
     stage = HumDock, stageText = HumPaper, stageMuted = HumMuted,
 )
+
+/**
+ * Hum's page, panel, dock and text tokens re-hued to [accent], so the background follows the colour
+ * scheme: a gold accent gives a warm brown-black night and a cream day, a blue one a blue-black.
+ * Lightness is kept, saturation fades with the accent's own (Ink, a grey cover: no tint), and
+ * text and muted text are nudged in lightness only where the new hue would drop them under 4.5:1.
+ * Berry pink, Hum's own accent, keeps the original tokens exactly.
+ */
+internal fun Look.tintedTo(accent: Color): Look {
+    if (!hum || accent == HumPink || accent == HumPinkDay) return this
+    val hue = FloatArray(3).also { ColorUtils.colorToHSL(accent.toArgb(), it) }[0]
+    val chroma = max(accent.red, max(accent.green, accent.blue)) - min(accent.red, min(accent.green, accent.blue))
+    val strength = (chroma / .3f).coerceIn(0f, 1f)
+    fun tint(c: Color): Color {
+        val hsl = FloatArray(3).also { ColorUtils.colorToHSL(c.toArgb(), it) }
+        return Color(ColorUtils.HSLToColor(floatArrayOf(hue, hsl[1] * strength, hsl[2])))
+    }
+    fun fit(c: Color, grounds: List<Color>): Color = closestLightness(c) { candidate -> grounds.all { contrastRatio(candidate, it) >= MinTextContrast } } ?: c
+    val page = tint(background)
+    val card = tint(panel)
+    val dock = tint(stage)
+    return copy(
+        background = page, panel = card, surface = page,
+        text = fit(tint(text), listOf(page, card)),
+        muted = fit(tint(muted), listOf(page, card)),
+        line = if (dark) Color(0x1FFFFFFF).compositeOver(page) else tint(line),
+        stage = dock,
+        stageText = fit(tint(stageText), listOf(dock)),
+        stageMuted = fit(tint(stageMuted), listOf(dock)),
+    )
+}
 
 internal fun roomLook(dark: Boolean): Look = if (dark) Look(
     LookChoice.ROOM, dark = true,

@@ -284,15 +284,19 @@ private const val AccentMs = 240
 fun MusicTheme(theme: String = "light", darkNavigationBar: Boolean = false, accent: AccentChoice = AccentChoice.SIGNAL,
     coverAccent: Color? = null, darkStatusBar: Boolean = false, look: LookChoice = LookChoice.DEFAULT, content: @Composable () -> Unit) {
     val dark = theme == "dark" || (theme == "system" && isSystemInDarkTheme())
-    val tokens = remember(look, dark) { lookFor(look, dark) }
+    val looks = remember(look, dark) { lookFor(look, dark) }
     // Classic is the 0.3.32 Signal look: always the Signal orange, never a cover colour. Soft is
     // the 0.3.31 design: always its own raspberry.
-    val chosen = if (tokens.classic) AccentChoice.SIGNAL else accent
-    val target = remember(chosen, dark, coverAccent, tokens) {
+    val chosen = if (looks.classic) AccentChoice.SIGNAL else accent
+    val target = remember(chosen, dark, coverAccent, looks) {
+        val tokens = looks
         if (tokens.soft) (if (dark) SoftRaspberryNight else SoftRaspberry).let { AccentColours(it, softOnPrimary(dark), it) }
         else if (tokens.hum && (chosen == AccentChoice.SIGNAL || (chosen == AccentChoice.COVER && coverAccent == null))) (if (dark) HumPink else HumPinkDay).let { AccentColours(it, onAccentFor(it), visibleOnDock(it)) }
         else accentColours(chosen, dark, coverAccent.takeIf { tokens.room })
     }
+    // Hum's background follows the accent (a fixed colour, or the cover's). It changes with the accent
+    // rather than blending, because the look is a static local that would recompose everything per frame.
+    val tokens = remember(looks, target.accent) { looks.tintedTo(target.accent) }
     // Respect both the app's reduced-motion setting and the system animator duration scale.
     val instant = LocalReducedMotion.current || !android.animation.ValueAnimator.areAnimatorsEnabled()
     val blend = tween<Color>(if (instant) 0 else AccentMs, easing = Standard)

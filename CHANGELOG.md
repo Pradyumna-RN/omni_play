@@ -2,6 +2,16 @@
 
 All notable changes to Hum. Newest first. Every release adds an entry here and uses the same text as its GitHub release notes.
 
+## 0.4.0-beta.10 (versionCode 54)
+
+### Changed
+- The whole app now follows your accent colour. Pick Cobalt, Moss, Oxblood or Ink and the page, cards, dock, nav bar and mini player take that colour’s tint, in dark and light. Berry (the default) keeps the plum look.
+- With From the cover, the background and mini player follow the colour of the song that is playing.
+
+### Known
+- The background changes in one step when you change song or accent; it does not fade.
+- Connecting YouTube Music after choosing a Google account still opens Google’s sign-in page: Google does not let other apps reuse the phone’s Google login.
+
 ## 0.4.0-beta.9 (versionCode 53)
 
 ### Fixed
