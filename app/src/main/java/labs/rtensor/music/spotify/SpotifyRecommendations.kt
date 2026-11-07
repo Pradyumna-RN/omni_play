@@ -84,11 +84,17 @@ internal class SpotifyRecommendations(context: Context,
     private fun ensureActiveEpoch(epoch: Long) { if (epoch != revision) throw CancellationException("Spotify account changed") }
     suspend fun home(): HomeFeed {
         val sections = fetch("home", JSONObject().put("timeZone", TimeZone.getDefault().id)).getJSONArray("sections")
-        return HomeFeed((0 until sections.length()).mapNotNull { i ->
-            val section = sections.getJSONObject(i)
-            val entries = items(section.getJSONArray("items")).map { it.entry() }
-            entries.takeIf { it.isNotEmpty() }?.let { FeedSection(section.optString("title", "Spotify picks"), it) }
-        }, false, signedIn = true, personalized = true)
+        val picks = sections(sections)
+        // The account's own liked songs, playlists and albums lead; they are optional, so Home still loads without them.
+        val own = try { sections(fetch("library").getJSONArray("sections")) }
+            catch (e: CancellationException) { throw e }
+            catch (_: Exception) { emptyList() }
+        return HomeFeed(own + picks, false, signedIn = true, personalized = true)
+    }
+    private fun sections(array: JSONArray) = (0 until array.length()).mapNotNull { i ->
+        val section = array.getJSONObject(i)
+        val entries = items(section.getJSONArray("items")).map { it.entry() }
+        entries.takeIf { it.isNotEmpty() }?.let { FeedSection(section.optString("title", "Spotify picks"), it) }
     }
     suspend fun collection(entry: FeedEntry, offset: Int = 0): JSONObject =
         fetch("collection", JSONObject().put("uri", SpotifyItem.from(entry).uri).put("offset", offset))

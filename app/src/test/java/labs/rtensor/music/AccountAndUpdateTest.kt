@@ -122,6 +122,17 @@ class AccountAndUpdateTest {
         val list = JSONArray().put(release("v0.3.0")).put(release("v0.10.0")).put(release("v9.0.0", true))
         assertEquals("0.10.0", GitHubUpdater.selectRelease(list, "0.2.0")?.version)
     }
+    @Test fun releasesNamedAfterTheAppAreFoundAndPreferredOverTheLegacyName() {
+        val tag = "v0.4.0-beta.4"
+        fun asset(name: String) = JSONObject().put("name", name).put("size", 100)
+            .put("browser_download_url", "https://github.com/RTensorLabs/music-app/releases/download/$tag/$name")
+        fun release(vararg names: String) = JSONObject().put("tag_name", tag).put("draft", false)
+            .put("assets", JSONArray().apply { names.forEach { put(asset(it)) } })
+        val both = GitHubUpdater.selectRelease(JSONArray().put(release("music-release.apk", "Hum.apk", "SHA256SUMS")), "0.4.0-beta.3")
+        assertEquals("Hum.apk", both?.apkName)
+        val legacyOnly = GitHubUpdater.selectRelease(JSONArray().put(release("music-release.apk", "SHA256SUMS")), "0.4.0-beta.3")
+        assertEquals("music-release.apk", legacyOnly?.apkName)
+    }
     @Test fun integratedMusicOtaUpdatesStableAndPrivatePreviewInstallations() {
         val tag = "v0.3.41"
         fun asset(name: String) = JSONObject().put("name", name).put("size", 18000000)

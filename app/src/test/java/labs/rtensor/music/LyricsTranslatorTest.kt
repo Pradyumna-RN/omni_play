@@ -2,6 +2,7 @@ package labs.rtensor.music
 
 import labs.rtensor.music.data.LyricsTranslator
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -31,5 +32,15 @@ class LyricsTranslatorTest {
     @Test fun languageNamesAreEnglish() {
         assertEquals("Hindi", LyricsTranslator.languageName("hi"))
         assertEquals("", LyricsTranslator.languageName(""))
+    }
+
+    @Test fun romanisationIsReadFromTheTransliterationSegment() {
+        val body = """[[["I love","ನಾನು ಪ್ರೀತಿ",null,null,10],[null,null,null,"Nānu\nprīti"]],null,"kn"]"""
+        assertEquals("Nānu\nprīti", LyricsTranslator.parseRomanisation(body))
+        assertNull(LyricsTranslator.parseRomanisation("""[[["Hello","Hello",null,null,10]],null,"en"]"""))
+    }
+
+    @Test fun plainLettersDropAccentsAndCapitaliseEachLine() {
+        assertEquals("Nanu\nPriti", LyricsTranslator.plainLetters("nānu\nprīti"))
     }
 }

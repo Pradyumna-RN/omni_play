@@ -17,9 +17,11 @@ data class TranslatedLyrics(val text: String, val sourceLanguage: String) {
 }
 
 /**
- * YouTube Music shows a song's lyrics only in the language it was written in. This asks Google
- * Translate's public web endpoint for an English version and for the original's language, line by
- * line so stanza breaks survive. Only the lyric text is sent.
+ * YouTube Music shows a song's lyrics only in the language it was written in. The "English" version
+ * is the same words written in English letters ("ನಾನು" becomes "nanu"), so a Kannada, Hindi or Tamil
+ * song can be read and sung along to without knowing the script. It asks Google Translate's public
+ * web endpoint for the transliteration, line by line so stanza breaks and timings survive. Lyrics
+ * that are already in Latin letters come back unchanged. Only the lyric text is sent.
  */
 class LyricsTranslator(
     private val client: OkHttpClient = OkHttpClient.Builder().connectTimeout(10, TimeUnit.SECONDS).readTimeout(20, TimeUnit.SECONDS).build(),
@@ -27,26 +29,43 @@ class LyricsTranslator(
 ) {
     suspend fun toEnglish(text: String): TranslatedLyrics = withContext(Dispatchers.IO) {
         var language = ""
-        val translated = chunks(text).joinToString("") { part ->
-            val (out, detected) = translate(part)
-            if (language.isEmpty()) language = detected
-            out
+        val romanised = chunks(text).joinToString("") { part ->
+            val body = request(part)
+            if (language.isEmpty()) language = parse(body).second
+            parseRomanisation(body)?.let(::plainLetters) ?: part
         }
-        TranslatedLyrics(translated.trimEnd(), language)
+        TranslatedLyrics(romanised.trimEnd(), language)
     }
 
-    private fun translate(text: String): Pair<String, String> {
+    private fun request(text: String): String {
         val url = endpoint.toHttpUrl().newBuilder()
             .addQueryParameter("client", "gtx").addQueryParameter("sl", "auto").addQueryParameter("tl", "en")
-            .addQueryParameter("dt", "t").build()
-        val request = Request.Builder().url(url).post(FormBody.Builder().add("q", text).build()).build()
-        client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) throw java.io.IOException("Translation failed (${response.code}).")
-            return parse(response.body?.string().orEmpty())
+            .addQueryParameter("dt", "t").addQueryParameter("dt", "rm").build()
+        val call = Request.Builder().url(url).post(FormBody.Builder().add("q", text).build()).build()
+        client.newCall(call).execute().use { response ->
+            if (!response.isSuccessful) throw java.io.IOException("Transliteration failed (${response.code}).")
+            return response.body?.string().orEmpty()
         }
     }
 
     companion object {
+        /** The original's text in Latin letters, from the response's transliteration segment; null when the text needs none. */
+        internal fun parseRomanisation(body: String): String? {
+            val segments = JSONArray(body).optJSONArray(0) ?: return null
+            for (i in 0 until segments.length()) {
+                val segment = segments.optJSONArray(i) ?: continue
+                val roman = segment.optString(3, "").takeUnless { it == "null" || it.isBlank() } ?: continue
+                if (segment.isNull(0) && segment.isNull(1)) return roman
+            }
+            return null
+        }
+
+        private val marks = Regex("\\p{M}+")
+        /** "Nānu" → "Nanu": drop the accents Google adds, and start each line with a capital. */
+        internal fun plainLetters(text: String): String =
+            java.text.Normalizer.normalize(text, java.text.Normalizer.Form.NFD).replace(marks, "")
+                .lines().joinToString("\n") { line -> line.replaceFirstChar { it.uppercase() } }
+
         /** The endpoint answers up to about 5,000 characters; stay well below it, breaking at line ends. */
         internal fun chunks(text: String, limit: Int = 3_500): List<String> {
             val out = mutableListOf<String>(); val current = StringBuilder()

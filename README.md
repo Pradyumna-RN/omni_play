@@ -1,13 +1,26 @@
-# Music for Android
+# Hum — a music player for Android
 
-Music is a native Android player from RTensorLabs, built around a simple goal:
+Hum (package `labs.rtensor.music`) is a native Android player from RTensorLabs, built around a simple goal:
 
 > **Find what you enjoy, then play the best available matching recording in one app.**
 
-Choose Listening room, Soft or Classic under Settings → Appearance → Look.
-Soft keeps the warm-paper interface, DM Sans and raspberry controls. All three
-use original provider artwork and share the same playback features. Android 11+
-is the supported baseline.
+Hum has one look: Berry accents, the Character typeface, a pinned player, a floating
+navigation pill and top-tab Settings. Android 11+ is the supported baseline.
+
+### New in 0.4.0 beta 4
+
+- **Lyrics follow the song** in a window sized for the phone, centred on the current
+  line; scroll away and they glide back after a moment. **Original / English** chips sit
+  with the lyrics and apply to every song. “English” means the same words in English
+  letters (ನಾನು → *nanu*, मैं → *main*), not a translation.
+- **Export downloads** to a folder of your choice, and **import music** from the device:
+  one file, many files, a folder, or several folders in turn (Settings → Sources).
+- **Spotify** shows your liked songs and playlists as well as albums.
+- **Listen again**: songs played in Hum are reported to your YouTube Music history
+  (turn it off with Settings → Privacy → Keep listening history).
+- **Browse** is gone; Explore is For you and Discover. Releases are named `Hum.apk`.
+
+See [CHANGELOG.md](CHANGELOG.md) for every release.
 
 ## Our goals
 
@@ -57,7 +70,7 @@ local validation. They ship in the 0.4.0 beta 1 release.
 
 ## Quick guide
 
-1. **Install or update.** Get the [current preview release](https://github.com/RTensorLabs/music-app/releases/tag/v0.4.0-beta.1).
+1. **Install or update.** Get the [current preview release](https://github.com/RTensorLabs/music-app/releases/latest).
    Existing installations can use **Settings → About → Check updates**.
 2. **Choose recommendations.** Open **Settings → Playback → Recommendation source**.
    YouTube Music is the default. Selecting Spotify starts its sign-in; the choice
@@ -65,14 +78,14 @@ local validation. They ship in the 0.4.0 beta 1 release.
 3. **Search or browse.** Home contains the full provider recommendation feed
    and YouTube mood filters. Keep scrolling to load the next available page.
    **Explore → For you** holds last played, recent listening and personal highlights.
-   **Discover** shows provider discovery shelves; **Browse** combines category links
-   with albums, playlists and artists. Both can use genuine already-loaded Home
-   shelves when the separate Explore request is empty or fails. Song-only feeds
-   remain browsable. No categories or music are invented to fill a tab.
+   **Discover** shows provider discovery shelves and can use genuine already-loaded
+   Home shelves when the separate Explore request is empty or fails. No categories
+   or music are invented to fill a tab.
    Each page keeps its position when opening and leaving the player.
    Search uses YouTube and offers suggestions as you type.
 4. **Add your files or playback sources.** Use **Settings → Sources → Import audio**
-   for a file or folder. **Playback sources** contains provider and personal-server
+   for files, a folder or several folders, and **Export downloads** to copy your
+   downloaded songs to a folder. **Playback sources** contains provider and personal-server
    connections. Supported files can be stereo, lossless or multichannel.
 5. **Compare multichannel playback.** For supported input, the player offers
    **Original** and **Processed**. Stereo plays unchanged. The channel monitor
@@ -122,10 +135,8 @@ surround bed to DMR; this does not recover the full Atmos object scene. Discover
 metadata, a successful sign-in or an album badge does not prove the audio format.
 See [verification and current limits](VERIFICATION.md).
 
-**Listening room** is the default look, with cover colours and a room panel.
-**Soft** has rounded artwork, a centred transport row and Like beside the song
-information; **Classic** retains the Signal design. Home holds the full provider
-feed. Explore separates personal listening, discovery shelves and browsing. Android Auto shares the
+Home holds the full provider feed. Explore separates personal listening from
+discovery shelves. Android Auto shares the
 phone's playback engine, library and provider routing. See
 [verification and current limits](VERIFICATION.md).
 
@@ -372,8 +383,9 @@ previews. It verifies the download size, SHA-256, package name, higher versionCo
 signing certificate before opening Android's installer. Android permission and
 installation confirmation remain required. Updates never install silently.
 
-Releases need `music-debug.apk` (or `music-release.apk`) and a `SHA256SUMS` asset
-naming that exact APK. Tags use semantic versions and Android versionCode must
+Releases carry `Hum.apk` and a `SHA256SUMS` asset naming that exact APK (older
+releases used `music-release.apk` or `music-debug.apk`, which the updater still
+accepts; each release also attaches a `music-release.apk` copy so earlier betas can update). Tags use semantic versions and Android versionCode must
 increase. Drafts and older builds are ignored. v0.1 has no updater; install a newer
 APK manually once. v0.2 and later can use the in-app update flow.
 

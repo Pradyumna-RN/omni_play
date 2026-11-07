@@ -204,7 +204,7 @@ internal class SpotifyWebRuntime private constructor(private val context: Contex
     }
     fun closeIfIdle() { if (loginObserver == null) close() }
     suspend fun call(operation: String, args: JSONObject): JSONObject = withContext(Dispatchers.Main.immediate) {
-        require(operation in setOf("profile", "home", "collection", "search", "radio", "playlists"))
+        require(operation in setOf("profile", "home", "collection", "search", "radio", "playlists", "library"))
         view()
         withTimeout(35_000) {
             while (channel == null) {

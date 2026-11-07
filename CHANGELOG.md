@@ -2,6 +2,28 @@
 
 All notable changes to Hum. Newest first. Every release adds an entry here and uses the same text as its GitHub release notes.
 
+## 0.4.0-beta.4 (versionCode 48)
+
+### New
+- English lyrics now read in English letters, like the song's own language: Kannada “ನಾನು” shows as “nanu”, Hindi, Tamil, Telugu and the rest the same way.
+- The Original / English choice sits with the lyrics, applies to every song, and can be changed any time from the player.
+- Export downloads to a folder on your phone (Settings → Sources → Export downloads).
+- Import music from your device: one file, many files, a folder with its subfolders, or several folders one after another.
+- Spotify home now shows your liked songs and playlists, not only albums.
+- Songs you play are added to your YouTube Music history, so they appear in Listen again. Turn it off with Settings → Privacy → Keep listening history.
+- Releases are now named Hum.apk, and the README and About page use the Hum name.
+
+### Fixed
+- Synced lyrics keep the current line centred in a window sized for your screen, and return to it a moment after you scroll away.
+
+### Changed
+- Browse is removed from Explore; Discover covers it.
+
+### Known
+- Spotify sign-in through the browser (Chrome) is not built yet.
+- Spotify playlist create/add is not built yet (YouTube Music only).
+- Listen again can take a few minutes to refresh on YouTube Music's side.
+
 ## 0.4.0-beta.3 (versionCode 47)
 
 ### New

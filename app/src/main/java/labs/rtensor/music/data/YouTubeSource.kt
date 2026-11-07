@@ -63,6 +63,11 @@ class YouTubeSource(context: Context) {
         )
     }
 
+    /** Tells YouTube Music a song is playing (and how far in), so it joins the account's history and "Listen again". */
+    suspend fun reportPlayback(videoId: String, seconds: Double = 0.0) {
+        runtime.call("report-playback", JSONObject().put("videoId", videoId).put("seconds", seconds))
+    }
+
     suspend fun confirmPlayback(videoId: String, path: String) {
         runtime.call("confirm-playback", JSONObject().put("videoId", videoId).put("playbackPath", path))
     }

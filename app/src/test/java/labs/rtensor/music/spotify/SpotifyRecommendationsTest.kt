@@ -84,6 +84,7 @@ class SpotifyRecommendationsTest {
         val api = Api { op, args -> when (op) {
             "profile" -> JSONObject().put("name", "Listener")
             "home" -> home()
+            "library" -> JSONObject().put("sections", JSONArray())
             "radio" -> { assertEquals(first.id, args.getString("id")); page(next, first, next, next.copy(id = "c".repeat(22))) }
             else -> error("Unexpected operation $op")
         } }
@@ -93,7 +94,7 @@ class SpotifyRecommendationsTest {
         assertEquals(1, api.calls.count { it == "home" }); assertEquals(first.entry(), feed.sections.single().items.single())
         assertEquals(listOf("spotify:${next.id}", "spotify:${"c".repeat(22)}"), backend.radio(first.track(), emptyList()).map { it.id })
         assertTrue(backend.radio(first.track(), listOf("spotify:${next.id}")).none { it.spotifyId == next.id })
-        assertEquals(listOf("profile", "home", "radio"), api.calls)
+        assertEquals(listOf("profile", "home", "library", "radio"), api.calls)
         assertTrue(backend.radio(youtube.copy(source = Source.LOCAL), emptyList()).isEmpty())
         now += 11 * 60 * 1000L; backend.home(); assertEquals(2, api.calls.count { it == "home" })
     }

@@ -107,6 +107,8 @@ class GitHubUpdater(private val context: Context) {
             Regex("^([A-Fa-f0-9]{64})\\s+\\*?([A-Za-z0-9._-]+)$").matchEntire(it.trim())
         }.firstOrNull { it.groupValues[2] == name }?.groupValues?.get(1)?.lowercase()
 
+        private val APK_NAMES = listOf("Hum.apk", "music-debug.apk", "music-release.apk")
+
         fun selectRelease(releases: JSONArray, installed: String): AppRelease? {
             val current = Version.parse(installed) ?: return null
             return (0 until releases.length()).mapNotNull { i ->
@@ -116,8 +118,8 @@ class GitHubUpdater(private val context: Context) {
                 if (version <= current) return@mapNotNull null
                 val assets = r.optJSONArray("assets") ?: return@mapNotNull null
                 val files = (0 until assets.length()).map { assets.getJSONObject(it) }
-                val apk = files.firstOrNull { it.optString("name") == "music-debug.apk" }
-                    ?: files.firstOrNull { it.optString("name") == "music-release.apk" } ?: return@mapNotNull null
+                // Releases carry the app's own name (Hum.apk); older ones used music-debug.apk / music-release.apk.
+                val apk = APK_NAMES.firstNotNullOfOrNull { wanted -> files.firstOrNull { it.optString("name") == wanted } } ?: return@mapNotNull null
                 val sums = files.firstOrNull { it.optString("name") == "SHA256SUMS" } ?: return@mapNotNull null
                 if (!isReleaseAsset(apk.optString("browser_download_url")) || !isReleaseAsset(sums.optString("browser_download_url"))) return@mapNotNull null
                 version to AppRelease(tag.removePrefix("v"), apk.getString("browser_download_url"), sums.getString("browser_download_url"), apk.getString("name"), apk.getLong("size"))

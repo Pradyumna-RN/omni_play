@@ -40,6 +40,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -58,7 +65,13 @@ import labs.rtensor.music.data.Lyrics
 import labs.rtensor.music.data.Source
 import labs.rtensor.music.data.Track
 
-/** Translates a song's lyrics to English: (track id, text). Provided by the app; the default does nothing. */
+/** How long the lyrics wait after the reader stops scrolling before they return to the current line. */
+private const val FollowPauseMs = 2500L
+
+/** The Original / English choice is one setting for every song, remembered across sessions. */
+private const val LyricsPrefs = "lyrics_prefs"
+
+/** Writes lyrics in English letters: (track id, text). Provided by the app; the default does nothing. */
 internal val LocalLyricsTranslate = staticCompositionLocalOf<suspend (String, String) -> TranslatedLyrics?> { { _, _ -> null } }
 
 /** Time-synced lyrics for a song: (track). Provided by the app; the default has none. */
@@ -75,12 +88,33 @@ private fun SyncedLyricsView(lines: List<LyricLine>, positions: StateFlow<Long>?
     val clock = (positions ?: remember { MutableStateFlow(0L) }).collectAsState()
     val active by remember(lines) { derivedStateOf { SyncedLyricsSource.activeIndex(lines, clock.value) } }
     val list = rememberLazyListState()
-    LaunchedEffect(active, lines) {
-        if (active < 0 || list.isScrollInProgress) return@LaunchedEffect
-        val offset = -(list.layoutInfo.viewportSize.height * .22f).toInt()
-        if (reduced) list.scrollToItem(active, offset) else list.animateScrollToItem(active, offset)
+    // A window sized to the phone (never a thin strip), with padding of half its height so the current
+    // line rests in the middle, with the previous and next lines visible around it.
+    val height = (LocalConfiguration.current.screenHeightDp * .42f).coerceIn(240f, 440f).dp
+    val padding = height / 2 - 30.dp
+    val current by rememberUpdatedState(active)
+    var programmatic by remember { mutableStateOf(false) }
+    var touchedAt by remember { mutableLongStateOf(0L) }
+    suspend fun follow() {
+        val index = current
+        if (index < 0) return
+        programmatic = true
+        try { if (reduced) list.scrollToItem(index) else list.animateScrollToItem(index) }
+        finally { programmatic = false }
     }
-    LazyColumn(Modifier.fillMaxWidth().height(250.dp), state = list, contentPadding = PaddingValues(vertical = 60.dp)) {
+    // The list follows each new line, unless the reader is looking around: then it waits, and the
+    // idle effect below brings the current line back, so it never stays stranded on an old line.
+    LaunchedEffect(active, lines) {
+        if (list.isScrollInProgress || System.currentTimeMillis() - touchedAt < FollowPauseMs) return@LaunchedEffect
+        follow()
+    }
+    LaunchedEffect(list) {
+        snapshotFlow { list.isScrollInProgress }.collectLatest { moving ->
+            if (moving) { if (!programmatic) touchedAt = System.currentTimeMillis() }
+            else if (!programmatic && touchedAt != 0L) { delay(FollowPauseMs); follow() }
+        }
+    }
+    LazyColumn(Modifier.fillMaxWidth().height(height), state = list, contentPadding = PaddingValues(vertical = padding)) {
         itemsIndexed(lines, key = { i, line -> "$i:${line.timeMs}" }) { i, line ->
             val distance = if (active < 0) 2 else kotlin.math.abs(i - active)
             val alpha by animateFloatAsState(if (distance == 0) 1f else if (distance == 1) .55f else .35f, tween(if (reduced) 0 else 320), label = "lyric-alpha")
@@ -124,12 +158,23 @@ internal fun LyricsPanel(track: Track, onLyrics: suspend (Track) -> Lyrics?, red
         synced = try { loadSynced(track) } catch (e: CancellationException) { throw e } catch (_: Exception) { emptyList() }
     }
     val scheme = MaterialTheme.colorScheme
+    // Original or English (romanised) is one choice for every song, kept across sessions and changeable here at any time.
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences(LyricsPrefs, android.content.Context.MODE_PRIVATE) }
+    var english by remember { mutableStateOf(prefs.getBoolean("english", false)) }
+    fun choose(value: Boolean) { english = value; prefs.edit().putBoolean("english", value).apply() }
     Column(modifier.fillMaxWidth().animateContentSize(tween(if (reduced) 0 else 240))) {
         Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(role = Role.Button) { open = !open }
             .semantics { contentDescription = if (open) "Hide lyrics" else "Show lyrics" },
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
             Text("Lyrics", Modifier.semantics { heading() }, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = scheme.onBackground)
             Icon(if (open) Icons.Outlined.KeyboardArrowUp else Icons.Outlined.KeyboardArrowDown, null, tint = scheme.onSurfaceVariant)
+        }
+        if (open) {
+            Row(Modifier.padding(bottom = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(!english, { choose(false) }, label = { Text("Original") })
+                FilterChip(english, { choose(true) }, label = { Text("English") })
+            }
         }
         if (open) when (val state = load) {
             LyricsLoad.Loading -> CircularProgressIndicator(Modifier.padding(vertical = 16.dp).size(22.dp), strokeWidth = 2.dp)
@@ -138,10 +183,9 @@ internal fun LyricsPanel(track: Track, onLyrics: suspend (Track) -> Lyrics?, red
                 TextButton(onClick = { attempt++ }) { Text("Try again") }
             }
             is LyricsLoad.Done -> if (state.lyrics.available || synced.isNotEmpty()) {
-                // YouTube Music has one version, in the language the song was written in. English is a
-                // translation, fetched only when asked for and remembered with the language it detected.
+                // YouTube Music has one version, in the language the song was written in. English is the same
+                // words in English letters ("nanu"), fetched only when asked for and remembered for the song.
                 val translate = LocalLyricsTranslate.current
-                var english by rememberSaveable { mutableStateOf(false) }
                 var translation by remember(track.id) { mutableStateOf<TranslatedLyrics?>(null) }
                 var translating by remember(track.id) { mutableStateOf(false) }
                 var translateFailed by remember(track.id) { mutableStateOf(false) }
@@ -155,13 +199,8 @@ internal fun LyricsPanel(track: Track, onLyrics: suspend (Track) -> Lyrics?, red
                     catch (_: Exception) { translateFailed = true }
                     translating = false
                 }
-                val original = translation?.sourceName?.takeIf { it.isNotBlank() }
-                Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(!english, { english = false }, label = { Text(if (original != null && original != "English") "Original · $original" else "Original") })
-                    FilterChip(english, { english = true }, label = { Text("English") })
-                }
                 val shown = if (english) translation?.text else state.lyrics.text
-                // English lines keep the original's timing when the translation came back line for line.
+                // English lines keep the original's timing when the result came back line for line.
                 val englishLines = translation?.text?.lines()?.filter { it.isNotBlank() }
                 val timed = if (synced.isEmpty()) emptyList() else if (!english) synced
                     else if (englishLines != null && englishLines.size == synced.size) synced.mapIndexed { i, line -> LyricLine(line.timeMs, englishLines[i]) } else emptyList()
@@ -169,15 +208,14 @@ internal fun LyricsPanel(track: Track, onLyrics: suspend (Track) -> Lyrics?, red
                     timed.isNotEmpty() -> SyncedLyricsView(timed, positions, onSeek, reduced)
                     english && translating -> CircularProgressIndicator(Modifier.padding(vertical = 16.dp).size(22.dp), strokeWidth = 2.dp)
                     english && translateFailed -> Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Couldn’t translate these lyrics.", fontSize = 14.sp, color = scheme.onSurfaceVariant)
+                        Text("Couldn’t write these lyrics in English.", fontSize = 14.sp, color = scheme.onSurfaceVariant)
                         TextButton(onClick = { tries++ }) { Text("Try again") }
                     }
-                    shown != null -> {
-                        if (english && translation?.sourceLanguage == "en") Text("These lyrics are already in English.", Modifier.padding(top = 8.dp), fontSize = 12.sp, color = scheme.onSurfaceVariant)
-                        Text(shown, Modifier.padding(top = 8.dp), fontSize = 17.sp, lineHeight = 27.sp, color = scheme.onBackground)
-                    }
+                    shown != null -> Text(shown, Modifier.padding(top = 8.dp), fontSize = 17.sp, lineHeight = 27.sp, color = scheme.onBackground)
                 }
-                if (english && shown != null) Text("Translated by Google Translate", Modifier.padding(top = 12.dp), fontSize = 12.sp, lineHeight = 16.sp, color = scheme.onSurfaceVariant)
+                if (english && shown != null) Text(
+                    if (translation?.sourceLanguage == "en") "These lyrics are already in English." else "English letters by Google Translate",
+                    Modifier.padding(top = 12.dp), fontSize = 12.sp, lineHeight = 16.sp, color = scheme.onSurfaceVariant)
                 if (state.lyrics.source.isNotBlank()) Text(state.lyrics.source, Modifier.padding(top = 12.dp), fontSize = 12.sp, lineHeight = 16.sp, color = scheme.onSurfaceVariant)
                 Spacer(Modifier.size(8.dp))
             } else Text("No lyrics for this song.", Modifier.padding(vertical = 8.dp), fontSize = 14.sp, color = scheme.onSurfaceVariant)

@@ -168,6 +168,20 @@ class MusicPlaybackService : MediaLibraryService() {
             }
         })
         var confirmedKey: String? = null
+        // Songs played here join the signed-in account's YouTube Music history ("Listen again"), unless the
+        // user turned listening history off. Reporting is best effort and never affects playback.
+        val historyStore = labs.rtensor.music.data.LibraryStore(this)
+        fun reportToYouTube(videoId: String, seconds: Double) {
+            if (!historyStore.trackHistory) return
+            preloadScope.launch {
+                try { youtube.reportPlayback(videoId, seconds) }
+                catch (e: CancellationException) { throw e } catch (_: Exception) { /* Optional; playback is unaffected. */ }
+            }
+        }
+        fun reportProgress(item: MediaItem?, positionMs: Long) {
+            val videoId = item?.localConfiguration?.uri?.toString()?.let(YouTubeLink::normalize)?.substringAfter("?v=") ?: return
+            if (positionMs >= 5_000) reportToYouTube(videoId, positionMs / 1000.0)
+        }
         fun confirmPlaying() {
             if (!player.isPlaying) return
             val config = player.currentMediaItem?.localConfiguration ?: return
@@ -176,10 +190,12 @@ class MusicPlaybackService : MediaLibraryService() {
             if (key == confirmedKey || path in paths.rejected(key)) return
             val canonical = YouTubeLink.normalize(config.uri.toString()) ?: return
             confirmedKey = key
+            val videoId = canonical.substringAfter("?v=")
             preloadScope.launch {
-                try { youtube.confirmPlayback(canonical.substringAfter("?v="), path) }
+                try { youtube.confirmPlayback(videoId, path) }
                 catch (e: CancellationException) { throw e } catch (_: Exception) { /* Playback remains independent of preference hints. */ }
             }
+            reportToYouTube(videoId, 0.0)
         }
         player.addListener(object : androidx.media3.common.Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
@@ -188,7 +204,13 @@ class MusicPlaybackService : MediaLibraryService() {
                 player.currentMediaItem?.localConfiguration?.customCacheKey?.let(::tryNextConnectedSource)
             }
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) { AudioPipeline.clearReport(); confirmPlaying() }
+            override fun onPositionDiscontinuity(oldPosition: androidx.media3.common.Player.PositionInfo, newPosition: androidx.media3.common.Player.PositionInfo, reason: Int) {
+                // A song ended or was skipped: tell YouTube how much of it was heard.
+                if (reason == androidx.media3.common.Player.DISCONTINUITY_REASON_AUTO_TRANSITION || reason == androidx.media3.common.Player.DISCONTINUITY_REASON_SKIP)
+                    reportProgress(oldPosition.mediaItem, oldPosition.positionMs)
+            }
             override fun onIsPlayingChanged(isPlaying: Boolean) {
+                if (!isPlaying && confirmedKey != null) reportProgress(player.currentMediaItem, player.currentPosition)
                 confirmPlaying()
                 if (!isPlaying || !player.hasNextMediaItem()) return
                 val nextItem = player.getMediaItemAt(player.nextMediaItemIndex)

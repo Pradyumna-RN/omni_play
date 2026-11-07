@@ -59,7 +59,7 @@
   }
   const path = (object, keys) => keys.split('.').reduce((value, key) => value?.[key], object);
   function art(object) {
-    const sources = [path(object, 'coverArt.sources'), path(object, 'albumOfTrack.coverArt.sources'),
+    const sources = [path(object, 'coverArt.sources'), path(object, 'albumOfTrack.coverArt.sources'), path(object, 'album.images'),
       path(object, 'images.items.0.sources'), path(object, 'images.sources'), object?.images].flat().filter(Boolean);
     return sources.filter(image => {
       try { const url = new URL(image.url); return url.protocol === 'https:' && !url.username && !url.password &&
@@ -193,6 +193,24 @@
       const data = await response.json();
       if (!Array.isArray(data.items)) throw Error('CATALOGUE_UNAVAILABLE');
       return {items: data.items.map(item).filter(value => value?.kind === 'playlist'), nextOffset: data.next && data.items.length ? offset + data.items.length : -1};
+    }
+    if (operation === 'library') {
+      // The signed-in account's own music: liked songs, playlists and saved albums (Web API, read-only).
+      const token = await auth();
+      const get = async url => {
+        try {
+          const response = await fetch(`https://api.spotify.com/v1/me/${url}`, {credentials: 'omit', headers: {Authorization: `Bearer ${token.accessToken}`}});
+          if (response.status === 401) throw Error('AUTH_REQUIRED');
+          return response.ok ? await response.json() : null;
+        } catch (error) { if (error.message === 'AUTH_REQUIRED') throw error; return null; }
+      };
+      const [liked, lists, albums] = await Promise.all([get('tracks?limit=30'), get('playlists?limit=30'), get('albums?limit=30')]);
+      const sections = [
+        {title: 'Liked songs', items: (liked?.items || []).map(row => item(row.track)).filter(value => value?.kind === 'track')},
+        {title: 'Your playlists', items: (lists?.items || []).map(item).filter(value => value?.kind === 'playlist')},
+        {title: 'Your albums', items: (albums?.items || []).map(row => item(row.album)).filter(value => value?.kind === 'album')},
+      ].filter(section => section.items.length);
+      return {sections};
     }
     if (operation === 'search') {
       if (typeof args.query !== 'string' || !args.query.trim() || args.query.length > 400) throw Error('BAD_REQUEST');

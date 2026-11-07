@@ -60,27 +60,10 @@ class ExploreTabsUiTest {
         capture("discover-empty-response-fallback")
         compose.onNodeWithText("More music awaits").assertDoesNotExist()
     }
-    @Test fun browseKeepsCollectionsAlongsideCategoryNavigation() {
-        val state = MusicState(look = LookChoice.SOFT, reducedMotion = true,
-            feed = listOf(FeedSection("Actual playlists", listOf(playlist))), explore = listOf(FeedSection("Categories", listOf(charts))))
-        compose.setContent { MusicApp(state, initialPage = "explore") }
-        compose.onNodeWithContentDescription("Browse").performClick()
-        compose.onNodeWithText("Charts").assertIsDisplayed()
-        compose.onNodeWithText(playlist.title).assertIsDisplayed()
-        capture("browse-navigation-and-collections")
-    }
-    @Test fun browseUsesRealSongsWhenThereAreNoCategoriesOrCollections() {
-        var played: Track? = null
-        compose.setContent { MusicApp(MusicState(look = LookChoice.SOFT, reducedMotion = true,
-            feed = listOf(FeedSection("Songs from the provider", listOf(song(2))))), initialPage = "explore", onPlay = { track, _ -> played = track }) }
-        compose.onNodeWithContentDescription("Browse").performClick()
-        compose.onNodeWithText("Song 2").performClick()
-        assertEquals(song(2).asTrack(), played)
-    }
     @Test fun aFailedExploreRequestKeepsExistingProviderContentVisible() {
         compose.setContent { MusicApp(MusicState(look = LookChoice.SOFT, reducedMotion = true,
             feed = listOf(FeedSection("Loaded albums", listOf(album))), exploreError = "Explore request failed"), initialPage = "explore") }
-        compose.onNodeWithContentDescription("Browse").performClick()
+        compose.onNodeWithContentDescription("Discover").performClick()
         compose.onNodeWithText(album.title).assertIsDisplayed()
         compose.onNodeWithText("Explore request failed").assertIsDisplayed()
         compose.onNodeWithText("Retry").assertIsDisplayed()
@@ -112,9 +95,9 @@ class ExploreTabsUiTest {
     @Test fun lateProviderDataPreservesTheSelectedExploreTab() {
         val state = mutableStateOf(MusicState(look = LookChoice.SOFT, reducedMotion = true, explore = listOf(FeedSection("New music", listOf(album)))))
         compose.setContent { MusicApp(state.value, initialPage = "explore") }
-        compose.onNodeWithContentDescription("Browse").performClick()
+        compose.onNodeWithContentDescription("Discover").performClick()
         compose.runOnIdle { state.value = state.value.copy(feed = listOf(FeedSection("Late playlists", listOf(playlist)))) }
-        compose.onNodeWithContentDescription("Browse").assertIsSelected()
+        compose.onNodeWithContentDescription("Discover").assertIsSelected()
         compose.onNodeWithText(playlist.title).assertIsDisplayed()
     }
     private fun capture(name: String) {

@@ -376,6 +376,8 @@ fun MusicApp(
     onAccent: (AccentChoice) -> Unit = {},
     onOpenLocal: () -> Unit = {},
     onChooseMasters: () -> Unit = {},
+    onImportFolder: () -> Unit = {},
+    onExportDownloads: () -> Unit = {},
     onClearMasters: () -> Unit = {},
     onConnectSource: (MusicProvider, SourceProtocol, String, String) -> Unit = { _, _, _, _ -> },
     onRemoveSource: (String) -> Unit = {},
@@ -424,7 +426,6 @@ fun MusicApp(
     val homeScroll = rememberLazyListState()
     val exploreScroll = rememberLazyListState()
     val explorePersonalScroll = rememberLazyListState()
-    val exploreBrowseScroll = rememberLazyListState()
     val providerScroll = rememberLazyListState()
     val sectionScroll = key(expandedSectionTitle, expandedFromExplore, expandedFromCollection, expandedExploreTab) { rememberLazyListState() }
     val searchFocus = remember { FocusRequester() }
@@ -564,7 +565,7 @@ fun MusicApp(
                         when (target) {
                             "search" -> if (!state.searched) SearchSuggestionList(state, onSuggestion, { play(it, listOf(it)) }) else SearchResults(state, ::play, onSave)
                             "explore" -> ExploreScreen(state, exploreContent, exploreTab, { exploreTab = it }, ::openEntry,
-                                onRefreshFeed, onRefreshExplore, exploreScroll, exploreBrowseScroll,
+                                onRefreshFeed, onRefreshExplore, exploreScroll,
                                 active = page == "explore" && !showResults) {
                                 PersonalScreen(state, ::focusSearch, ::play, onToggle, ::openEntry, { onRefreshFeed(); onRefreshForYou() }, onMoreFeed, onConnect,
                                     onOpenPlayer = { navigate("now") }, audioLevels = audioLevels, metering = metering, listState = explorePersonalScroll,
@@ -575,7 +576,7 @@ fun MusicApp(
                             "provider-feed", "feed-section" -> {
                                 val exploreSection = target == "feed-section" && expandedFromExplore
                                 val sections = when { expandedFromCollection && target == "feed-section" -> state.collectionSections
-                                    exploreSection -> if (expandedExploreTab == "browse") exploreContent.browse else exploreContent.discover
+                                    exploreSection -> exploreContent.discover
                                     else -> state.feed + state.feedContinuations }
                                 ProviderHome(state.copy(feed = if (target == "provider-feed") sections else sections.filter { it.title == expandedSectionTitle },
                                     feedBusy = when { expandedFromCollection && target == "feed-section" -> state.collectionBusy; exploreSection -> state.exploreBusy; else -> state.feedBusy },
@@ -595,7 +596,7 @@ fun MusicApp(
                                     state.collectionEntry.title, active = page == "collection")
                                 else CollectionScreen(state, ::play, onSave, onMoreCollection)
                             }
-                            "settings" -> SettingsScreen(state, onTheme, onAccent, onOpenLocal, onChooseMasters, onClearMasters, onClearHistory,
+                            "settings" -> SettingsScreen(state, onTheme, onAccent, onOpenLocal, onChooseMasters, onImportFolder, onExportDownloads, onClearMasters, onClearHistory,
                                 onConnect, onWebSignIn, onDisconnect, onCancelConnect, onGoogleSignIn, onGoogleSignOut, onCancelGoogle, onCheckUpdates, onDownloadUpdate, onInstallUpdate,
                                 onAutoplay, onTrackHistory, onConnectSource, onRemoveSource, onConnectTidal, onDisconnectTidal, onCancelTidal,
                                 onConnectApple, onNativeApple, onDisconnectApple, onCancelApple, onDeveloperOptions,
@@ -624,7 +625,7 @@ private fun AppHeader(page: String, searchOpen: Boolean, onCloseSearch: () -> Un
                 if (look.classic) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.onSurfaceVariant),
                 modifier = Modifier.size(48.dp)) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back", Modifier.size(20.dp)) }
             Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                val caption = when (page) { "now" -> "Now playing"; "collection" -> "Collection"; "provider-feed" -> "Your feed"; "feed-section" -> "Browse music"; else -> "Settings" }
+                val caption = when (page) { "now" -> "Now playing"; "collection" -> "Collection"; "provider-feed" -> "Your feed"; "feed-section" -> "Discover"; else -> "Settings" }
                 if (look.classic || look.soft) Caption(caption.uppercase(Locale.ROOT))
                 // In the Listening room the caption is the page's name (Settings has no second title).
                 else Text(caption, Modifier.semantics { heading() }, fontFamily = font, fontSize = 14.sp,
@@ -1378,8 +1379,8 @@ private fun ScrollingMetadata(text: String, style: TextStyle, modifier: Modifier
 @Composable
 private fun ExploreScreen(state: MusicState, content: ExploreShelves, tab: String, onTab: (String) -> Unit, onEntry: (FeedEntry) -> Unit,
     onRefreshFeed: () -> Unit, onRefreshExplore: () -> Unit,
-    discoverScroll: LazyListState, browseScroll: LazyListState, active: Boolean, personal: @Composable () -> Unit) {
-    val tabs = listOf("for-you" to "For you", "discover" to "Discover", "browse" to "Browse")
+    discoverScroll: LazyListState, active: Boolean, personal: @Composable () -> Unit) {
+    val tabs = listOf("for-you" to "For you", "discover" to "Discover")
     val position = tabs.indexOfFirst { it.first == tab }.coerceAtLeast(0)
     val pages = rememberSaveableStateHolder()
     Column(Modifier.fillMaxSize()) {
@@ -1397,14 +1398,14 @@ private fun ExploreScreen(state: MusicState, content: ExploreShelves, tab: Strin
             pages.SaveableStateProvider(tab) { key(tab) {
                 if (tab == "for-you") personal()
                 else {
-                    val sections = if (tab == "browse") content.browse else content.discover
+                    val sections = content.discover
                     val sourceEmpty = state.feed.isEmpty() && state.feedContinuations.isEmpty()
                     ProviderHome(state.copy(feed = sections,
                         feedBusy = state.exploreBusy || sections.isEmpty() && state.feedBusy, feedAppending = false,
                         feedError = state.exploreError ?: state.feedError.takeIf { sections.isEmpty() },
                         feedHasMore = false, feedEnded = false, homeFilters = emptyList(), homeFilter = null), onEntry,
                         { onRefreshExplore(); if (sourceEmpty) onRefreshFeed() }, {},
-                        listState = if (tab == "browse") browseScroll else discoverScroll,
+                        listState = discoverScroll,
                         active = active, showTitle = false)
                 }
             } }
@@ -2578,7 +2579,7 @@ private fun SettingsTabs(selected: Int, reduced: Boolean, onSelect: (Int) -> Uni
 
 @Composable
 private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onAccent: (AccentChoice) -> Unit, onLocal: () -> Unit,
-    onChooseMasters: () -> Unit, onClearMasters: () -> Unit, onClearHistory: () -> Unit,
+    onChooseMasters: () -> Unit, onImportFolder: () -> Unit, onExportDownloads: () -> Unit, onClearMasters: () -> Unit, onClearHistory: () -> Unit,
     onConnect: () -> Unit, onWebSignIn: () -> Unit, onDisconnect: () -> Unit, onCancelConnect: () -> Unit,
     onGoogleSignIn: () -> Unit, onGoogleSignOut: () -> Unit, onCancelGoogle: () -> Unit,
     onCheckUpdates: () -> Unit, onDownloadUpdate: () -> Unit, onInstallUpdate: () -> Unit,
@@ -2660,7 +2661,9 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onAccen
             if (showSources) PlaybackSourcesEditor(state, { showSources = false }, onConnectSource, onRemoveSource,
                 onConnectTidal, onDisconnectTidal, onCancelTidal, onConnectApple, onNativeApple, onDisconnectApple, onCancelApple)
             CardDivider()
-            SettingItem("Import audio", if (state.mastersBusy) state.mastersSummary else "Stereo, lossless and Atmos files", Icons.Outlined.Add, onClick = { showImport = true })
+            SettingItem("Import audio", if (state.mastersBusy) state.mastersSummary else "Songs, folders, lossless and Atmos files", Icons.Outlined.Add, onClick = { showImport = true })
+            CardDivider()
+            SettingItem("Export downloads", if (state.downloads.isEmpty()) "Download songs first, then copy them to a folder" else "Copy ${state.downloads.size} downloaded ${if (state.downloads.size == 1) "song" else "songs"} to a folder", Icons.Outlined.Add, onClick = onExportDownloads)
             state.importMessage?.let { Text(it, fontSize = 13.sp, lineHeight = 19.sp, color = scheme.onSurfaceVariant, modifier = Modifier.padding(start = 66.dp, end = 16.dp, bottom = 12.dp)) }
         }
 
@@ -2709,7 +2712,7 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onAccen
         }
         if (t == 5) {
         SettingsCard {
-            SettingItem("Music ${BuildConfig.VERSION_NAME}", "Preview channel · GitHub Releases", Icons.Outlined.Refresh)
+            SettingItem("Hum ${BuildConfig.VERSION_NAME}", "By RTensorLabs · preview channel on GitHub Releases", Icons.Outlined.Refresh)
             Column(Modifier.padding(start = 66.dp, end = 16.dp, bottom = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (state.update.message.isNotBlank()) Text(state.update.message, fontSize = 13.sp, lineHeight = 19.sp, color = scheme.onSurfaceVariant)
                 if (state.update.downloading) {
@@ -2726,7 +2729,7 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onAccen
             CardDivider()
             SettingItem("What’s new", "Changes in each release", Icons.Outlined.Info, onClick = { showChangelog = true })
             CardDivider()
-            SettingItem("Open-source licences", "Libraries and fonts used by Music", Icons.Outlined.Info, onClick = { showLicences = true })
+            SettingItem("Open-source licences", "Libraries and fonts used by Hum", Icons.Outlined.Info, onClick = { showLicences = true })
             CardDivider()
             SettingItem("Developer options", "Channel monitor, and live speaker levels on Home and in the player", Glyph.ChannelMonitor,
                 onClick = { onDeveloperOptions(!state.developerOptions) }) {
@@ -2744,10 +2747,12 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onAccen
         title = { Text("Import audio") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Choose audio from your device.")
-                Button(onClick = { showImport = false; onLocal() }, modifier = Modifier.fillMaxWidth(), shape = ButtonShape) { Text("Choose file") }
+                Text("Add songs from your device to Saved. Pick one or many files, or a whole folder with its subfolders. Run it again to add more folders.")
+                Button(onClick = { showImport = false; onLocal() }, modifier = Modifier.fillMaxWidth(), shape = ButtonShape) { Text("Choose files") }
+                Button(onClick = { showImport = false; onImportFolder() }, modifier = Modifier.fillMaxWidth(), shape = ButtonShape) { Text("Add a folder of songs") }
+                Text("Lossless and Atmos: pick the folder that holds your masters and matching songs will play from it.", fontSize = 13.sp, color = scheme.onSurfaceVariant)
                 OutlinedButton(onClick = { showImport = false; onChooseMasters() }, enabled = !state.mastersBusy,
-                    modifier = Modifier.fillMaxWidth(), shape = ButtonShape) { Text("Choose folder") }
+                    modifier = Modifier.fillMaxWidth(), shape = ButtonShape) { Text("Choose masters folder") }
                 if (state.mastersSummary.isNotBlank()) {
                     Text(state.mastersSummary, fontSize = 13.sp, color = scheme.onSurfaceVariant)
                     if (!state.mastersBusy) {
@@ -3318,7 +3323,7 @@ private fun ErrorBanner(message: String, onDismiss: () -> Unit, onRetry: () -> U
                 val ink = ButtonDefaults.textButtonColors(contentColor = if (look.soft) scheme.primary else scheme.onSurface)
                 FlowRow(Modifier.align(Alignment.End), horizontalArrangement = Arrangement.End) {
                     if (diagnostic.isNotBlank()) TextButton(onClick = {
-                        (context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("Playback details", "Music ${BuildConfig.VERSION_NAME} · $videoId\n$diagnostic"))
+                        (context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("Playback details", "Hum ${BuildConfig.VERSION_NAME} · $videoId\n$diagnostic"))
                     }, shape = ButtonShape, colors = ink) { Text("Copy details", fontSize = 13.sp) }
                     TextButton(onClick = onDismiss, shape = ButtonShape, colors = ink) { Text("Dismiss", fontSize = 13.sp) }
                     TextButton(onClick = onRetry, shape = ButtonShape, colors = ink) { Text("Retry", fontSize = 13.sp, fontWeight = FontWeight.SemiBold) }

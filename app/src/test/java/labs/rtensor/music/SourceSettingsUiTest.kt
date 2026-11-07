@@ -40,7 +40,7 @@ class SourceSettingsUiTest {
         compose.onNodeWithText("Atmos & lossless folder").assertDoesNotExist()
         compose.settingsTab("Sources")
         compose.onNodeWithText("Import audio").performScrollTo().performClick()
-        compose.onNodeWithText("Choose folder").performClick()
+        compose.onNodeWithText("Choose masters folder").performClick()
         compose.runOnIdle { assertEquals(1, folderPicks) }
         compose.onNodeWithText("Import audio").performClick()
         compose.onNodeWithText("Rescan folder").performClick()

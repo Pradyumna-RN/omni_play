@@ -948,6 +948,69 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /** Adds any number of picked audio files to Saved, one by one, reporting how many worked. */
+    fun importLocalFiles(uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        if (uris.size == 1) { importLocal(uris.first()); return }
+        addLocalSongs(uris, "Adding ${uris.size} songs…")
+    }
+
+    /** Adds every song in a folder, subfolders included. Run it again for another folder: songs already added are kept. */
+    fun importLocalFolder(tree: Uri) {
+        viewModelScope.launch {
+            mutable.update { it.copy(importMessage = "Looking for songs in the folder…") }
+            val files = try {
+                withContext(Dispatchers.IO) {
+                    labs.rtensor.music.data.LocalFolderScanner.audioFiles(getApplication<Application>(), tree) { }
+                }
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) { mutable.update { it.copy(importMessage = "Could not read this folder. Choose it again.") }; return@launch }
+            if (files.isEmpty()) { mutable.update { it.copy(importMessage = "No songs found in this folder.") }; return@launch }
+            addLocalSongs(files.map { it.first }, "Adding ${files.size} songs…")
+        }
+    }
+
+    private fun addLocalSongs(uris: List<Uri>, start: String) {
+        val revision = library.localRemovalRevision
+        viewModelScope.launch {
+            mutable.update { it.copy(importMessage = start) }
+            var added = 0; var failed = 0
+            val fresh = mutableListOf<Track>()
+            uris.forEachIndexed { index, uri ->
+                val track = try { withContext(Dispatchers.IO) { LocalAudioImporter.read(getApplication<Application>(), uri) } }
+                    catch (e: CancellationException) { throw e } catch (_: Exception) { null }
+                if (track != null && library.restoreLocal(track, revision)) { fresh += track; added++ } else failed++
+                if (index % 10 == 9) mutable.update { it.copy(importMessage = "Added $added of ${uris.size} songs…") }
+            }
+            if (fresh.isNotEmpty()) {
+                val keys = fresh.map { it.libraryKey() }.toSet()
+                val saved = fresh.reversed() + mutable.value.saved.filterNot { it.libraryKey() in keys }
+                library.writeTracks("saved", saved)
+                mutable.update { it.copy(saved = saved) }
+            }
+            mutable.update { it.copy(importMessage = if (added == 0) "No songs could be added. Choose readable audio files."
+                else "Added $added ${if (added == 1) "song" else "songs"} to Saved." + if (failed > 0) " $failed could not be read." else "") }
+        }
+    }
+
+    /** Copies every downloaded song into a folder the user picked, named "Artist - Title". */
+    fun exportDownloads(tree: Uri) {
+        val songs = downloadsHolder.store.all
+        if (songs.isEmpty()) { mutable.update { it.copy(importMessage = "There are no downloads to export yet.") }; return }
+        viewModelScope.launch {
+            mutable.update { it.copy(importMessage = "Exporting ${songs.size} downloads…") }
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    labs.rtensor.music.data.DownloadExporter.export(getApplication<Application>(), songs, { downloadsHolder.store.file(it.track) }, tree,
+                        isActive = { isActive }) { done, total -> mutable.update { it.copy(importMessage = "Exporting… $done of $total") } }
+                }
+                mutable.update { it.copy(importMessage = "Exported ${result.copied} ${if (result.copied == 1) "song" else "songs"} to the folder you chose." +
+                    if (result.failed > 0) " ${result.failed} could not be copied." else "") }
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) { mutable.update { it.copy(importMessage = "Could not write to this folder. Choose another one.") } }
+        }
+    }
+
     /** Index a folder of the user's own lossless and Atmos files, so matching songs play from them. */
     fun indexMasters(tree: Uri) {
         mastersJob?.cancel()

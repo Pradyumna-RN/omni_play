@@ -227,9 +227,9 @@ class NativeUiTest {
         compose.settingsTab("Sources")
         compose.onNodeWithText("Import audio").performScrollTo().performClick()
         org.junit.Assert.assertFalse(imported)
-        compose.onNodeWithText("Choose file").performClick()
+        compose.onNodeWithText("Choose files").performClick()
         org.junit.Assert.assertTrue(imported)
-        compose.onNodeWithText("Stereo, lossless and Atmos files").assertIsDisplayed()
+        compose.onNodeWithText("Songs, folders, lossless and Atmos files").assertIsDisplayed()
     }
 
 }

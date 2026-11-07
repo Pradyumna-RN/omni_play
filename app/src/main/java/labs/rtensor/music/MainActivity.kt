@@ -93,10 +93,20 @@ class MainActivity : ComponentActivity() {
                     notifications.launch(Manifest.permission.POST_NOTIFICATIONS)
                 }
             }
-            val local = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            val local = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+                uris.forEach { runCatching { contentResolver.takePersistableUriPermission(it, Intent.FLAG_GRANT_READ_URI_PERMISSION) } }
+                model.importLocalFiles(uris)
+            }
+            val songFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
                 if (uri != null) {
                     runCatching { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
-                    model.importLocal(uri)
+                    model.importLocalFolder(uri)
+                }
+            }
+            val exportFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+                if (uri != null) {
+                    runCatching { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION) }
+                    model.exportDownloads(uri)
                 }
             }
             val playlistFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -135,6 +145,7 @@ class MainActivity : ComponentActivity() {
                 onSeek = model::seek, onSave = model::save,
                 onTheme = model::theme, onAccent = model::accent,
                 onOpenLocal = { local.launch(labs.rtensor.music.data.LocalAudioImporter.PICKER_TYPES) },
+                onImportFolder = { songFolder.launch(null) }, onExportDownloads = { exportFolder.launch(null) },
                 onChooseMasters = { mastersFolder.launch(null) }, onClearMasters = model::clearMasters,
                 onConnectSource = model::connectSource, onRemoveSource = model::removeSource,
                 onConnectTidal = ::connectTidal, onDisconnectTidal = model::disconnectTidal, onCancelTidal = model::cancelTidalSignIn,

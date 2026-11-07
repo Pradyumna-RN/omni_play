@@ -78,7 +78,7 @@ class ControlInventoryTest {
             onSeek = { rec("onSeek", it) }, onSave = { rec("onSave", it) },
             onTheme = { rec("onTheme", it) },
             onAccent = { rec("onAccent", it.wire) },
-            onOpenLocal = { rec("onOpenLocal") }, onChooseMasters = { rec("onChooseMasters") }, onClearMasters = { rec("onClearMasters") },
+            onOpenLocal = { rec("onOpenLocal") }, onChooseMasters = { rec("onChooseMasters") }, onImportFolder = { rec("onImportFolder") }, onExportDownloads = { rec("onExportDownloads") }, onClearMasters = { rec("onClearMasters") },
             onConnectSource = { p, pr, u, t -> rec("onConnectSource", p, pr, u, t) }, onRemoveSource = { rec("onRemoveSource", it) },
             onConnectTidal = { rec("onConnectTidal") }, onDisconnectTidal = { rec("onDisconnectTidal") }, onCancelTidal = { rec("onCancelTidal") },
             onConnectApple = { rec("onConnectApple") }, onNativeApple = { rec("onNativeApple") },

@@ -449,6 +449,7 @@ function emitMetadata(id, info) {
   if (metadata.title || metadata.artist) emit('metadata', metadata);
   return metadata;
 }
+const playbackReports = new Map();
 const resolving = new Map();
 function sharedResolve(api, id, forceProof, rejectedPaths, requiredFormat) {
   const key = JSON.stringify([id, forceProof, rejectedPaths, requiredFormat]);
@@ -491,6 +492,23 @@ globalThis.musicCall = async (id, method, args) => {
         if (!/^[A-Za-z0-9_-]{11}$/.test(args.videoId)) throw failure('LINK', 'Choose a valid YouTube recording.');
         const info = await api.getBasicInfo(args.videoId, { client: 'YTMUSIC' });
         result = emitMetadata(args.videoId, info); break;
+      }
+      case 'report-playback': {
+        // YouTube Music's "Listen again" and history are the account's server-side watch history. A client adds
+        // a song to it by reporting playback, the way the web player does, so a song played here appears there.
+        if (!/^[A-Za-z0-9_-]{11}$/.test(args.videoId)) throw failure('LINK', 'Choose a valid YouTube recording.');
+        if (!api.session.logged_in) { result = { reported: false }; break; }
+        let entry = playbackReports.get(args.videoId);
+        if (!entry) {
+          entry = { info: await api.getBasicInfo(args.videoId, { client: 'YTMUSIC' }), started: false };
+          playbackReports.set(args.videoId, entry);
+          if (playbackReports.size > 8) playbackReports.delete(playbackReports.keys().next().value);
+        }
+        const version = Constants.CLIENTS.YTMUSIC.VERSION;
+        if (!entry.started) { await entry.info.addToWatchHistory('WEB_REMIX', version, 'https://music.'); entry.started = true; }
+        const seconds = Number(args.seconds);
+        if (Number.isFinite(seconds) && seconds > 0) await entry.info.updateWatchTime(seconds, 'WEB_REMIX', version, 'https://music.');
+        result = { reported: true }; break;
       }
       case 'verify-session': result = await accountProfile(api); break;
       case 'home': {
