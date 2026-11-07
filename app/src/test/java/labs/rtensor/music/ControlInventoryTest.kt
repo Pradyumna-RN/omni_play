@@ -639,7 +639,7 @@ class ControlInventoryTest {
         compose.onNodeWithText("Disconnect Apple Music").performScrollTo().performClick()
         compose.onNodeWithText("Reconnect TIDAL").performScrollTo().performClick()
         compose.onNodeWithText("Disconnect TIDAL").performScrollTo().performClick()
-        compose.onNodeWithText("Remove Home server").performScrollTo().performClick()
+        compose.onNodeWithContentDescription("Remove Home server").performScrollTo().performClick()
         compose.runOnIdle {
             assertEquals(listOf("onDisconnectSpotify()", "onConnectApple()", "onDisconnectApple()", "onConnectTidal()", "onDisconnectTidal()", "onRemoveSource(s1)"), calls)
         }

@@ -2,7 +2,10 @@ package labs.rtensor.music.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -44,7 +47,7 @@ internal fun PlaybackSourcesEditor(state: MusicState, onDismiss: () -> Unit,
     Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Recommendations use your selected discovery service. The audio source is shown separately in the player. Playback checks matching surround and lossless recordings; stereo plays unchanged.",
             fontSize = 13.sp, lineHeight = 19.sp, color = scheme.onSurfaceVariant)
-        Surface(shape = RectangleShape, color = scheme.surfaceVariant.copy(alpha = .5f), modifier = Modifier.fillMaxWidth()) {
+        Surface(shape = PanelShape, color = scheme.surfaceVariant.copy(alpha = .5f), modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text("Apple Music · experimental", fontSize = 15.sp, fontWeight = FontWeight.Medium)
                 Text(when {
@@ -52,45 +55,43 @@ internal fun PlaybackSourcesEditor(state: MusicState, onDismiss: () -> Unit,
                     state.appleAccount.connected -> "AAC account connected · compressed stereo. This sign-in does not enable lossless or multichannel."
                     else -> "Sign in for Apple Music AAC stereo. Lossless and surround require separate supported playback access; they are not enabled by an AAC sign-in."
                 }, fontSize = 12.sp, lineHeight = 17.sp, color = scheme.onSurfaceVariant)
-                if (state.appleAccount.connecting || state.appleAccount.needsCode) TextButton(onClick = onCancelApple) { Text("Cancel Apple sign-in") }
+                if (state.appleAccount.connecting || state.appleAccount.needsCode) TextButton(onClick = onCancelApple, modifier = Modifier.fillMaxWidth()) { Text("Cancel Apple sign-in") }
                 else {
-                    OutlinedButton(onClick = onConnectApple, shape = ButtonShape) { Text("Sign in · AAC stereo") }
-                    if (labs.rtensor.music.BuildConfig.APPLE_NATIVE_INCLUDED) OutlinedButton(onClick = onNativeApple, shape = ButtonShape) { Text("Set up lossless & multichannel") }
+                    OutlinedButton(onClick = onConnectApple, shape = ButtonShape, modifier = Modifier.fillMaxWidth()) { Text("Sign in · AAC stereo") }
+                    if (labs.rtensor.music.BuildConfig.APPLE_NATIVE_INCLUDED) OutlinedButton(onClick = onNativeApple, shape = ButtonShape, modifier = Modifier.fillMaxWidth()) { Text("Set up lossless & multichannel") }
                 }
-                if (state.appleAccount.connected) TextButton(onClick = onDisconnectApple) { Text("Disconnect Apple Music") }
+                if (state.appleAccount.connected) TextButton(onClick = onDisconnectApple, modifier = Modifier.fillMaxWidth()) { Text("Disconnect Apple Music") }
                 state.appleAccount.error?.let { Text(it, fontSize = 12.sp, lineHeight = 17.sp, color = scheme.onSurface) }
             }
         }
-        Surface(shape = RectangleShape, color = scheme.surfaceVariant.copy(alpha = .5f), modifier = Modifier.fillMaxWidth()) {
+        Surface(shape = PanelShape, color = scheme.surfaceVariant.copy(alpha = .5f), modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text("TIDAL · experimental", fontSize = 15.sp, fontWeight = FontWeight.Medium)
                 Text(if (state.tidalAccount.connected) "Signed in · checks matching recordings when you play"
                     else "Sign in with your subscription. No music server needed.", fontSize = 12.sp, lineHeight = 17.sp, color = scheme.onSurfaceVariant)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (state.tidalAccount.connecting) TextButton(onClick = onCancelTidal) { Text("Cancel TIDAL sign-in") }
-                    else OutlinedButton(onClick = onConnectTidal, shape = ButtonShape) {
-                        Text(if (state.tidalAccount.connected) "Reconnect TIDAL" else "Sign in to TIDAL")
-                    }
-                    if (state.tidalAccount.connected) TextButton(onClick = onDisconnectTidal) { Text("Disconnect TIDAL") }
+                if (state.tidalAccount.connecting) TextButton(onClick = onCancelTidal, modifier = Modifier.fillMaxWidth()) { Text("Cancel TIDAL sign-in") }
+                else OutlinedButton(onClick = onConnectTidal, shape = ButtonShape, modifier = Modifier.fillMaxWidth()) {
+                    Text(if (state.tidalAccount.connected) "Reconnect TIDAL" else "Sign in to TIDAL")
                 }
+                if (state.tidalAccount.connected) TextButton(onClick = onDisconnectTidal, modifier = Modifier.fillMaxWidth()) { Text("Disconnect TIDAL") }
                 state.tidalAccount.error?.let { Text(it, fontSize = 12.sp, lineHeight = 17.sp, color = scheme.onSurface) }
             }
         }
         state.playbackSources.forEach { source ->
-            Surface(shape = RectangleShape, color = scheme.surfaceVariant.copy(alpha = .5f), modifier = Modifier.fillMaxWidth()) {
-                Row(Modifier.padding(start = 14.dp, end = 4.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Surface(shape = PanelShape, color = scheme.surfaceVariant.copy(alpha = .5f), modifier = Modifier.fillMaxWidth()) {
+                Row(Modifier.padding(start = 14.dp, end = 6.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text(source.name, fontSize = 15.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         // Saved is not the same as verified: each song is checked before playback.
                         Text("${source.provider} · ${source.protocol} · saved", fontSize = 12.sp, lineHeight = 17.sp, color = scheme.onSurfaceVariant,
                             maxLines = 2, overflow = TextOverflow.Ellipsis)
                     }
-                    TextButton(onClick = { onRemove(source.id) }, enabled = !busy) { Text("Remove ${source.name}", maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 140.dp)) }
+                    TextButton(onClick = { onRemove(source.id) }, enabled = !busy, modifier = Modifier.semantics { contentDescription = "Remove ${source.name}" }) { Text("Remove") }
                 }
             }
         }
         if (!adding) {
-            OutlinedButton(onClick = { adding = true }, enabled = count < 4, shape = ButtonShape) { Text("Add a source") }
+            OutlinedButton(onClick = { adding = true }, enabled = count < 4, shape = ButtonShape, modifier = Modifier.fillMaxWidth()) { Text("Add a source") }
         } else {
             FieldLabel("Connection type")
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -123,17 +124,16 @@ internal fun PlaybackSourcesEditor(state: MusicState, onDismiss: () -> Unit,
             Text(it, fontSize = 13.sp, lineHeight = 19.sp, color = scheme.onSecondaryContainer,
                 modifier = Modifier.fillMaxWidth().background(scheme.secondaryContainer, RectangleShape).padding(horizontal = 12.dp, vertical = 8.dp))
         }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onDismiss) { Text("Done") }
-            if (adding) {
-                Spacer(Modifier.width(8.dp))
-                Button(onClick = { onConnect(provider, protocol, url, token) }, enabled = url.isNotBlank() && !busy, shape = ButtonShape) {
-                    Text(if (busy) "Checking…" else "Check and save")
-                }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Done") }
+            if (adding) Button(onClick = { onConnect(provider, protocol, url, token) }, enabled = url.isNotBlank() && !busy, shape = ButtonShape, modifier = Modifier.weight(1f)) {
+                Text(if (busy) "Checking…" else "Check and save")
             }
         }
     }
 }
+
+private val PanelShape = RoundedCornerShape(14.dp)
 
 @Composable
 private fun FieldLabel(text: String) {

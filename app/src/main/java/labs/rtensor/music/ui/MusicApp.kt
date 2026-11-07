@@ -553,6 +553,19 @@ fun MusicApp(
                         ErrorBanner(lastError.orEmpty(), onDismissError, retry, state.errorDiagnostic, state.current?.id.orEmpty())
                     }
                     val showResults = page in rootPages && (state.query.isNotBlank() || (state.look == LookChoice.HUM && searchOpen))
+                    // An available update is offered on Home: Update installs it, Later keeps the current version for now.
+                    var laterVersion by rememberSaveable { mutableStateOf<String?>(null) }
+                    var lastOffered by remember { mutableStateOf(state.update) }
+                    val offered = page == "home" && !showResults && state.update.offered(laterVersion)
+                    if (offered) lastOffered = state.update
+                    AnimatedVisibility(
+                        visible = offered,
+                        enter = if (reduced) EnterTransition.None else expandVertically(tween(EnterMs, easing = EmphasizedDecelerate)) + fadeIn(tween(EnterMs, 60)),
+                        exit = if (reduced) ExitTransition.None else shrinkVertically(tween(ExitMs, easing = EmphasizedAccelerate)) + fadeOut(tween(120)),
+                    ) {
+                        UpdateBanner(if (offered) state.update else lastOffered, onLater = { laterVersion = state.update.release?.version }, onDownload = onDownloadUpdate,
+                            onInstall = onInstallUpdate, modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 8.dp))
+                    }
                     AnimatedContent(
                         targetState = if (showResults) "search" else page,
                         transitionSpec = {

@@ -55,7 +55,7 @@ class MainActivity : ComponentActivity() {
         pendingInstall?.let { path ->
             pendingInstall = null
             if (packageManager.canRequestPackageInstalls()) installApk(path)
-            else model.updateMessage("Allow updates from Music in Android Settings, then tap Install again.")
+            else model.updateMessage("Allow updates from Hum in Android Settings, then tap Install again.")
         }
     }
 

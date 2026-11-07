@@ -2,6 +2,15 @@
 
 All notable changes to Hum. Newest first. Every release adds an entry here and uses the same text as its GitHub release notes.
 
+## 0.4.0-beta.7 (versionCode 51)
+
+### New
+- Updates now show on Home. When a new version is out, a card at the top of Home offers Update or Later. Update downloads and checks the file, then opens the installer; Later hides the card until you next open the app. Settings → About still shows the release notes.
+
+### Fixed
+- Settings → Sources → Playback sources: the Apple Music and TIDAL buttons, Add a source, Done and Check and save are now the same width and line up with the panel edges.
+- The install hint now says to allow updates from Hum (it said Music).
+
 ## 0.4.0-beta.6 (versionCode 50)
 
 ### New
