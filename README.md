@@ -57,9 +57,9 @@ entry alone does not establish lossless or Dolby Atmos playback.
 ## How our goals compare with other apps
 
 These are simple descriptions of each app’s focus. Many goals overlap; the table
-does not claim that a feature belongs exclusively to one app or that Music has
-already completed all of its goals. Hum is the app’s name; “Music” in code and
-package names (`labs.rtensor.music`) is the same app.
+does not claim that a feature belongs exclusively to one app or that Hum has
+already completed all of its goals. Some code, package names (`labs.rtensor.music`)
+and the sections below still say “Music”; it is the same app.
 
 | App | Main goal in simple words |
 | --- | --- |
