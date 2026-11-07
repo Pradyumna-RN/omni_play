@@ -1755,15 +1755,20 @@ private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () ->
         // the poster title, meter and controls with the next song still in view. Classic keeps its
         // smaller 0.3.32 cover; Soft's fills the whole width, as in 0.3.31.
         val gutter = if (look.soft) 24.dp else 20.dp
-        val coverSize = when (look.choice) {
+        // With the player pinned (Hum), open lyrics shrink the cover so the words get the room.
+        var lyricsOpen by rememberSaveable { mutableStateOf(false) }
+        val coverFull = when (look.choice) {
             LookChoice.CLASSIC -> (maxHeight * .31f).coerceIn(150.dp, 250.dp)
             LookChoice.SOFT -> maxWidth - gutter * 2
             LookChoice.ROOM -> minOf(maxWidth - 40.dp, maxHeight * .37f).coerceAtLeast(150.dp)
             LookChoice.HUM -> minOf(maxWidth - 40.dp, maxHeight * .30f).coerceAtLeast(150.dp)
         }
+        val coverShrunk = look.hum && lyricsOpen && track.source == labs.rtensor.music.data.Source.YOUTUBE
+        val coverFolded = coverShrunk && maxHeight < 720.dp
+        val coverSize by animateDpAsState(if (coverShrunk) minOf(coverFull, 96.dp) else coverFull, tween(if (reduced) 0 else 240), label = "cover size")
         // The queue continues right under the controls, so scrolling down shows what plays next.
         // Hum pins the player: only the queue below it scrolls, so the cover and controls never move.
-        val playerTail: @Composable () -> Unit = {
+        val tailTop: @Composable () -> Unit = {
                     RouteLabel(state.routeLabel)
                     if (showsAudioComparison(state)) {
                         when (look.choice) {
@@ -1773,7 +1778,11 @@ private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () ->
                         }
                     }
                     if (state.developerOptions) ChannelMonitor(state.audioProcessing.report, playing && !loading, track.id, audioLevels) { metering.claim("monitor", it) }
-                    LyricsPanel(track, onLyrics, reduced, Modifier.padding(top = 16.dp), positions = playbackPosition, onSeek = onSeek)
+        }
+        val tailLyrics: @Composable ((Boolean) -> Unit) -> Unit = { onOpenChange ->
+                    LyricsPanel(track, onLyrics, reduced, Modifier.padding(top = 16.dp), positions = playbackPosition, onSeek = onSeek, onOpenChange = onOpenChange)
+        }
+        val tailUpNext: @Composable () -> Unit = {
                     Spacer(Modifier.height(30.dp))
                     Row(Modifier.fillMaxWidth().signalRule(bottom = true).padding(bottom = 8.dp), verticalAlignment = Alignment.Bottom) {
                         when (look.choice) {
@@ -1786,12 +1795,19 @@ private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () ->
                             style = if (look.soft) TextStyle(fontSize = 12.sp) else MonoSmall, color = scheme.onSurfaceVariant)
                     }
         }
+        val playerTail: @Composable () -> Unit = { tailTop(); tailLyrics { lyricsOpen = it }; tailUpNext() }
         val playerBlock: @Composable () -> Unit = {
                 Column(Modifier.fillMaxWidth()) {
-                    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                        Box(Modifier.width(coverSize)) {
-                            CoverDeck(track, queueIndex, state.queue.getOrNull(queueIndex - 1), state.queue.getOrNull(queueIndex + 1), reduced,
-                                canPrevious = canSkip, canNext = canSkip && hasNext, onPrevious = onPrevious, onNext = onNext)
+                    // On a short phone even the small cover leaves the lyrics no room, so it folds away
+                    // while they are open and comes back when they close.
+                    AnimatedVisibility(!coverFolded,
+                        enter = if (reduced) EnterTransition.None else expandVertically(tween(240)) + fadeIn(tween(240)),
+                        exit = if (reduced) ExitTransition.None else shrinkVertically(tween(240)) + fadeOut(tween(160))) {
+                        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                            Box(Modifier.width(coverSize)) {
+                                CoverDeck(track, queueIndex, state.queue.getOrNull(queueIndex - 1), state.queue.getOrNull(queueIndex + 1), reduced,
+                                    canPrevious = canSkip, canNext = canSkip && hasNext, onPrevious = onPrevious, onNext = onNext)
+                            }
                         }
                     }
                     if (look.soft) {
@@ -1896,9 +1912,24 @@ private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () ->
         }
         if (look.hum) Column(Modifier.fillMaxSize().padding(start = gutter, end = gutter, top = 10.dp)) {
             playerBlock()
-            LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(bottom = 32.dp)) {
-                item(key = "player-tail") { Column { playerTail() } }
-                queueItems()
+            // The lyric window fills what is left under the pinned player, and opening the lyrics brings
+            // them to the top of that area, so the current line is always in view.
+            val tailList = rememberLazyListState()
+            val tailScope = rememberCoroutineScope()
+            BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+                CompositionLocalProvider(LocalLyricsViewport provides maxHeight) {
+                    LazyColumn(Modifier.fillMaxSize(), state = tailList, contentPadding = PaddingValues(bottom = 32.dp)) {
+                        item(key = "player-tail") { Column { tailTop() } }
+                        item(key = "lyrics") {
+                            Column { tailLyrics { open ->
+                                lyricsOpen = open
+                                if (open) tailScope.launch { if (reduced) tailList.scrollToItem(1) else tailList.animateScrollToItem(1) }
+                            } }
+                        }
+                        item(key = "up-next") { Column { tailUpNext() } }
+                        queueItems()
+                    }
+                }
             }
         } else LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = gutter, end = gutter, top = 10.dp, bottom = 32.dp)) {
             item(key = "player") { playerBlock() }
@@ -2591,11 +2622,9 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onAccen
     onRecommendationEngine: (labs.rtensor.music.recommendations.RecommendationEngine) -> Unit,
     onConnectSpotify: () -> Unit, onDisconnectSpotify: () -> Unit) {
     var confirmClear by rememberSaveable { mutableStateOf(false) }
-    var showLicences by rememberSaveable { mutableStateOf(false) }
     var showChangelog by rememberSaveable { mutableStateOf(false) }
     var showSources by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
-    val notices = remember { context.resources.openRawResource(R.raw.third_party_notices).bufferedReader().use { it.readText() } }
     val scroll = rememberScrollState()
     val scheme = MaterialTheme.colorScheme
     var showImport by rememberSaveable { mutableStateOf(false) }
@@ -2713,23 +2742,25 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onAccen
         if (t == 5) {
         SettingsCard {
             SettingItem("Hum ${BuildConfig.VERSION_NAME}", "By RTensorLabs · preview channel on GitHub Releases", Icons.Outlined.Refresh)
-            Column(Modifier.padding(start = 66.dp, end = 16.dp, bottom = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (state.update.message.isNotBlank()) Text(state.update.message, fontSize = 13.sp, lineHeight = 19.sp, color = scheme.onSurfaceVariant)
                 if (state.update.downloading) {
                     val progress by animateFloatAsState(state.update.progress / 100f, tween(if (state.reducedMotion) 0 else EnterMs), label = "update progress")
                     LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth(), strokeCap = StrokeCap.Round)
                     Text("${state.update.progress}%", fontSize = 13.sp, color = scheme.onSurfaceVariant)
                 }
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = onCheckUpdates, enabled = !state.update.checking && !state.update.downloading, shape = ButtonShape) { Text("Check updates", fontSize = 14.sp) }
-                    if (state.update.apkPath != null) Button(onClick = onInstallUpdate, shape = ButtonShape) { Text("Install update", fontSize = 14.sp) }
-                    else if (state.update.release != null) Button(onClick = onDownloadUpdate, enabled = !state.update.downloading && !state.update.checking, shape = ButtonShape) { Text("Download", fontSize = 14.sp) }
+                // Both buttons share the row evenly, the same height, lined up with the card's other rows.
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedButton(onClick = onCheckUpdates, enabled = !state.update.checking && !state.update.downloading, shape = ButtonShape,
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text("Check updates", fontSize = 14.sp, maxLines = 1) }
+                    if (state.update.apkPath != null) Button(onClick = onInstallUpdate, shape = ButtonShape,
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text("Install update", fontSize = 14.sp, maxLines = 1) }
+                    else if (state.update.release != null) Button(onClick = onDownloadUpdate, enabled = !state.update.downloading && !state.update.checking, shape = ButtonShape,
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text("Download", fontSize = 14.sp, maxLines = 1) }
                 }
             }
             CardDivider()
             SettingItem("What’s new", "Changes in each release", Icons.Outlined.Info, onClick = { showChangelog = true })
-            CardDivider()
-            SettingItem("Open-source licences", "Libraries and fonts used by Hum", Icons.Outlined.Info, onClick = { showLicences = true })
             CardDivider()
             SettingItem("Developer options", "Channel monitor, and live speaker levels on Home and in the player", Glyph.ChannelMonitor,
                 onClick = { onDeveloperOptions(!state.developerOptions) }) {
@@ -2774,18 +2805,6 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onAccen
         dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Keep history") } },
     )
     if (showChangelog) ChangelogDialog(onDismiss = { showChangelog = false })
-    if (showLicences) AlertDialog(
-        onDismissRequest = { showLicences = false },
-        title = { Text("Open-source licences") },
-        text = {
-            val fullNotices = remember(notices) {
-                if (!BuildConfig.APPLE_RUNTIME_INCLUDED) notices else notices + "\n\nApple runtime acknowledgements\n\n" +
-                    android.text.Html.fromHtml(context.assets.open("apple-runtime/acknowledgements.html").bufferedReader().use { it.readText() }, android.text.Html.FROM_HTML_MODE_LEGACY).toString()
-            }
-            Text(fullNotices, fontSize = 13.sp, lineHeight = 17.sp, modifier = Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState()))
-        },
-        confirmButton = { TextButton(onClick = { showLicences = false }) { Text("Close") } },
-    )
 }
 
 /**

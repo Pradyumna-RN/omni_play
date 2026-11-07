@@ -32,6 +32,8 @@ import labs.rtensor.music.data.SyncedLyricsSource
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.ui.unit.Dp
 import labs.rtensor.music.data.TranslatedLyrics
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -78,6 +80,16 @@ internal val LocalLyricsTranslate = staticCompositionLocalOf<suspend (String, St
 internal val LocalSyncedLyrics = staticCompositionLocalOf<suspend (Track) -> List<LyricLine>> { { emptyList() } }
 
 /**
+ * The height of the area the lyrics can use, when the screen pins the player and scrolls only what is
+ * below it. The lyric window then fills that area (under the Lyrics row and the Original / English
+ * chips) instead of guessing from the screen height, so the current line is always on screen.
+ */
+internal val LocalLyricsViewport = compositionLocalOf<Dp?> { null }
+
+/** Space the Lyrics row and the Original / English chips take above the lyric window. */
+private val LyricsHeaderHeight = 120.dp
+
+/**
  * Lyrics that follow the music: the current line is large and bright, the rest sit back, and the list
  * glides to keep the current line in view. Tapping a line jumps the song there. Dragging the list
  * pauses the following until the next line begins.
@@ -90,8 +102,12 @@ private fun SyncedLyricsView(lines: List<LyricLine>, positions: StateFlow<Long>?
     val list = rememberLazyListState()
     // A window sized to the phone (never a thin strip), with padding of half its height so the current
     // line rests in the middle, with the previous and next lines visible around it.
-    val height = (LocalConfiguration.current.screenHeightDp * .42f).coerceIn(240f, 440f).dp
-    val padding = height / 2 - 30.dp
+    val viewport = LocalLyricsViewport.current
+    val height = if (viewport != null) (viewport - LyricsHeaderHeight).coerceIn(200.dp, 520.dp)
+        else (LocalConfiguration.current.screenHeightDp * .42f).coerceIn(240f, 440f).dp
+    // The current line rests a little above the middle, so the next lines show below it.
+    val topPadding = height * .20f
+    val bottomPadding = (height - topPadding - 40.dp).coerceAtLeast(0.dp)
     val current by rememberUpdatedState(active)
     var programmatic by remember { mutableStateOf(false) }
     var touchedAt by remember { mutableLongStateOf(0L) }
@@ -114,7 +130,7 @@ private fun SyncedLyricsView(lines: List<LyricLine>, positions: StateFlow<Long>?
             else if (!programmatic && touchedAt != 0L) { delay(FollowPauseMs); follow() }
         }
     }
-    LazyColumn(Modifier.fillMaxWidth().height(height), state = list, contentPadding = PaddingValues(vertical = padding)) {
+    LazyColumn(Modifier.fillMaxWidth().height(height), state = list, contentPadding = PaddingValues(top = topPadding, bottom = bottomPadding)) {
         itemsIndexed(lines, key = { i, line -> "$i:${line.timeMs}" }) { i, line ->
             val distance = if (active < 0) 2 else kotlin.math.abs(i - active)
             val alpha by animateFloatAsState(if (distance == 0) 1f else if (distance == 1) .55f else .35f, tween(if (reduced) 0 else 320), label = "lyric-alpha")
@@ -138,9 +154,12 @@ private sealed interface LyricsLoad {
  */
 @Composable
 internal fun LyricsPanel(track: Track, onLyrics: suspend (Track) -> Lyrics?, reduced: Boolean, modifier: Modifier = Modifier,
-    positions: StateFlow<Long>? = null, onSeek: (Long) -> Unit = {}) {
+    positions: StateFlow<Long>? = null, onSeek: (Long) -> Unit = {}, onOpenChange: (Boolean) -> Unit = {}) {
     if (track.source != Source.YOUTUBE) return
     var open by rememberSaveable { mutableStateOf(false) }
+    // The screen is told when the lyrics open or close, so it can give them room (smaller cover, scrolled into view).
+    val openChanged by rememberUpdatedState(onOpenChange)
+    LaunchedEffect(open) { openChanged(open) }
     var attempt by remember { mutableIntStateOf(0) }
     var load by remember(track.id) { mutableStateOf<LyricsLoad>(LyricsLoad.Loading) }
     LaunchedEffect(track.id, open, attempt) {
@@ -213,10 +232,8 @@ internal fun LyricsPanel(track: Track, onLyrics: suspend (Track) -> Lyrics?, red
                     }
                     shown != null -> Text(shown, Modifier.padding(top = 8.dp), fontSize = 17.sp, lineHeight = 27.sp, color = scheme.onBackground)
                 }
-                if (english && shown != null) Text(
-                    if (translation?.sourceLanguage == "en") "These lyrics are already in English." else "English letters by Google Translate",
+                if (english && shown != null && translation?.sourceLanguage == "en") Text("These lyrics are already in English.",
                     Modifier.padding(top = 12.dp), fontSize = 12.sp, lineHeight = 16.sp, color = scheme.onSurfaceVariant)
-                if (state.lyrics.source.isNotBlank()) Text(state.lyrics.source, Modifier.padding(top = 12.dp), fontSize = 12.sp, lineHeight = 16.sp, color = scheme.onSurfaceVariant)
                 Spacer(Modifier.size(8.dp))
             } else Text("No lyrics for this song.", Modifier.padding(vertical = 8.dp), fontSize = 14.sp, color = scheme.onSurfaceVariant)
         }

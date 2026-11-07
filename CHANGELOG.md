@@ -2,6 +2,17 @@
 
 All notable changes to Hum. Newest first. Every release adds an entry here and uses the same text as its GitHub release notes.
 
+## 0.4.0-beta.5 (versionCode 49)
+
+### Fixed
+- Lyrics no longer leave a big blank gap under Original / English. The lyric window now fills the space under the player on any phone size, opening the lyrics scrolls them into view, and the current line stays on screen and follows the song.
+- The update buttons (Check updates, Install update, Download) are the same height, share the row evenly and line up with the rest of the About card.
+
+### Changed
+- While lyrics are open the cover shrinks (and folds away on short phones) so the words get the room; it returns when you close them.
+- Lyrics no longer show a source or credit line under them.
+- Open-source licences is removed from Settings → About for now; it comes back with the expanded list.
+
 ## 0.4.0-beta.4 (versionCode 48)
 
 ### New
