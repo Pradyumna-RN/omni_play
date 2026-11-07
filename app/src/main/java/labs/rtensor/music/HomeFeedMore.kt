@@ -22,6 +22,8 @@ internal suspend fun loadMoreHomeFeed(state: MusicState, maxPages: Int = HOME_MO
     val known = homeKnownKeys(state)
     val knownAtStart = known.toSet()
     val entryKeys = (state.feed + state.feedContinuations).flatMap { it.items }.mapTo(HashSet()) { "${it.kind}:${it.id}" }
+    // Don't repeat section titles already shown on the feed (e.g. multiple "From YouTube" sections)
+    val seenTitles = (state.feed + state.feedContinuations).map { it.title }.toMutableSet()
     val sections = mutableListOf<FeedSection>()
     var hasMore = state.feedHasMore
     repeat(maxPages) {
@@ -32,7 +34,14 @@ internal suspend fun loadMoreHomeFeed(state: MusicState, maxPages: Int = HOME_MO
             val recording = it.videoId.isNotBlank() || it.kind == "spotify_track"
             (if (recording) it.asTrack().libraryKey() !in knownAtStart else it.kind in setOf("playlist", "album", "artist", "library_artist", "spotify_playlist", "spotify_album")) && entryKeys.add("${it.kind}:${it.id}")
         }) }.filter { it.items.isNotEmpty() }
-        sections += added
+        // Merge same-title sections so duplicates like "From YouTube" don't repeat across continuation pages
+        val merged = added.groupBy { it.title }.map { (_, group) ->
+            group.first().copy(items = group.flatMap { it.items })
+        }
+        // Only keep sections whose title hasn't already been shown
+        val fresh = merged.filter { it.title !in seenTitles }
+        seenTitles += fresh.map { it.title }
+        sections += fresh
         val newCollection = added.any { section -> section.items.any { it.videoId.isBlank() && it.kind != "spotify_track" } }
         if (songs.isNotEmpty() || newCollection) return HomeFeedMore(songs, page.hasMore, sections)
         if (!page.hasMore) return HomeFeedMore(emptyList(), false, sections)

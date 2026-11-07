@@ -1,4 +1,9 @@
-# YouTube videos recommendation source — complete implementation handoff
+# YouTube videos recommendation source — early design handoff (superseded)
+
+> **Superseded — do not port from this file.** This describes the first rail-based design (sideways
+> “For you” rail, Music/Podcasts rails, channel-based Music tab). The shipped design is a YouTube-style
+> video feed with the official Music category. Use **`YOUTUBE_VIDEO_SOURCE_HANDOFF.md`** for the current,
+> authoritative change list and porting steps.
 
 Written 7 Nov 2026 for porting this work onto a newer copy of the codebase. It documents **everything
 that was added for the "YouTube videos" recommendation source**: engine operations, Kotlin wiring,

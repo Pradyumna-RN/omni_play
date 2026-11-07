@@ -517,8 +517,11 @@ globalThis.musicCall = async (id, method, args) => {
         else {
           page = await api.getHomeFeed(); filters = page.filters || []; selected = args.filter || null;
           if (selected) {
-            if (!filters.includes(selected)) throw failure('FEED_FILTER', 'This YouTube category is no longer available. Choose All to load the current categories.');
-            page = await page.applyFilter(selected);
+            // A signed-out session has no category chips; fall back to the unfiltered home instead
+            // of failing the whole feed when the Music tab asks for its category.
+            if (!filters.length) selected = null;
+            else if (!filters.includes(selected)) throw failure('FEED_FILTER', 'This YouTube category is no longer available. Choose Feed to load the current categories.');
+            else page = await page.applyFilter(selected);
           }
         }
         if (!standalone && request === videoFeedRequest) { advanceHomeCursor(videoCursors, page, !!args.more); videoFeed = page; }
@@ -598,6 +601,11 @@ globalThis.musicCall = async (id, method, args) => {
         // A Home album card's URL is an MPR album id even when its card kind reads
         // "browse" or "endpoint"; the id is the authoritative signal.
         const album = args.kind === 'album' || /^MPR/.test(args.id || '');
+        if (args.kind === 'playlist') {
+          // Regular YouTube playlist (PL...) — open via the WEB playlist endpoint.
+          const page = await api.getPlaylist(args.id);
+          result = { tracks: (page.items || []).map(videoTrack).filter(Boolean) }; break;
+        }
         const page = album ? await api.music.getAlbum(args.id) : await api.music.getPlaylist(args.id);
         result = { tracks: (page.contents || []).map(track).filter(Boolean) }; break;
       }

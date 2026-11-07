@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material3.*
@@ -33,16 +34,31 @@ internal val LocalHomeFilterSelect = staticCompositionLocalOf<(String?) -> Unit>
 @Composable
 internal fun ProviderFilters(state: MusicState) {
     // Hum is music only: YouTube Music's Podcasts chip is left out.
+    val videoSource = state.recommendationEngine == labs.rtensor.music.recommendations.RecommendationEngine.YOUTUBE_VIDEO
     val filters = state.homeFilters
         .filterNot { it.contains("podcast", ignoreCase = true) }
         .filter { it.lowercase() != "all" }
         .sortedByDescending { it.equals("music", ignoreCase = true) }
-    if (filters.isEmpty()) return
+    if (filters.isEmpty() && !videoSource) return
     val select = LocalHomeFilterSelect.current
-    LazyRow(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        item { FilterChip(state.homeFilter == null, { select(null) }, label = { Text("All") }) }
-        itemsIndexed(filters, key = { i, title -> "$i:$title" }) { _, title ->
-            FilterChip(state.homeFilter == title, { select(title) }, label = { Text(title) })
+    val row = rememberLazyListState()
+    // The source opens on Music and the row always begins there: when the selected tab changes,
+    // bring the row back to its start so Music is visible without scrolling right.
+    LaunchedEffect(videoSource, state.homeFilter) { if (videoSource) row.scrollToItem(0) }
+    LazyRow(Modifier.fillMaxWidth().padding(top = 12.dp), state = row, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (videoSource) {
+            // Music is always the first chip, even before YouTube returns its category list; Feed is
+            // YouTube's own home feed, next to it.
+            item(key = "filter:music") { FilterChip(state.homeFilter?.equals("Music", ignoreCase = true) == true, { select("Music") }, label = { Text("Music") }) }
+            item(key = "filter:feed") { FilterChip(state.homeFilter == null, { select(null) }, label = { Text("Feed") }) }
+            itemsIndexed(filters.filterNot { it.equals("music", ignoreCase = true) }, key = { i, title -> "filter:$i:$title" }) { _, title ->
+                FilterChip(state.homeFilter == title, { select(title) }, label = { Text(title) })
+            }
+        } else {
+            item(key = "filter:all") { FilterChip(state.homeFilter == null, { select(null) }, label = { Text("All") }) }
+            itemsIndexed(filters, key = { i, title -> "$i:$title" }) { _, title ->
+                FilterChip(state.homeFilter == title, { select(title) }, label = { Text(title) })
+            }
         }
     }
 }

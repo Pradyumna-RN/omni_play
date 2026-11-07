@@ -61,36 +61,77 @@ const lockupArtwork = image => {
 export function videoEntry(node) {
   if (!node) return null;
   const type = node.type || '';
-  let id = '', title = '', channel = '', artwork = '', durationSec = 0;
+  let id = '', title = '', channel = '', artwork = '', channelArtwork = '', views = '', published = '', durationSec = 0;
   if (type === 'LockupView') {
     if (node.content_type !== 'VIDEO' && node.content_type !== 'MOVIE' && node.content_type !== 'PODCAST') return null;
     id = node.content_id || '';
     title = text(node.metadata?.title?.toString?.());
     const rows = node.metadata?.metadata?.metadata_rows || [];
-    const firstRow = (rows[0]?.metadata_parts || []).map(part => part.text?.toString()).filter(Boolean).join(' ');
-    channel = firstRow;
+    const parts = (rows[0]?.metadata_parts || []).map(part => text(part.text?.toString?.())).filter(Boolean);
+    channel = parts[0] || '';
+    views = parts.find(part => /\bviews?\b/i.test(part)) || '';
+    published = parts.find(part => /(ago|streamed|premiered|watching)/i.test(part)) || '';
     artwork = lockupArtwork(node.content_image);
+    channelArtwork = lockupArtwork(node.avatar || node.channel_thumbnail || node.metadata?.image);
     durationSec = node.duration?.seconds || 0;
   } else if (type === 'Video' || type === 'GridVideo' || type === 'CompactVideo' || type === 'PlaylistVideo') {
     id = node.video_id || '';
     title = text(node.title?.toString?.());
     channel = text(node.author?.name || node.byline_text?.toString?.());
     artwork = largestArtwork(node.thumbnails || []);
+    channelArtwork = largestArtwork(node.author?.thumbnails || []);
+    views = text(node.view_count_text?.toString?.());
+    published = text(node.published_time_text?.toString?.());
     durationSec = node.duration?.seconds ?? (typeof node.duration === 'object' && node.duration?.text ? timeToSeconds(node.duration.text) : 0);
   } else return null;
   if (!videoPattern.test(id) || !title) return null;
-  return { id: `yt:${id}`, title, subtitle: channel, artist: channel, artwork,
+  // A LockupView's first metadata row can read "Channel 1.2M views 2 days ago"; only the first part
+  // is the channel, so keep views and publish time apart for the feed card.
+  if (!views) views = (node.metadata?.metadata?.metadata_rows?.[0]?.metadata_parts || [])
+    .map(part => text(part.text?.toString?.())).find(part => /\bviews?\b/i.test(part)) || '';
+  if (!published) published = (node.metadata?.metadata?.metadata_rows?.[0]?.metadata_parts || [])
+    .map(part => text(part.text?.toString?.())).find(part => /(ago|streamed|premiered|watching)/i.test(part)) || '';
+  return { id: `yt:${id}`, title, subtitle: channel, artist: channel, artwork, channelArtwork, views, published,
     kind: 'song', browseId: '', videoId: id, durationMs: Math.max(0, durationSec) * 1000 };
 }
-/** The YouTube (videos) home feed, kept in the provider's order; videos only. */
+/** A playlist from a YouTube shelf: kind 'playlist', browseId set, no videoId — opened as a collection. */
+export function playlistEntry(node) {
+  if (!node) return null;
+  const type = node.type || '';
+  let id = '', title = '', channel = '', artwork = '', browseId = '';
+  if (type === 'LockupView') {
+    if (node.content_type !== 'PLAYLIST') return null;
+    id = node.content_id || '';
+    title = text(node.metadata?.title?.toString?.());
+    browseId = id;
+    const rows = node.metadata?.metadata?.metadata_rows || [];
+    const parts = (rows[0]?.metadata_parts || []).map(part => text(part.text?.toString?.())).filter(Boolean);
+    channel = parts[0] || '';
+    artwork = lockupArtwork(node.content_image);
+  } else if (type === 'GridPlaylist' || type === 'Playlist') {
+    id = node.playlist_id || node.id || '';
+    title = text(node.title?.toString?.());
+    browseId = id;
+    channel = text(node.author?.name || node.byline_text?.toString?.());
+    artwork = largestArtwork(node.thumbnails || []);
+  } else return null;
+  // YouTube playlist ids (PL...) and mix/radio ids (RD...) are longer than an 11-char video id.
+  if (!id || id.length < 10) return null;
+  if (!title) return null;
+  return { id: `yt:${id}`, title, subtitle: channel, artist: channel, artwork, kind: 'playlist', browseId, videoId: '', durationMs: 0 };
+}
+/** The YouTube (videos) home feed, kept in the provider's order; videos and playlists. */
 export function videoSections(feed) {
   const shelves = feed.shelves || [];
   const inShelves = new Set();
   const sections = [];
   for (const shelf of shelves) {
-    const items = (shelf.contents || []).map(node => { inShelves.add(node); return videoEntry(node); }).filter(Boolean);
+    const contents = shelf.contents || [];
+    const videos = contents.map(node => { inShelves.add(node); return videoEntry(node); }).filter(Boolean);
+    const playlists = contents.map(playlistEntry).filter(Boolean);
     const title = text(shelf.title?.toString?.()) || 'More on YouTube';
-    if (items.length) sections.push({ title, items });
+    if (videos.length) sections.push({ title, items: videos });
+    if (playlists.length) sections.push({ title, items: playlists });
   }
   const loose = (feed.videos || []).filter(node => !inShelves.has(node)).map(videoEntry).filter(Boolean);
   if (loose.length) sections.unshift({ title: 'From YouTube', items: loose });
@@ -104,8 +145,18 @@ export function videoTrack(node) {
 }
 export function sections(feed) {
   // Keep the provider's section, item and duplicate order. No app ranking; music only.
-  return (feed.sections || []).map(section => ({ title: text(section.header?.title || section.title) || 'From YouTube Music',
+  const mapped = (feed.sections || []).map(section => ({ title: text(section.header?.title || section.title) || 'From YouTube Music',
     items: (section.contents || []).filter(isMusic).map(entry).filter(Boolean) })).filter(s => s.items.length);
+  // The initial page can repeat a shelf name (YouTube Videos often returns several "From YouTube"
+  // shelves). Merge same-title sections at the first one's position so the header is drawn once.
+  const seen = new Map();
+  const merged = [];
+  for (const section of mapped) {
+    const existing = seen.get(section.title);
+    if (existing) existing.items.push(...section.items);
+    else { seen.set(section.title, section); merged.push(section); }
+  }
+  return merged;
 }
 export function largestArtwork(thumbs = []) {
   return [...thumbs].filter(t => t.url?.startsWith('https://')).sort((a, b) => (b.width || 0) * (b.height || 0) - (a.width || 0) * (a.height || 0))[0]?.url || '';

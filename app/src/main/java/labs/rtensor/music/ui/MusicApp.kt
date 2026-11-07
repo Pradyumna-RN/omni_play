@@ -14,6 +14,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyHorizontalGrid
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
@@ -515,7 +518,10 @@ fun MusicApp(
             Scaffold(
                 topBar = {
                     OnPlayerTones(Modifier.background(tones?.top ?: Color.Transparent)) {
-                        AppHeader(page, searchOpen, onHome = { navigate("home") }, onCloseSearch = { searchOpen = false; if (state.query.isNotEmpty()) onQuery(""); keyboard?.hide() }, onSettings = { navigate("settings") }, onBack = ::goBack) { SearchBar(state, onQuery, onSearch, searchFocus, Modifier.weight(1f)) }
+                        AppHeader(page, searchOpen, onHome = { navigate("home") }, onCloseSearch = { searchOpen = false; if (state.query.isNotEmpty()) onQuery(""); keyboard?.hide() }, onSettings = { navigate("settings") }, onBack = ::goBack,
+                            videoHome = state.recommendationEngine == labs.rtensor.music.recommendations.RecommendationEngine.YOUTUBE_VIDEO && page == "home" &&
+                                state.homeFilter?.equals("music", ignoreCase = true) != true,
+                            onSearchRequest = { searchOpen = true }) { SearchBar(state, onQuery, onSearch, searchFocus, Modifier.weight(1f)) }
                     }
                 },
                 bottomBar = {
@@ -617,8 +623,26 @@ fun MusicApp(
                                 onAutoplay, onTrackHistory, onConnectSource, onRemoveSource, onConnectTidal, onDisconnectTidal, onCancelTidal,
                                 onConnectApple, onNativeApple, onDisconnectApple, onCancelApple, onDeveloperOptions,
                                 onRecommendationEngine, onConnectSpotify, onDisconnectSpotify)
-                            else -> ProviderHome(state.copy(feed = state.feed + state.feedContinuations), ::openEntry,
-                                onRefreshFeed, onMoreFeed, listState = homeScroll, active = page == "home" && !showResults)
+                            // The YouTube videos source's non-Music chips are YouTube's own video feed:
+                            // one continuous column of video cards. The Music chip keeps the YouTube
+                            // Music home UI (shelves), matching the YouTube Music source — via
+                            // PersonalScreen which lays out From YouTube, Play it again, New to your
+                            // ears, Your mixes and Recently played.
+                            else -> {
+                                if (state.recommendationEngine == labs.rtensor.music.recommendations.RecommendationEngine.YOUTUBE_VIDEO &&
+                                    state.homeFilter?.equals("music", ignoreCase = true) != true) {
+                                    YouTubeVideoFeed(state, ::play, onRefreshFeed, onMoreFeed, onConnect, homeScroll, page == "home" && !showResults)
+                                } else if (state.recommendationEngine == labs.rtensor.music.recommendations.RecommendationEngine.YOUTUBE_VIDEO &&
+                                    state.homeFilter?.equals("music", ignoreCase = true) == true) {
+                                    PersonalScreen(state, ::focusSearch, ::play, onToggle, ::openEntry,
+                                        { onRefreshFeed(); onRefreshForYou() }, onMoreFeed, onConnect,
+                                        listState = homeScroll, active = page == "home" && !showResults,
+                                        recommendations = homeRecommendationGroups(state))
+                                } else {
+                                    ProviderHome(state.copy(feed = state.feed + state.feedContinuations), ::openEntry,
+                                        onRefreshFeed, onMoreFeed, listState = homeScroll, active = page == "home" && !showResults)
+                                }
+                            }
                         }
                         }
                     }
@@ -630,7 +654,8 @@ fun MusicApp(
 }
 
 @Composable
-private fun AppHeader(page: String, searchOpen: Boolean, onCloseSearch: () -> Unit, onHome: () -> Unit, onSettings: () -> Unit, onBack: () -> Unit, search: @Composable RowScope.() -> Unit) {
+private fun AppHeader(page: String, searchOpen: Boolean, onCloseSearch: () -> Unit, onHome: () -> Unit, onSettings: () -> Unit, onBack: () -> Unit,
+    videoHome: Boolean = false, onSearchRequest: () -> Unit = {}, search: @Composable RowScope.() -> Unit) {
     Row(Modifier.fillMaxWidth().statusBarsPadding().padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp).heightIn(min = 48.dp),
         verticalAlignment = Alignment.CenterVertically) {
         if (page in listOf("now", "settings", "collection", "provider-feed", "feed-section")) {
@@ -648,33 +673,29 @@ private fun AppHeader(page: String, searchOpen: Boolean, onCloseSearch: () -> Un
                 }
             }
             Spacer(Modifier.width(48.dp))
+        } else if (videoHome) {
+            // YouTube videos Home mirrors YouTube's app bar: the wordmark on the left, then search
+            // and the account target on the right. The search field expands in place when opened.
+            AppWordmark(page, onHome)
+            if (searchOpen) {
+                Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                    search()
+                    IconButton(onClick = onCloseSearch, modifier = Modifier.size(48.dp)) { Icon(Icons.Outlined.Close, "Close search", Modifier.size(22.dp)) }
+                }
+            } else {
+                Spacer(Modifier.weight(1f))
+                IconButton(onClick = onSearchRequest, modifier = Modifier.size(48.dp)) { Icon(Icons.Outlined.Search, "Search YouTube", Modifier.size(22.dp)) }
+                IconButton(onClick = onSettings, modifier = Modifier.size(48.dp)) { Icon(Icons.Outlined.AccountCircle, "Open settings", Modifier.size(26.dp)) }
+            }
         } else {
             // A small monogram stands in for the old wordmark so search can share the row. Like
             // the Home tab, it reports itself as selected while Home is already showing.
             val humSearch = LocalLook.current.hum
             val calm = LocalReducedMotion.current
-            @Composable fun Wordmark() = Column(Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).clip(RectangleShape).clickable(onClick = onHome).padding(horizontal = 6.dp, vertical = 8.dp)
-                .semantics { contentDescription = "Music, go home"; selected = page == "home" }, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                if (LocalLook.current.hum) {
-                    Row(verticalAlignment = Alignment.Bottom) {
-                        Text("hum", fontFamily = HumDisplay, fontWeight = FontWeight.ExtraBold, fontSize = 22.sp, lineHeight = 22.sp, letterSpacing = (-.03).em)
-                        Box(Modifier.padding(start = 1.dp, bottom = 3.dp).size(6.dp).background(LocalAccent.current.accent, CircleShape))
-                    }
-                } else if (LocalLook.current.soft) {
-                    // Soft's monogram: DM Sans over a thin 12dp raspberry bar.
-                    Text("M", fontFamily = SoftFont, fontSize = 18.sp, lineHeight = 18.sp, fontWeight = FontWeight.SemiBold)
-                    Spacer(Modifier.height(4.dp))
-                    Box(Modifier.width(12.dp).height(2.dp).background(MaterialTheme.colorScheme.primary, RoundedCornerShape(1.dp)))
-                } else {
-                    Text("M", style = DisplayStyle, fontSize = 24.sp, lineHeight = 22.sp)
-                    Spacer(Modifier.height(3.dp))
-                    Box(Modifier.width(14.dp).height(4.dp).clip(if (LocalLook.current.classic) RectangleShape else RoundedCornerShape(2.dp)).background(LocalAccent.current.accent))
-                }
-            }
             if (humSearch) {
                 // The dock's search lifts to the top and becomes this field; closing sends it back down.
                 AnimatedVisibility(!searchOpen, enter = if (calm) EnterTransition.None else fadeIn(tween(EnterMs, 80)) + expandHorizontally(tween(EnterMs)),
-                    exit = if (calm) ExitTransition.None else fadeOut(tween(QuickMs)) + shrinkHorizontally(tween(ExitMs))) { Wordmark() }
+                    exit = if (calm) ExitTransition.None else fadeOut(tween(QuickMs)) + shrinkHorizontally(tween(ExitMs))) { AppWordmark(page, onHome) }
                 Box(Modifier.weight(1f)) {
                     androidx.compose.animation.AnimatedVisibility(searchOpen, Modifier.fillMaxWidth(),
                         enter = if (calm) EnterTransition.None else slideInVertically(tween(320, easing = EmphasizedDecelerate)) { it * 12 } + fadeIn(tween(QuickMs)),
@@ -690,10 +711,35 @@ private fun AppHeader(page: String, searchOpen: Boolean, onCloseSearch: () -> Un
                     IconButton(onClick = onSettings, modifier = Modifier.size(48.dp)) { Icon(Icons.Outlined.Settings, "Open settings", Modifier.size(22.dp)) }
                 }
             } else {
-                Wordmark()
+                AppWordmark(page, onHome)
                 Spacer(Modifier.width(6.dp)); search()
                 IconButton(onClick = onSettings, modifier = Modifier.size(48.dp)) { Icon(Icons.Outlined.Settings, "Open settings", Modifier.size(22.dp)) }
             }
+        }
+    }
+}
+
+/**
+ * The app's small wordmark used across looks so code outside [AppHeader] can reuse it.
+ */
+@Composable
+private fun AppWordmark(page: String, onHome: () -> Unit) {
+    Column(Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).clip(RectangleShape).clickable(onClick = onHome).padding(horizontal = 6.dp, vertical = 8.dp)
+        .semantics { contentDescription = "Music, go home"; selected = page == "home" }, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+        if (LocalLook.current.hum) {
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text("hum", fontFamily = HumDisplay, fontWeight = FontWeight.ExtraBold, fontSize = 22.sp, lineHeight = 22.sp, letterSpacing = (-.03).em)
+                Box(Modifier.padding(start = 1.dp, bottom = 3.dp).size(6.dp).background(LocalAccent.current.accent, CircleShape))
+            }
+        } else if (LocalLook.current.soft) {
+            // Soft's monogram: DM Sans over a thin 12dp raspberry bar.
+            Text("M", fontFamily = SoftFont, fontSize = 18.sp, lineHeight = 18.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(4.dp))
+            Box(Modifier.width(12.dp).height(2.dp).background(MaterialTheme.colorScheme.primary, RoundedCornerShape(1.dp)))
+        } else {
+            Text("M", style = DisplayStyle, fontSize = 24.sp, lineHeight = 22.sp)
+            Spacer(Modifier.height(3.dp))
+            Box(Modifier.width(14.dp).height(4.dp).clip(if (LocalLook.current.classic) RectangleShape else RoundedCornerShape(2.dp)).background(LocalAccent.current.accent))
         }
     }
 }
@@ -918,6 +964,20 @@ private fun PersonalScreen(state: MusicState, onSearch: () -> Unit, onPlay: (Tra
     onEntry: (FeedEntry) -> Unit, onRefresh: () -> Unit, onMore: () -> Unit, onConnect: () -> Unit,
     onOpenPlayer: () -> Unit = {}, audioLevels: StateFlow<labs.rtensor.dsp.AudioLevelFrame?>? = null, metering: MeteringClaims? = null, listState: LazyListState = rememberLazyListState(), active: Boolean = true,
     recommendations: HomeRecommendationGroups = homeRecommendationGroups(state)) {
+    // The YouTube videos source's non-Music chips get a YouTube-style video feed; the Music chip
+    // keeps the YouTube Music shelves below, like the YouTube Music source.
+    if (state.recommendationEngine == labs.rtensor.music.recommendations.RecommendationEngine.YOUTUBE_VIDEO &&
+        state.homeFilter?.equals("music", ignoreCase = true) != true) {
+        YouTubeVideoFeed(state, onPlay, onRefresh, onMore, onConnect, listState, active)
+        return
+    }
+    // YouTube videos Music tab: From YouTube first, then Play it again, New to your ears,
+    // Your mixes, and Recently played at the bottom — shelf layout like Explore's music tab.
+    if (state.recommendationEngine == labs.rtensor.music.recommendations.RecommendationEngine.YOUTUBE_VIDEO &&
+        state.homeFilter?.equals("music", ignoreCase = true) == true) {
+        YouTubeMusicHome(state, recommendations, onPlay, onEntry, onRefresh, onMore, onConnect, listState, active)
+        return
+    }
     val recent = state.history.firstOrNull()
     val recentIsCurrent = recent != null && recent.libraryKey() == state.current?.libraryKey()
     val recentLoading = recentIsCurrent && (state.resolving || state.buffering)
@@ -1036,6 +1096,281 @@ private fun PersonalScreen(state: MusicState, onSearch: () -> Unit, onPlay: (Tra
         item(key = "feed-tail") { FeedContinuation(state, active, onMore) }
 
     }
+    }
+}
+
+/**
+ * YouTube videos Music tab: shelf layout like Explore's music tab.
+ * Order: From YouTube first, then Play it again, New to your ears,
+ * Your mixes, and Recently played at the bottom.
+ */
+@Composable
+private fun YouTubeMusicHome(
+    state: MusicState, recommendations: HomeRecommendationGroups,
+    onPlay: (Track, List<Track>) -> Unit, onEntry: (FeedEntry) -> Unit,
+    onRefresh: () -> Unit, onMore: () -> Unit, onConnect: () -> Unit,
+    listState: LazyListState, active: Boolean
+) {
+    val scheme = MaterialTheme.colorScheme
+    val look = LocalLook.current
+    val accent = LocalAccent.current
+    val recent = state.history.firstOrNull()
+    val unheard = recommendations.newToYou
+    val hasFeed = state.forYou.isNotEmpty() || feedSongs(state.feed).isNotEmpty()
+    val now = remember(state.playEvents, state.history) { System.currentTimeMillis() }
+    val lastPlayedAt = remember(state.playEvents) {
+        state.playEvents.groupBy { it.track.libraryKey() }.mapValues { (_, events) -> events.maxOf { it.startedAt } }
+    }
+    PullToRefresh(state.feedBusy && !state.feedAppending, onRefresh) {
+        LazyColumn(Modifier.fillMaxSize(), state = listState,
+            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 24.dp)) {
+            // Banners
+            val google = state.googleProfile
+            if ((state.recommendationEngine == labs.rtensor.music.recommendations.RecommendationEngine.YOUTUBE || state.recommendationEngine == labs.rtensor.music.recommendations.RecommendationEngine.YOUTUBE_VIDEO) && google != null && !state.account.connected && !state.account.connecting) {
+                item(key = "sync") {
+                    SyncBanner(google.email, onConnect, motionModifier().padding(top = 16.dp))
+                }
+            }
+            if ((state.recommendationEngine == labs.rtensor.music.recommendations.RecommendationEngine.YOUTUBE || state.recommendationEngine == labs.rtensor.music.recommendations.RecommendationEngine.YOUTUBE_VIDEO) && state.account.connected && !state.feedPersonalized && hasFeed) {
+                item(key = "generic-feed") {
+                    NoticeBanner("Your YouTube feed isn’t coming through",
+                        "YouTube answered as signed out, so this is the general feed. Reconnecting your account usually fixes it.", "Reconnect", onConnect, motionModifier().padding(top = 16.dp))
+                }
+            }
+            if (state.feedError != null && (state.feed.isEmpty() || !state.feedHasMore)) {
+                item(key = "feed-error") {
+                    Row(motionModifier().fillMaxWidth().padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(state.feedError, fontSize = 13.sp, lineHeight = 19.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                        TextButton(onClick = onRefresh, shape = ButtonShape) { Text(look.label("Retry"), style = LabelText) }
+                    }
+                }
+            }
+            // Title + chips row
+            item(key = "title") {
+                Column(Modifier.padding(bottom = 4.dp)) {
+                    PageTitle("For your ears")
+                    Text("Recommendations", fontSize = 12.sp, maxLines = 1,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = if (look.classic) 6.dp else 0.dp))
+                    ProviderFilters(state)
+                    Spacer(Modifier.height(8.dp))
+                    LoadingLine(state.feedBusy && !state.feedAppending, state.reducedMotion)
+                }
+            }
+            // 1. From YouTube — provider shelves with videos and mixes (providerShelves renders each section's own title)
+            val shown = (recommendations.fromListening + recommendations.newToYou + state.history).map { it.libraryKey() }.toSet()
+            val providerSections = (state.feed + state.feedContinuations).map { section ->
+                section.copy(items = section.items.filter { entry ->
+                    if (entry.videoId.isNotBlank() || entry.kind == "spotify_track") entry.asTrack().libraryKey() !in shown else true
+                })
+            }.filter { it.items.isNotEmpty() }
+            if (providerSections.isNotEmpty()) {
+                providerShelves(providerSections, onEntry, 24.dp)
+            }
+            // 2. Play it again — songs from listening history as tiles
+            val again = playItAgain(state, if (look.soft) 12 else 5)
+            if (again.isNotEmpty()) {
+                item(key = "play-it-again") {
+                    Column(Modifier.fillMaxWidth()) {
+                        SectionTitle("Play it again")
+                        Text("From your listening history", fontSize = 12.sp, lineHeight = 16.sp,
+                            color = scheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp, bottom = 8.dp))
+                        val rows = if (again.size >= 4) 2 else 1
+                        LazyHorizontalGrid(
+                            GridCells.Fixed(rows),
+                            Modifier.fillMaxWidth().height(
+                                (112.dp + 46.dp) * rows + 12.dp * (rows - 1)
+                            ),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            itemsIndexed(again, key = { _, t -> "again:${t.libraryKey()}" }, contentType = { _, _ -> "again" }) { _, track ->
+                                Column(Modifier.width(112.dp).clip(look.card)
+                                    .songClickable(track) { onPlay(track, listOf(track)) }) {
+                                    Artwork(track, Modifier.size(112.dp).clip(look.card), size = 112.dp)
+                                    Text(track.title, Modifier.padding(top = 6.dp), fontSize = 13.sp,
+                                        lineHeight = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                        color = scheme.onBackground)
+                                    Text(track.artist, Modifier.padding(top = 3.dp), fontSize = 12.sp,
+                                        lineHeight = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                        color = scheme.onSurfaceVariant)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            // 3. New to your ears
+            if (unheard.isNotEmpty()) {
+                item(key = "new-to-your-ears") {
+                    Column(Modifier.fillMaxWidth()) {
+                        SectionTitle(if (state.trackHistory) "New to your ears" else "Discover more")
+                        Text(if (state.trackHistory) "Songs outside your recorded listening history."
+                            else "Individual recommendations.",
+                            fontSize = 12.sp, lineHeight = 18.sp, color = scheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 4.dp, bottom = 8.dp))
+                        unheard.forEach { track ->
+                            TrackRow(track, false, false, { onPlay(track, listOf(track)) }, null)
+                        }
+                    }
+                }
+            }
+            // 4. Your mixes — big cards that play a whole mix
+            val mixes = homeMixes(state)
+            if (mixes.isNotEmpty()) {
+                item(key = "your-mixes") {
+                    Column(Modifier.fillMaxWidth()) {
+                        SectionTitle("Your mixes")
+                        Text("Each plays as one queue", fontSize = 12.sp, lineHeight = 16.sp,
+                            color = scheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp, bottom = 8.dp))
+                        LazyRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                            itemsIndexed(mixes, key = { _, m -> m.key }) { _, mix ->
+                                val covers = mix.tracks.distinctBy { it.artwork }.take(4)
+                                Box(Modifier.width(248.dp).height(200.dp).clip(look.card)
+                                    .background(if (look.soft) look.surface else look.panel)
+                                    .clickable(onClickLabel = "Play mix", role = Role.Button,
+                                        onClick = { onPlay(mix.tracks.first(), mix.tracks) })) {
+                                    if (covers.size >= 4) {
+                                        Column(Modifier.fillMaxSize()) {
+                                            for (r in 0..1) Row(Modifier.weight(1f)) {
+                                                for (c in 0..1) Artwork(covers[r * 2 + c], Modifier.weight(1f).fillMaxSize(), size = 124.dp)
+                                            }
+                                        }
+                                    } else {
+                                        Artwork(mix.tracks.first(), Modifier.fillMaxSize(), size = 248.dp)
+                                    }
+                                    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
+                                        0f to Color.Transparent, .35f to Color.Transparent,
+                                        1f to Color.Black.copy(alpha = .86f))))
+                                    Row(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.Bottom) {
+                                        Column(Modifier.weight(1f)) {
+                                            Text(if (look.room) mix.title.uppercase(Locale.getDefault()) else mix.title,
+                                                style = TextStyle(fontFamily = Display, fontWeight = FontWeight.ExtraBold,
+                                                    fontSize = 26.sp, lineHeight = 27.sp, letterSpacing = .01.em),
+                                                color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                            Text(mix.detail, fontFamily = ArchivoFont, fontSize = 12.sp,
+                                                lineHeight = 16.sp, color = Color.White.copy(alpha = .82f),
+                                                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
+                                        }
+                                        Spacer(Modifier.width(10.dp))
+                                        Box(Modifier.size(48.dp).background(accent.accent, CircleShape),
+                                            contentAlignment = Alignment.Center) {
+                                            Icon(Icons.Outlined.PlayArrow, null, tint = accent.onAccent, modifier = Modifier.size(26.dp))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            // 5. Recently played at last
+            if (recent != null) {
+                item(key = "recently-played") {
+                    Column(Modifier.fillMaxWidth()) {
+                        SectionTitle("Recently played")
+                        state.history.drop(1).take(4).forEach { track ->
+                            val playing = track.libraryKey() == state.current?.libraryKey()
+                            LastPlayedRow(track, if (playing) "Now playing" else "", { onPlay(track, listOf(track)) })
+                        }
+                    }
+                }
+            }
+            item(key = "feed-tail") { FeedContinuation(state, active, onMore) }
+        }
+    }
+}
+
+/**
+ * YouTube Videos home ("All", Gaming, Live and any other non-Music chip): one continuous column of
+ * full-bleed 16:9 video cards — thumbnail with a duration badge, then channel avatar, title, channel
+ * name and the overflow menu — exactly the shape of YouTube's phone feed. The provider's shelf
+ * headers are deliberately dropped so several "From YouTube" rows never repeat; every video is
+ * flattened into one stream and further pages append to the same list as you scroll.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun YouTubeVideoFeed(state: MusicState, onPlay: (Track, List<Track>) -> Unit, onRefresh: () -> Unit, onMore: () -> Unit, onConnect: () -> Unit,
+    listState: LazyListState, active: Boolean) {
+    val scheme = MaterialTheme.colorScheme
+    val entries = remember(state.feed, state.feedContinuations) {
+        (state.feed + state.feedContinuations).flatMap { it.items }
+            .filter { it.videoId.isNotBlank() || it.kind == "spotify_track" }
+            .distinctBy { it.videoId.ifBlank { it.id } }
+    }
+    val tracks = remember(entries) { entries.map { it.asTrack() } }
+    PrefetchArtwork(tracks.take(16).map(Track::artwork), 480.dp, diskOnly = true)
+    PullToRefresh(state.feedBusy && !state.feedAppending, onRefresh) {
+        LazyColumn(Modifier.fillMaxSize(), state = listState,
+            contentPadding = PaddingValues(start = 8.dp, end = 8.dp, top = 0.dp, bottom = 24.dp)) {
+            // YouTube pins the category chips under the top bar: they stay while videos scroll.
+            stickyHeader(key = "video-chips") {
+                Column(Modifier.fillMaxWidth().background(scheme.background)) {
+                    ProviderFilters(state)
+                    LoadingLine(state.feedBusy && !state.feedAppending, state.reducedMotion)
+                    Spacer(Modifier.height(4.dp))
+                }
+            }
+            val google = state.googleProfile
+            if (google != null && !state.account.connected && !state.account.connecting) item(key = "sync") {
+                SyncBanner(google.email, onConnect, motionModifier().padding(horizontal = 4.dp, vertical = 12.dp))
+            }
+            if (state.account.connected && !state.feedPersonalized && tracks.isNotEmpty()) item(key = "generic-feed") {
+                NoticeBanner("Your YouTube feed isn’t coming through",
+                    "YouTube answered as signed out, so this is the general feed. Reconnecting your account usually fixes it.",
+                    "Reconnect", onConnect, motionModifier().padding(horizontal = 4.dp, vertical = 12.dp))
+            }
+            if (state.feedError != null && (state.feed.isEmpty() || !state.feedHasMore)) item(key = "feed-error") {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(state.feedError, fontSize = 13.sp, lineHeight = 19.sp, color = scheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                    TextButton(onClick = onRefresh, shape = ButtonShape) { Text(LocalLook.current.label("Retry"), style = LabelText) }
+                }
+            }
+            itemsIndexed(entries, key = { i, entry -> "video:$i:${entry.videoId.ifBlank { entry.id }}" }, contentType = { _, _ -> "video-card" }) { _, entry ->
+                YouTubeVideoCard(entry, onPlay, Modifier.padding(horizontal = 4.dp))
+            }
+            if (tracks.isEmpty() && state.feedBusy) item(key = "video-loading") {
+                Box(Modifier.fillMaxWidth().height(180.dp), Alignment.Center) { CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp) }
+            }
+            if (tracks.isEmpty() && !state.feedBusy && state.feedError == null) item(key = "video-empty") {
+                EmptyState("No videos yet", "Pull down to load your YouTube feed.", Glyph.Compass)
+            }
+            item(key = "feed-tail") { FeedContinuation(state, active, onMore) }
+        }
+    }
+}
+
+/** One video in the YouTube feed: 16:9 thumbnail, duration pill, channel avatar, title and metadata. */
+@Composable
+private fun YouTubeVideoCard(entry: FeedEntry, onPlay: (Track, List<Track>) -> Unit, modifier: Modifier = Modifier) {
+    val scheme = MaterialTheme.colorScheme
+    val track = remember(entry) { entry.asTrack() }
+    val avatar = remember(entry.channelArtwork, track) { if (entry.channelArtwork.isBlank()) track else track.copy(artwork = entry.channelArtwork) }
+    // Play the video on its own so autoplay seeds this video's own next recommendations, not the
+    // fixed order of the feed. Two different videos therefore continue differently.
+    val play = { onPlay(track, listOf(track)) }
+    // YouTube's metadata line under the title: "Channel · 1.2M views · 2 days ago".
+    val meta = remember(entry) { listOf(entry.artist.ifBlank { track.artist }, entry.views, entry.published).filter { it.isNotBlank() }.joinToString(" · ") }
+    Column(modifier.fillMaxWidth().padding(vertical = 8.dp).songClickable(track, onClick = play)) {
+        Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(12.dp)).background(scheme.surfaceVariant)) {
+            Artwork(track, Modifier.fillMaxSize(), size = 480.dp)
+            if (track.durationMs > 0) Box(
+                Modifier.align(Alignment.BottomEnd).padding(8.dp)
+                    .background(Color.Black.copy(alpha = .8f), RoundedCornerShape(4.dp))
+                    .padding(horizontal = 5.dp, vertical = 2.dp)
+            ) {
+                Text(clock(track.durationMs), fontSize = 11.sp, lineHeight = 14.sp, fontWeight = FontWeight.Medium, color = Color.White, maxLines = 1)
+            }
+        }
+        Row(Modifier.fillMaxWidth().padding(top = 12.dp), verticalAlignment = Alignment.Top) {
+            Artwork(avatar, Modifier.size(36.dp).clip(CircleShape), size = 72.dp)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f).padding(top = 1.dp)) {
+                Text(track.title, fontSize = 16.sp, lineHeight = 22.sp, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Spacer(Modifier.height(4.dp))
+                Text(meta, fontSize = 12.sp, lineHeight = 16.sp, color = scheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+            SongMoreButton(track)
+        }
     }
 }
 
@@ -2603,12 +2938,12 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onAccen
                 Text("Recommendation source", fontSize = 16.sp, fontWeight = FontWeight.Medium)
                 Text("Choose who recommends your next songs. Audio uses your existing playback sources.", fontSize = 12.sp, color = scheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 4.dp, bottom = 6.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     labs.rtensor.music.recommendations.RecommendationEngine.entries.forEach { engine ->
                         FilterChip(selected = state.recommendationEngine == engine, onClick = {
                             if (engine == labs.rtensor.music.recommendations.RecommendationEngine.SPOTIFY && !state.spotifyAccount.connected) onConnectSpotify()
                             else onRecommendationEngine(engine)
-                        }, label = { Text(engine.label) }, modifier = Modifier.semantics { contentDescription = "${engine.label} recommendations" })
+                        }, label = { Text(engine.label, maxLines = 1) }, modifier = Modifier.semantics { contentDescription = "${engine.label} recommendations" })
                     }
                 }
                 if (state.recommendationEngine == labs.rtensor.music.recommendations.RecommendationEngine.SPOTIFY) Text("Spotify discovery is experimental.", fontSize = 12.sp, color = scheme.onSurfaceVariant)
@@ -2616,7 +2951,7 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onAccen
                 if (state.spotifyAccount.connecting) Text("Connecting Spotify…", fontSize = 12.sp, color = scheme.onSurfaceVariant)
                 if (state.spotifyAccount.connected) {
                     CardDivider()
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
+                    Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text("Spotify · ${state.spotifyAccount.name}", fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
                             color = scheme.onSurfaceVariant, modifier = Modifier.weight(1f))
                         Spacer(Modifier.width(8.dp))

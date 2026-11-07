@@ -430,13 +430,20 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         val revision = recommendationRevision
         val engine = mutable.value.recommendationEngine
         val filter = mutable.value.homeFilter
+        // The YouTube videos source's Music chip is YouTube's own Music category, the same tab the
+        // official YouTube home shows. The video source's other chips keep their own category feeds.
+        // Music is the tab the video source opens on; "Feed" is the YouTube home itself.
+        val engineFilters = mutable.value.homeFilters
+        val defaultMusic = engine == RecommendationEngine.YOUTUBE_VIDEO && filter == null && engineFilters.isEmpty() && mutable.value.feed.isEmpty()
+        val musicTab = engine == RecommendationEngine.YOUTUBE_VIDEO && (defaultMusic || filter?.equals("music", ignoreCase = true) == true)
+        if (defaultMusic) mutable.update { it.copy(homeFilter = "Music") }
         val request = ++feedRevision
         feedJob = viewModelScope.launch {
             mutable.update { it.copy(feedBusy = true, feedAppending = more, feedError = null) }
             try {
                 val fetch: suspend (Boolean) -> HomeFeed = { next -> when (engine) {
                     RecommendationEngine.SPOTIFY -> spotify.home()
-                    RecommendationEngine.YOUTUBE_VIDEO -> youtube.homeVideos(next, filter)
+                    RecommendationEngine.YOUTUBE_VIDEO -> youtube.homeVideos(next, if (musicTab) filter ?: "Music" else filter)
                     else -> youtube.home(next, filter)
                 } }
                 if (more) {
@@ -446,8 +453,20 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 val feed = fetch(false)
                 if (revision != recommendationRevision || request != feedRevision) return@launch
-                mutable.update { it.withHomeFeed(feed, engine == RecommendationEngine.SPOTIFY || !it.account.connected || feed.personalized).copy(feedBusy = false, feedAppending = false) }
-                if (engine == RecommendationEngine.YOUTUBE_VIDEO) refreshVideoRows(revision, feed)
+                // YouTube's Music category page is videos-only. Append the mixes/playlists shelves
+                // from the general home feed as a section below the videos, so the Music tab shows
+                // videos first and mixes underneath (like the official YouTube Music tab).
+                val sections = if (musicTab) {
+                    val mixes = try { youtube.homeVideos(false, null, standalone = true) } catch (_: Exception) { null }
+                    val mixSections = mixes?.sections?.filter { it.items.any { it.kind == "playlist" } } ?: emptyList()
+                    feed.sections + mixSections
+                } else feed.sections
+                mutable.update {
+                    val base = it.withHomeFeed(feed.copy(sections = sections), engine == RecommendationEngine.SPOTIFY || !it.account.connected || feed.personalized)
+                        .copy(feedBusy = false, feedAppending = false)
+                    if (musicTab) base.copy(homeFilters = engineFilters.ifEmpty { feed.filters }, homeFilter = filter ?: "Music") else base
+                }
+                if (engine == RecommendationEngine.YOUTUBE_VIDEO && !musicTab) refreshVideoRows(revision, feed)
                 if (mutable.value.forYou.isEmpty()) refreshForYou()
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { if (revision == recommendationRevision && request == feedRevision) mutable.update { it.copy(feedBusy = false, feedAppending = false, feedError = catalogueErrorMessage(e, CatalogueMessages.FEED)) } }
@@ -476,7 +495,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun homeFilter(value: String?) {
         if (mutable.value.recommendationEngine != RecommendationEngine.YOUTUBE && mutable.value.recommendationEngine != RecommendationEngine.YOUTUBE_VIDEO) return
-        if (value != null && value !in mutable.value.homeFilters) return
+        // The video source's Music tab is its home default even when YouTube returned no chip list.
+        val musicDefault = mutable.value.recommendationEngine == RecommendationEngine.YOUTUBE_VIDEO && value?.equals("music", ignoreCase = true) == true
+        if (value != null && value !in mutable.value.homeFilters && !musicDefault) return
         mutable.update { it.copy(homeFilter = value) }
         refreshFeed()
     }

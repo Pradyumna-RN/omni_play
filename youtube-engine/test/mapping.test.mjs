@@ -8,6 +8,13 @@ test('provider section, entry and duplicate order survives mapping', () => {
   assert.deepEqual(feed.map(s => s.title), ['Second alphabetically', 'First alphabetically']);
   assert.deepEqual(feed[0].items.map(i => i.id), ['yt:aaaaaaaaaaa', 'yt:bbbbbbbbbbb', 'yt:aaaaaaaaaaa']);
 });
+test('same-title sections from one page merge into a single header', () => {
+  const a = { id: 'aaaaaaaaaaa', title: 'Zebra', artists: [{ name: 'One' }], item_type: 'song' };
+  const b = { id: 'bbbbbbbbbbb', title: 'Apple', artists: [{ name: 'Two' }], item_type: 'song' };
+  const feed = sections({ sections: [ { header: { title: 'From YouTube' }, contents: [a] }, { header: { title: 'From YouTube' }, contents: [b, a] } ] });
+  assert.deepEqual(feed.map(s => s.title), ['From YouTube']);
+  assert.deepEqual(feed[0].items.map(i => i.id), ['yt:aaaaaaaaaaa', 'yt:bbbbbbbbbbb', 'yt:aaaaaaaaaaa']);
+});
 test('album and playlist recommendations retain their browse identity', () => {
   assert.equal(entry({ id: 'MPREb_test', title: 'Album', item_type: 'album' }).kind, 'album');
   const p = entry({ title: 'Mix', item_type: 'playlist', endpoint: { payload: { browseId: 'VLPL1234567890' } } });
