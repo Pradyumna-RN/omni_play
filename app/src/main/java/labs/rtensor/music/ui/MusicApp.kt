@@ -1113,7 +1113,7 @@ private fun SoftHero(state: MusicState, recent: Track?, recentIsCurrent: Boolean
                     if (recent == null) onSearch() else if (recentIsCurrent) onToggle() else onPlay(recent, listOf(recent))
                 }.padding(end = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(46.dp).background(scheme.primary, CircleShape), contentAlignment = Alignment.Center) {
-                        if (recentLoading) CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp, color = scheme.onPrimary)
+                        if (recentLoading) HumSpinner(Modifier.size(22.dp), color = scheme.onPrimary)
                         else Icon(if (recent == null) Icons.Outlined.Search else if (recentPlaying) Glyph.Pause else Icons.Outlined.PlayArrow,
                             null, tint = scheme.onPrimary, modifier = Modifier.size(24.dp))
                     }
@@ -1190,7 +1190,7 @@ private fun SignalAction(label: String, icon: ImageVector, loading: Boolean, mod
         .padding(horizontal = if (look.classic) 14.dp else 18.dp),
         verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(20.dp), contentAlignment = Alignment.Center) {
-            if (loading) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = accent.onAccent)
+            if (loading) HumSpinner(Modifier.size(16.dp), color = accent.onAccent)
             else Icon(icon, null, tint = accent.onAccent, modifier = Modifier.size(20.dp))
         }
         Spacer(Modifier.width(8.dp))
@@ -1274,12 +1274,26 @@ private fun PullToRefresh(busy: Boolean, onRefresh: () -> Unit, content: @Compos
     }
     PullToRefreshBox(
         isRefreshing = busy, onRefresh = { manual = true; onRefresh() }, state = pull, modifier = Modifier.fillMaxSize().clipToBounds(),
-        indicator = {
-            PullToRefreshDefaults.Indicator(state = pull, isRefreshing = busy && manual, modifier = Modifier.align(Alignment.TopCenter),
-                containerColor = MaterialTheme.colorScheme.surface, color = MaterialTheme.colorScheme.primary)
-        },
+        indicator = { PullIndicator(pull.distanceFraction, refreshing = busy && manual, hidden = busy && !manual, modifier = Modifier.align(Alignment.TopCenter)) },
         content = content,
     )
+}
+
+/**
+ * The pull-down mark: a round chip holding the Hum spinner that grows and fades in as you pull.
+ * A load that starts on its own never shows it, so it cannot sit over the page title.
+ */
+@Composable
+private fun PullIndicator(fraction: Float, refreshing: Boolean, hidden: Boolean, modifier: Modifier = Modifier) {
+    if (hidden || (!refreshing && fraction < .02f)) return
+    val pulled = fraction.coerceIn(0f, 1f)
+    Surface(modifier.padding(top = 8.dp).graphicsLayer {
+        val grow = if (refreshing) 1f else .6f + .4f * pulled
+        alpha = if (refreshing) 1f else pulled
+        scaleX = grow; scaleY = grow
+    }, shape = CircleShape, color = MaterialTheme.colorScheme.surface, shadowElevation = 4.dp) {
+        Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) { HumSpinner(Modifier.size(22.dp)) }
+    }
 }
 
 @Composable
@@ -1441,6 +1455,8 @@ private fun ProviderHome(state: MusicState, onEntry: (FeedEntry) -> Unit, onRefr
                 LoadingLine(state.feedBusy && !state.feedAppending, state.reducedMotion)
             }
         }
+        // First launch has nothing cached: hold the feed's place with song-shaped rows rather than an empty page.
+        if (state.feed.isEmpty() && state.feedBusy && !state.feedAppending && state.feedError == null) item(key = "skeleton") { ShelfLoading() }
         if (expanded) expandedShelf(state.feed, onEntry) else feedSections(state.feed, onEntry)
         if (state.feedError != null && (state.feed.isEmpty() || !state.feedHasMore)) item(key = "error") {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -2000,7 +2016,7 @@ private fun WidePlayButton(mode: Int, enabled: Boolean, reduced: Boolean, onClic
             Crossfade(mode, modifier = Modifier.size(28.dp), animationSpec = tween(if (reduced) 0 else 90), label = "play icon") { shown ->
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     when (shown) {
-                        0 -> CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = accent.onAccent)
+                        0 -> HumSpinner(Modifier.size(20.dp), color = accent.onAccent)
                         1 -> Icon(Glyph.Pause, null, Modifier.size(22.dp))
                         else -> Icon(Icons.Outlined.PlayArrow, null, Modifier.size(24.dp))
                     }
@@ -2301,7 +2317,7 @@ private fun PlayButton(mode: Int, enabled: Boolean, reduced: Boolean, onClick: (
     ) {
         Crossfade(mode == 0, modifier = Modifier.size(32.dp), animationSpec = tween(if (reduced) 0 else 90), label = "play button") { busy ->
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                if (busy) CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp, color = accent.onAccent)
+                if (busy) HumSpinner(Modifier.size(22.dp), color = accent.onAccent)
                 else PlayPauseMorph(mode == 1, accent.onAccent, 28.dp, reduced)
             }
         }
@@ -3185,7 +3201,7 @@ private fun PlayPauseCircle(playing: Boolean, loading: Boolean, reduced: Boolean
     ) {
         Crossfade(loading, modifier = Modifier.size(24.dp), animationSpec = tween(if (reduced) 0 else 90), label = "mini play") { busy ->
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                if (busy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = glyph)
+                if (busy) HumSpinner(Modifier.size(18.dp), color = glyph)
                 else PlayPauseMorph(playing, glyph, 24.dp, reduced)
             }
         }

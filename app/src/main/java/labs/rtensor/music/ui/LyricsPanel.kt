@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.KeyboardArrowUp
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
@@ -196,7 +195,7 @@ internal fun LyricsPanel(track: Track, onLyrics: suspend (Track) -> Lyrics?, red
             }
         }
         if (open) when (val state = load) {
-            LyricsLoad.Loading -> CircularProgressIndicator(Modifier.padding(vertical = 16.dp).size(22.dp), strokeWidth = 2.dp)
+            LyricsLoad.Loading -> HumSpinner(Modifier.padding(vertical = 16.dp).size(22.dp))
             LyricsLoad.Failed -> Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Couldn’t load lyrics.", fontSize = 14.sp, color = scheme.onSurfaceVariant)
                 TextButton(onClick = { attempt++ }) { Text("Try again") }
@@ -225,7 +224,7 @@ internal fun LyricsPanel(track: Track, onLyrics: suspend (Track) -> Lyrics?, red
                     else if (englishLines != null && englishLines.size == synced.size) synced.mapIndexed { i, line -> LyricLine(line.timeMs, englishLines[i]) } else emptyList()
                 when {
                     timed.isNotEmpty() -> SyncedLyricsView(timed, positions, onSeek, reduced)
-                    english && translating -> CircularProgressIndicator(Modifier.padding(vertical = 16.dp).size(22.dp), strokeWidth = 2.dp)
+                    english && translating -> HumSpinner(Modifier.padding(vertical = 16.dp).size(22.dp))
                     english && translateFailed -> Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("Couldn’t write these lyrics in English.", fontSize = 14.sp, color = scheme.onSurfaceVariant)
                         TextButton(onClick = { tries++ }) { Text("Try again") }

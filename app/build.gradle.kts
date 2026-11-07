@@ -1,5 +1,6 @@
 import groovy.json.JsonSlurper
 import java.security.MessageDigest
+import java.util.Properties
 import java.util.zip.ZipFile
 
 plugins {
@@ -40,8 +41,8 @@ android {
         applicationId = "labs.rtensor.music"
         minSdk = 30
         targetSdk = 35
-        versionCode = 51
-        versionName = "0.4.0-beta.7"
+        versionCode = 52
+        versionName = "0.4.0-beta.8"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("boolean", "APPLE_NATIVE_INCLUDED", providers.gradleProperty("rtensorAppleJniDir").isPresent.toString())
         buildConfigField("boolean", "APPLE_RUNTIME_INCLUDED", providers.gradleProperty("rtensorAppleRuntimeAssetsDir").isPresent.toString())
@@ -60,6 +61,21 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
+    // Release builds are signed with Hum's own key. Its settings live outside the repository, in
+    // HUM_SIGNING_PROPS or ~/.hum-signing/signing.properties (storeFile, storePassword, keyAlias, keyPassword).
+    // Without them (a fresh clone, CI) the build falls back to the debug key and says so.
+    val humSigning = Properties().also { props ->
+        val file = System.getenv("HUM_SIGNING_PROPS")?.let(::File) ?: File(System.getProperty("user.home"), ".hum-signing/signing.properties")
+        if (file.isFile) file.inputStream().use(props::load)
+    }
+    val hasReleaseKey = listOf("storeFile", "storePassword", "keyAlias", "keyPassword").all { !humSigning.getProperty(it).isNullOrBlank() } &&
+        File(humSigning.getProperty("storeFile")).isFile
+    if (hasReleaseKey) signingConfigs.create("hum") {
+        storeFile = File(humSigning.getProperty("storeFile"))
+        storePassword = humSigning.getProperty("storePassword")
+        keyAlias = humSigning.getProperty("keyAlias")
+        keyPassword = humSigning.getProperty("keyPassword")
+    } else logger.warn("Hum release key not found: signing the release build with the debug key. Set HUM_SIGNING_PROPS.")
     buildTypes {
         debug {
             // Keep the legacy OTA filename/variant and signing identity while
@@ -70,9 +86,9 @@ android {
             isDebuggable = false
             isMinifyEnabled = true
             isShrinkResources = true
-            // Preserve the existing OTA identity while switching to the optimized
-            // release variant. A new signing identity would break installed updates.
-            signingConfig = signingConfigs.getByName("debug")
+            // From 0.4.0-beta.8 the release APK carries Hum's own key. Installs signed with the old
+            // debug key (beta.1 to beta.7) cannot update to it and must be reinstalled once.
+            signingConfig = signingConfigs.getByName(if (hasReleaseKey) "hum" else "debug")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }

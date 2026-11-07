@@ -120,7 +120,7 @@ from a file or, since beta 6, from a whole folder of playlists (see above).
    load in pages: **Load more songs** extends them; Play loaded songs plays the
    loaded portion, up to the queue's 100-song limit.
 
-**Saved in Music and YouTube likes are separate.** The heart saves a recording
+**Saved in Hum and YouTube likes are separate.** The heart saves a recording
 inside Music. For account likes, use **Like on YouTube Music**, **Dislike on
 YouTube Music** or **Remove YouTube rating** in the song menu. Device playlists
 are not automatically uploaded when you connect an account.
@@ -161,7 +161,7 @@ does not play audio or change the Android app’s current player layout.
 
 ## Architecture
 
-Music has three main paths: **discover a recording**, **choose its audio source**,
+Hum has three main paths: **discover a recording**, **choose its audio source**,
 and **decode/render it inside the Android app**. The diagrams describe the current
 implementation; experimental adapters and unfinished integrations are labelled.
 
@@ -265,7 +265,7 @@ flowchart TB
 ```
 
 The adapter converts known multichannel **44.1/88.2/176.4 kHz → 48/96/192 kHz**
-for the core. Stereo bypasses that conversion. Music uses unity preamp for the surround path, retaining the original core's peak
+for the core. Stereo bypasses that conversion. Hum uses unity preamp for the surround path, retaining the original core's peak
 limiter instead of the previous fixed −14 dB cut. Stereo bytes remain unchanged.
 Original and Processed share the
 stream lifecycle and switch with a fade, without loading another recording.
@@ -283,7 +283,7 @@ Unsupported layouts use the Android delegate only when it accepts the format.
 Other failures are classified by decoder, layout, DSP or output stage and reported
 back to the player.
 
-Music uses FFmpeg's standard E-AC-3/JOC surround-bed decode. The experimental
+Hum uses FFmpeg's standard E-AC-3/JOC surround-bed decode. The experimental
 scene decoder is not registered or packaged, and its setting is removed.
 [PCM/DSP integration](dsp/README.md) and [provider status](PROVIDER_PLAYBACK_STATUS.md)
 describe the current route. Decoder research remains in its standalone module.
@@ -310,7 +310,7 @@ flowchart TB
     MATCH --> AVAILABLE{"Matching audio available?"}
     AVAILABLE -->|"Yes"| FORMAT["Select a rendition<br/>Check its actual audio format"]
     AVAILABLE -->|"No"| FALLBACK["Try another configured source<br/>or report no verified match"]
-    FORMAT --> DECODE["Decode inside Music"]
+    FORMAT --> DECODE["Decode inside Hum"]
     DECODE --> ROUTE{"Decoded channels?"}
     ROUTE -->|"Mono / stereo"| STEREO["Unchanged audio"]
     ROUTE -->|"Supported multichannel"| DMR["Original DMR<br/>Original / Processed comparison"]
@@ -327,7 +327,7 @@ flowchart LR
     RELEASE["GitHub release<br/>APK + checksums"] --> UPDATE["GitHubUpdater<br/>Size + SHA-256"]
     UPDATE --> IDENTITY["Verify app ID<br/>Version + signature"]
     IDENTITY --> INSTALL["Android installer<br/>User confirms"]
-    INSTALL --> APP["Music updated<br/>App data retained"]
+    INSTALL --> APP["Hum updated<br/>App data retained"]
 ```
 
 Updates require the same package and signing certificate and a newer version
@@ -347,7 +347,7 @@ code. The Android installer asks the user to confirm installation.
 | [RadioQueue](app/src/main/java/labs/rtensor/music/playback/RadioQueue.kt) | Provider-supplied Up next, cancellation of stale requests, duplicate exclusion, and retry status. |
 | [Local data](app/src/main/java/labs/rtensor/music/data/) | Library/history, imported master matching, account storage, metadata and on-device recommendation helpers. |
 | [decoder-ffmpeg](decoder-ffmpeg/) | Software ALAC and standard AC-3/E-AC-3 surround-bed decoding before the PCM sink. |
-| [decoder-openjoc](decoder-openjoc/) | Standalone experimental reconstruction research; excluded from Music. |
+| [decoder-openjoc](decoder-openjoc/) | Standalone experimental reconstruction research; excluded from Hum. |
 | [dsp](dsp/) | PCM/rate/layout adapter, original private DMR JNI boundary, Original/Processed comparison and diagnostics. |
 | [Updates](app/src/main/java/labs/rtensor/music/updates/) | GitHub release discovery and verified in-place APK updates. |
 

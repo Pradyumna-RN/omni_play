@@ -35,7 +35,7 @@ internal fun FeedContinuation(state: MusicState, active: Boolean, onMore: () -> 
                 Text(state.feedError, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 TextButton(onClick = onMore, enabled = !state.feedBusy) { Text("Retry loading more") }
             }
-            state.feedHasMore || state.feedAppending -> CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
+            state.feedHasMore || state.feedAppending -> HumSpinner(Modifier.size(22.dp))
             state.feedEnded -> Text("You’re caught up", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }

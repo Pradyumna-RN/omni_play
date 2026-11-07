@@ -3,6 +3,7 @@ package labs.rtensor.music.ui
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -16,6 +17,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -46,10 +48,18 @@ internal fun UpdateBanner(update: UpdateState, onLater: () -> Unit, onDownload: 
         Column(Modifier.padding(start = 16.dp, end = 12.dp, top = 14.dp, bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text("Update Hum", Modifier.semantics { heading() }, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
             Text(update.message.ifBlank { "Version ${release.version} is available." }, fontSize = 13.sp, lineHeight = 19.sp)
+            // What changes, one tap away, so the choice between updating and continuing is an informed one.
+            val notes = remember(release) { parseReleaseNotes(release.version, release.notes) }
+            var open by rememberSaveable(release.version) { mutableStateOf(false) }
+            if (notes != null && open) Column(Modifier.padding(top = 4.dp, end = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) { ReleaseNotes(notes, showTitle = false) }
             if (update.downloading) {
                 LinearProgressIndicator(progress = { update.progress / 100f }, modifier = Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 10.dp, end = 4.dp))
             } else {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+                    if (notes != null) {
+                        TextButton(onClick = { open = !open }) { Text(if (open) "Hide notes" else "What’s new") }
+                        Spacer(Modifier.weight(1f))
+                    }
                     TextButton(onClick = onLater) { Text("Later") }
                     Button(onClick = { if (update.apkPath != null) onInstall() else { requested = true; onDownload() } }, shape = ButtonShape,
                         enabled = !update.checking) { Text(if (update.apkPath != null) "Install" else "Update") }

@@ -2,6 +2,20 @@
 
 All notable changes to Hum. Newest first. Every release adds an entry here and uses the same text as its GitHub release notes.
 
+## 0.4.0-beta.8 (versionCode 52)
+
+### New
+- A new loading animation. Four small bars rise and fall in a wave in place of the old ring, on Home, lyrics, sources and everywhere Hum waits. With reduced motion on, the bars hold still.
+- Home shows song-shaped placeholders while the first picks load, instead of an empty page.
+- The Home update card has What’s new: tap it to read the release notes before choosing Update or Later.
+
+### Fixed
+- Pull to refresh no longer draws a circle over the Home title when Hum loads on its own. The circle now appears only when you pull.
+
+### Changed
+- Hum is now signed with its own release key instead of the Android debug key. Android will not update an app across different keys, so installs of beta.1 to beta.7 cannot update to this one: uninstall Hum once, then install beta.8. Uninstalling removes Hum's settings and library, so export anything you want to keep first. From beta.8 on, updates install over each other as before.
+- README now calls the app Hum throughout.
+
 ## 0.4.0-beta.7 (versionCode 51)
 
 ### New

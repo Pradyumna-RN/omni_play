@@ -1,5 +1,11 @@
 package labs.rtensor.music.ui
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -33,16 +39,17 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
@@ -122,7 +129,9 @@ private fun artistsLine(tracks: List<Track>): String {
  */
 internal fun LazyListScope.homeShelves(state: MusicState, fromListening: List<Track>, topArtists: List<String>,
     onPlay: (Track, List<Track>) -> Unit) {
-    if (fromListening.isNotEmpty() || state.forYouBusy) item(key = "for-you", contentType = "shelf-grid") {
+    // First launch: nothing is cached yet, so hold the shelf's place with song-shaped rows instead of an empty page.
+    val firstLoad = fromListening.isEmpty() && !state.forYouBusy && state.feed.isEmpty() && state.feedBusy
+    if (fromListening.isNotEmpty() || state.forYouBusy || firstLoad) item(key = "for-you", contentType = "shelf-grid") {
         val look = LocalLook.current
         val detail = when {
             state.recommendationEngine == RecommendationEngine.SPOTIFY -> "Radio from Spotify"
@@ -201,10 +210,27 @@ private fun ShelfButton(label: String, onClick: () -> Unit) {
     }
 }
 
+/** Placeholder song rows while the first picks load: a gentle pulse, held still under reduced motion. */
 @Composable
-private fun ShelfLoading() {
-    LinearProgressIndicator(Modifier.fillMaxWidth().height(3.dp), color = MaterialTheme.colorScheme.primary,
-        trackColor = MaterialTheme.colorScheme.primary.copy(alpha = .18f))
+internal fun ShelfLoading() {
+    val reduced = LocalReducedMotion.current
+    val pulse by rememberInfiniteTransition(label = "shelf loading").animateFloat(.55f, 1f,
+        infiniteRepeatable(tween(900, easing = LinearEasing), RepeatMode.Reverse), label = "pulse")
+    val block = MaterialTheme.colorScheme.onSurface.copy(alpha = .09f)
+    Column(Modifier.fillMaxWidth().graphicsLayer { alpha = if (reduced) .8f else pulse }
+        .clearAndSetSemantics { contentDescription = "Loading songs" },
+        verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        repeat(GridRows) { i ->
+            Row(Modifier.fillMaxWidth().height(RowHeight), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(48.dp).clip(RoundedCornerShape(8.dp)).background(block))
+                Spacer(Modifier.width(12.dp))
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Box(Modifier.fillMaxWidth(if (i % 2 == 0) .55f else .4f).height(12.dp).clip(RoundedCornerShape(6.dp)).background(block))
+                    Box(Modifier.fillMaxWidth(.3f).height(10.dp).clip(RoundedCornerShape(5.dp)).background(block))
+                }
+            }
+        }
+    }
 }
 
 private const val GridRows = 4
