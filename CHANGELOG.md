@@ -1,0 +1,36 @@
+# Changelog
+
+All notable changes to Hum. Newest first. Every release adds an entry here and uses the same text as its GitHub release notes.
+
+## 0.4.0-beta.2 (versionCode 46)
+
+### New
+- Lyrics move with the music: the current line is large and bright, the rest sit back, and the list glides along. Tap a line to jump there. Time-synced lines come from LRCLIB when the song is there, otherwise plain lyrics.
+- Lyrics language: switch between Original and English (translated with Google Translate, remembered per song).
+- Berry is the default accent, and presses use a rounded highlight instead of a rectangle.
+
+### Fixed
+- Home: the end of the feed and Library → Playlists no longer stall or show an error.
+- Now playing: the queue no longer overlaps the player.
+- Spotify sign-in: the embedded page hides the Google / Facebook / Apple buttons that it blocks.
+- Processed audio: the build includes the DSP renderer (ABI 3), so it loads instead of reporting "unavailable". Stereo sources still play unprocessed by design; processing applies to multichannel sources.
+
+### Known
+- Spotify sign-in through the browser (Chrome) is not built yet.
+- The FFmpeg decoder (E-AC-3 / ALAC) is not in the release build, so multichannel files are not decoded yet.
+
+## 0.4.0-beta.1 (versionCode 45)
+
+### New
+- Hum look: Berry colours, floating pill nav, Stage player, pinned player, top-tab Settings.
+- Motion: tab fade-through, pill slide, content cascade, player expand, play/pause morph, like burst.
+- Lyrics from YouTube Music, downloads, playlist imports.
+
+### Fixed
+- Spotify sign-in page showed blank.
+- Podcasts chip removed from Home.
+- Listening history failed to save on Windows.
+
+### Known
+- Spotify playlist create/add is not built yet (YouTube Music only).
+- Android Auto and the notification restyle are unverified.
