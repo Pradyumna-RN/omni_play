@@ -7,11 +7,22 @@ Hum (package `labs.rtensor.music`) is a native Android player from RTensorLabs, 
 Hum has one look: Berry accents, the Character typeface, a pinned player, a floating
 navigation pill and top-tab Settings. Android 11+ is the supported baseline.
 
-### New in 0.4.0 beta 4
+### New in 0.4.0 beta 6
 
-- **Lyrics follow the song** in a window sized for the phone, centred on the current
-  line; scroll away and they glide back after a moment. **Original / English** chips sit
-  with the lyrics and apply to every song. “English” means the same words in English
+- **Import playlists from a folder.** Import playlist → *Choose a folder of playlists*
+  turns every M3U/M3U8, PLS, XSPF, CSV or JSON file in it (subfolders included) into a
+  playlist and reads the local songs from the same folder. A folder of songs with no
+  playlist files becomes one playlist per folder.
+- **What’s new before you update.** Settings → About shows the release notes of an
+  available update before you download or install it.
+- **Import progress** for songs from your device now appears under *Import audio*;
+  *Export downloads* shows only export progress.
+
+### Earlier in 0.4.0
+
+- **Lyrics follow the song** in a window that fills the space under the player on any
+  phone size and keeps the current line on screen (beta 4–5). **Original / English** chips
+  sit with the lyrics and apply to every song. “English” means the same words in English
   letters (ನಾನು → *nanu*, मैं → *main*), not a translation.
 - **Export downloads** to a folder of your choice, and **import music** from the device:
   one file, many files, a folder, or several folders in turn (Settings → Sources).
@@ -19,6 +30,8 @@ navigation pill and top-tab Settings. Android 11+ is the supported baseline.
 - **Listen again**: songs played in Hum are reported to your YouTube Music history
   (turn it off with Settings → Privacy → Keep listening history).
 - **Browse** is gone; Explore is For you and Discover. Releases are named `Hum.apk`.
+- Open-source licences are removed from Settings → About for now and return with the
+  expanded list.
 
 See [CHANGELOG.md](CHANGELOG.md) for every release.
 
@@ -45,7 +58,8 @@ entry alone does not establish lossless or Dolby Atmos playback.
 
 These are simple descriptions of each app’s focus. Many goals overlap; the table
 does not claim that a feature belongs exclusively to one app or that Music has
-already completed all of its goals.
+already completed all of its goals. Hum is the app’s name; “Music” in code and
+package names (`labs.rtensor.music`) is the same app.
 
 | App | Main goal in simple words |
 | --- | --- |
@@ -55,27 +69,27 @@ already completed all of its goals.
 | [Apple Music](https://www.apple.com/apple-music/) | Offer a subscription music catalogue, including lossless and Dolby Atmos listening in supported setups. |
 | [Spotube](https://github.com/team-spotube/spotube) | Let users combine music metadata, playlists and audio sources through plugins on desktop and mobile. |
 | [Tryptify](https://github.com/tryptz/Tryptify) | Offer Android hi-fi listening with multiple sources, detailed DSP/EQ controls and visual feedback. |
-| **Music — this app** | **Combine a choice of discovery services with the best available matching audio and the original DMR, inside a simple Android listening app.** |
+| **Hum — this app** | **Combine a choice of discovery services with the best available matching audio and the original DMR, inside a simple Android listening app.** |
 
-For Music, the practical priorities are correct recording matches, clear audio
+For Hum, the practical priorities are correct recording matches, clear audio
 quality information, reliable surround processing and smooth everyday playback.
 A combined library is part of that experience. The current UI can stay while
 those features improve.
 
-## Pending source changes
+## Playlist imports
 
 [Playlist imports and Spotify sign-in handoff](PLAYLIST_IMPORTS.md) describes the
-0.4.0 beta source changes, supported import formats, history-sync limits and remaining
-local validation. They ship in the 0.4.0 beta 1 release.
+supported import formats, history-sync limits and remaining local validation. Import
+from a file or, since beta 6, from a whole folder of playlists (see above).
 
 ## Quick guide
 
-1. **Install or update.** Get the [current preview release](https://github.com/RTensorLabs/music-app/releases/latest).
+1. **Install or update.** Get the [current preview release](https://github.com/RTensorLabs/music-app/releases) (download `Hum.apk`).
    Existing installations can use **Settings → About → Check updates**.
 2. **Choose recommendations.** Open **Settings → Playback → Recommendation source**.
    YouTube Music is the default. Selecting Spotify starts its sign-in; the choice
    is saved after verification. See the [Spotify guide](SPOTIFY_RECOMMENDATIONS.md).
-3. **Search or browse.** Home contains the full provider recommendation feed
+3. **Search and explore.** Home contains the full provider recommendation feed
    and YouTube mood filters. Keep scrolling to load the next available page.
    **Explore → For you** holds last played, recent listening and personal highlights.
    **Discover** shows provider discovery shelves and can use genuine already-loaded
@@ -85,7 +99,8 @@ local validation. They ship in the 0.4.0 beta 1 release.
    Search uses YouTube and offers suggestions as you type.
 4. **Add your files or playback sources.** Use **Settings → Sources → Import audio**
    for files, a folder or several folders, and **Export downloads** to copy your
-   downloaded songs to a folder. **Playback sources** contains provider and personal-server
+   downloaded songs to a folder. **Library → Playlists → Import playlist** reads a
+   playlist file or a whole folder of them. **Playback sources** contains provider and personal-server
    connections. Supported files can be stereo, lossless or multichannel.
 5. **Compare multichannel playback.** For supported input, the player offers
    **Original** and **Processed**. Stereo plays unchanged. The channel monitor
@@ -338,12 +353,12 @@ code. The Android installer asks the user to confirm installation.
 
 ## Current release
 
-[Hum 0.4.0 beta 1](https://github.com/RTensorLabs/music-app/releases/tag/v0.4.0-beta.1)
-puts the full recommendation feed and continuous loading on Home. Explore's For you
-keeps personal listening highlights. Discover and Browse retain actual provider
-content even when the separate Explore response is empty or fails; category links
-no longer hide available albums and playlists. All three looks and independent
-scroll positions remain available.
+[Hum 0.4.0 beta 6](https://github.com/RTensorLabs/music-app/releases/tag/v0.4.0-beta.6)
+is the latest preview. Home carries the full recommendation feed with continuous
+loading. Explore’s For you keeps personal listening highlights, and Discover keeps
+actual provider content even when the separate Explore response is empty or fails.
+Each page keeps its own scroll position. See [CHANGELOG.md](CHANGELOG.md) for what
+changed in every beta.
 
 Automated app checks cover the player, navigation, account recovery, car browsing
 and queue selection. Existing DSP and browser results remain baseline evidence;
