@@ -2591,6 +2591,7 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onAccen
     onConnectSpotify: () -> Unit, onDisconnectSpotify: () -> Unit) {
     var confirmClear by rememberSaveable { mutableStateOf(false) }
     var showLicences by rememberSaveable { mutableStateOf(false) }
+    var showChangelog by rememberSaveable { mutableStateOf(false) }
     var showSources by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
     val notices = remember { context.resources.openRawResource(R.raw.third_party_notices).bufferedReader().use { it.readText() } }
@@ -2723,6 +2724,8 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onAccen
                 }
             }
             CardDivider()
+            SettingItem("What’s new", "Changes in each release", Icons.Outlined.Info, onClick = { showChangelog = true })
+            CardDivider()
             SettingItem("Open-source licences", "Libraries and fonts used by Music", Icons.Outlined.Info, onClick = { showLicences = true })
             CardDivider()
             SettingItem("Developer options", "Channel monitor, and live speaker levels on Home and in the player", Glyph.ChannelMonitor,
@@ -2765,6 +2768,7 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onAccen
         confirmButton = { TextButton(onClick = { onClearHistory(); confirmClear = false }) { Text("Clear history") } },
         dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Keep history") } },
     )
+    if (showChangelog) ChangelogDialog(onDismiss = { showChangelog = false })
     if (showLicences) AlertDialog(
         onDismissRequest = { showLicences = false },
         title = { Text("Open-source licences") },

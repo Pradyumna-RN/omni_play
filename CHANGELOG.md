@@ -2,6 +2,17 @@
 
 All notable changes to Hum. Newest first. Every release adds an entry here and uses the same text as its GitHub release notes.
 
+## 0.4.0-beta.3 (versionCode 47)
+
+### New
+- What’s new: Settings → About now shows this changelog inside the app, offline.
+- Multichannel decoding: the build includes an LGPL FFmpeg decoder for E-AC-3 (Dolby Digital Plus), AC-3 and ALAC, so 5.1 files decode and the Original / Processed toggle can apply the DSP renderer to them. The decoder source is attached to the release.
+
+### Known
+- Spotify sign-in through the browser (Chrome) is not built yet.
+- Spotify playlist create/add is not built yet (YouTube Music only).
+- Stereo sources still play unprocessed by design; processing applies to multichannel sources.
+
 ## 0.4.0-beta.2 (versionCode 46)
 
 ### New

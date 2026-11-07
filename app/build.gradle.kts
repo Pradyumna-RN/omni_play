@@ -8,10 +8,29 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+// The in-app "What's new" reads the repository CHANGELOG.md, so that file stays the single source of truth.
+abstract class CopyChangelog : DefaultTask() {
+    @get:InputFile @get:PathSensitive(PathSensitivity.NONE) abstract val source: RegularFileProperty
+    @get:OutputDirectory abstract val outputDir: DirectoryProperty
+    @TaskAction fun copy() {
+        val out = outputDir.get().asFile.also { it.mkdirs() }
+        source.get().asFile.copyTo(out.resolve("changelog.md"), overwrite = true)
+    }
+}
+
 val verificationVariant = providers.gradleProperty("rtensorVerificationVariant").orElse("release")
 check(verificationVariant.get() in setOf("debug", "release"))
 val verificationAssemble = verificationVariant.map { "assemble${it.replaceFirstChar(Char::uppercaseChar)}" }
 val verificationApk = layout.buildDirectory.file(verificationVariant.map { "outputs/apk/$it/app-$it.apk" })
+
+androidComponents {
+    onVariants { variant ->
+        val copy = tasks.register<CopyChangelog>("copy${variant.name.replaceFirstChar(Char::uppercaseChar)}Changelog") {
+            source.set(rootProject.layout.projectDirectory.file("CHANGELOG.md"))
+        }
+        variant.sources.assets?.addGeneratedSourceDirectory(copy, CopyChangelog::outputDir)
+    }
+}
 
 android {
     namespace = "labs.rtensor.music"
@@ -21,8 +40,8 @@ android {
         applicationId = "labs.rtensor.music"
         minSdk = 30
         targetSdk = 35
-        versionCode = 46
-        versionName = "0.4.0-beta.2"
+        versionCode = 47
+        versionName = "0.4.0-beta.3"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("boolean", "APPLE_NATIVE_INCLUDED", providers.gradleProperty("rtensorAppleJniDir").isPresent.toString())
         buildConfigField("boolean", "APPLE_RUNTIME_INCLUDED", providers.gradleProperty("rtensorAppleRuntimeAssetsDir").isPresent.toString())
