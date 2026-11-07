@@ -9,7 +9,7 @@ import java.security.spec.RSAPublicKeySpec
 
 /** Verify Google's signed response before using any returned account/profile data. */
 internal object GoogleTokenVerifier {
-    fun verify(token: String, nonce: String, webClientId: String, androidClientId: String, jwks: JSONObject,
+    fun verify(token: String, nonce: String, webClientId: String, androidClientIds: Collection<String>, jwks: JSONObject,
         now: Long = System.currentTimeMillis() / 1000): GoogleProfile {
         require(token.length in 1..32768 && nonce.isNotBlank())
         val parts = token.split('.'); require(parts.size == 3)
@@ -25,7 +25,7 @@ internal object GoogleTokenVerifier {
         val claims = JSONObject(String(bytes(parts[1]), Charsets.UTF_8))
         require(claims.optString("iss") in setOf("accounts.google.com", "https://accounts.google.com"))
         require(claims.optString("aud") == webClientId)
-        require(!claims.has("azp") || claims.optString("azp") in setOf(webClientId, androidClientId))
+        require(!claims.has("azp") || claims.optString("azp") in androidClientIds + webClientId)
         require(claims.getLong("exp") > now && claims.getLong("iat") <= now + 120)
         require(claims.getString("nonce") == nonce && claims.optBoolean("email_verified", false))
         return GoogleProfile.parse(JSONObject().put("subject", claims.getString("sub")).put("email", claims.getString("email")).put("name", claims.optString("name")))

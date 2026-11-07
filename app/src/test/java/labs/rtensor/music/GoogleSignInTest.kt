@@ -38,12 +38,16 @@ class GoogleSignInTest {
         return JSONObject().put("keys", JSONArray().put(JSONObject().put("kid", "fixture-key").put("kty", "RSA").put("alg", "RS256").put("use", "sig")
             .put("n", encode(key.modulus.toByteArray())).put("e", encode(key.publicExponent.toByteArray()))))
     }
-    private fun verify(value: String, jwks: JSONObject = keys()) = GoogleTokenVerifier.verify(value, "one-use-nonce", "web-client", "android-client", jwks, now = 1200)
+    private fun verify(value: String, jwks: JSONObject = keys()) = GoogleTokenVerifier.verify(value, "one-use-nonce", "web-client", listOf("debug-android-client", "android-client"), jwks, now = 1200)
 
     @Test fun signedBoundIdentityIsAcceptedWithoutPersistingAToken() {
         val profile = verify(token())
         assertEquals(GoogleProfile("fixture-subject", "fixture@example.test", "Fixture listener"), profile)
         assertEquals(setOf("subject", "email", "name"), profile.json().keys().asSequence().toSet())
+    }
+    @Test fun eitherRegisteredAndroidClientIsAccepted() {
+        assertNotNull(verify(token(claims().put("azp", "debug-android-client"))))
+        assertNotNull(verify(token(claims().put("azp", "web-client"))))
     }
     @Test fun modifiedClaimsCannotReuseAGenuineSignature() {
         val pieces = token().split('.')

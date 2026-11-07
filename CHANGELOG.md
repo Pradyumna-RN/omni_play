@@ -2,6 +2,11 @@
 
 All notable changes to Hum. Newest first. Every release adds an entry here and uses the same text as its GitHub release notes.
 
+## 0.4.0-beta.9 (versionCode 53)
+
+### Fixed
+- Sign in with Google should work again. Beta.8 changed Hum's signing key and Google no longer recognised the app; Hum's release key is now registered with Google and accepted by the app.
+
 ## 0.4.0-beta.8 (versionCode 52)
 
 ### New

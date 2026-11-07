@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Public OAuth identifiers. The Android registration binds package + signing certificate. -->
+    <!-- Public OAuth identifiers. The Android registration binds package + signing certificate, so each signing key (debug, Hum release) has its own Android client. -->
     <string name="google_android_client_id" translatable="false">526624069759-obhnitrtm5scip7j2eutbm5aufrq916e.apps.googleusercontent.com</string>
+    <string name="google_android_client_id_release" translatable="false">526624069759-h9jjgkl0rdscuan8hg0vt5r44o45dhr2.apps.googleusercontent.com</string>
     <string name="google_web_client_id" translatable="false">526624069759-l806dmep3tq1mkmbo0d08ga6l188ir69.apps.googleusercontent.com</string>
 </resources>

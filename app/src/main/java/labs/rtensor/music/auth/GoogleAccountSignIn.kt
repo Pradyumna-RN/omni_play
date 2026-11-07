@@ -30,7 +30,8 @@ import java.util.concurrent.TimeUnit
 class GoogleAccountSignIn(context: Context) {
     private val manager = CredentialManager.create(context.applicationContext)
     private val webClient = context.getString(R.string.google_web_client_id)
-    private val androidClient = context.getString(R.string.google_android_client_id)
+    // One Android client per signing key: the debug key and the Hum release key are registered separately.
+    private val androidClients = listOf(R.string.google_android_client_id, R.string.google_android_client_id_release).map(context::getString)
     private val http = OkHttpClient.Builder().followRedirects(false).followSslRedirects(false)
         .connectTimeout(12, TimeUnit.SECONDS).readTimeout(12, TimeUnit.SECONDS).callTimeout(18, TimeUnit.SECONDS).build()
 
@@ -42,7 +43,7 @@ class GoogleAccountSignIn(context: Context) {
         require(credential is CustomCredential && credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL)
         val token = GoogleIdTokenCredential.createFrom(credential.data).idToken
         val keys = loadKeys()
-        return withContext(Dispatchers.Default) { GoogleTokenVerifier.verify(token, nonce, webClient, androidClient, keys) }
+        return withContext(Dispatchers.Default) { GoogleTokenVerifier.verify(token, nonce, webClient, androidClients, keys) }
     }
     private suspend fun loadKeys(): JSONObject = suspendCancellableCoroutine { continuation ->
         val call = http.newCall(Request.Builder().url("https://www.googleapis.com/oauth2/v3/certs").build())
