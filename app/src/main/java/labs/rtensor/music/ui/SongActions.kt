@@ -54,7 +54,7 @@ class SongActionCallbacks(
     val showPlaylistImport: () -> Unit = {}, val dismissPlaylistImport: () -> Unit = {},
     val importPlaylistAccount: (String) -> Unit = {}, val importPlaylistLink: (String) -> Unit = {},
     val selectPlaylistImport: (labs.rtensor.music.imports.PlaylistImportChoice) -> Unit = {},
-    val choosePlaylistFile: () -> Unit = {}, val choosePlaylistFolder: () -> Unit = {}, val confirmPlaylistImport: () -> Unit = {},
+    val choosePlaylistFile: () -> Unit = {}, val choosePlaylistFolder: () -> Unit = {}, val choosePlaylistsFolder: () -> Unit = {}, val confirmPlaylistImport: () -> Unit = {},
     val dismissMessage: () -> Unit = {},
     val download: (List<Track>) -> Unit = {}, val removeDownload: (Track) -> Unit = {},
 )

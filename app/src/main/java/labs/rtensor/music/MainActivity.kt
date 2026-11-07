@@ -118,6 +118,12 @@ class MainActivity : ComponentActivity() {
                     model.importPlaylistFolder(uri)
                 }
             }
+            val playlistsFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+                if (uri != null) {
+                    runCatching { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+                    model.importPlaylistsFolder(uri)
+                }
+            }
             val mastersFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
                 if (uri != null) {
                     runCatching { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
@@ -135,7 +141,7 @@ class MainActivity : ComponentActivity() {
                     showPlaylistImport = model::showPlaylistImport, dismissPlaylistImport = model::dismissPlaylistImport,
                     importPlaylistAccount = model::importPlaylistAccount, importPlaylistLink = model::importPlaylistLink,
                     selectPlaylistImport = model::importPlaylistChoice, confirmPlaylistImport = model::confirmPlaylistImport,
-                    choosePlaylistFile = { playlistFile.launch(arrayOf("*/*")) }, choosePlaylistFolder = { playlistAudioFolder.launch(null) },
+                    choosePlaylistFile = { playlistFile.launch(arrayOf("*/*")) }, choosePlaylistFolder = { playlistAudioFolder.launch(null) }, choosePlaylistsFolder = { playlistsFolder.launch(null) },
                     connectYouTube = ::connectYouTube, dismissMessage = { model.actionMessage(null) }) },
                 onSuggestion = model::selectSuggestion, onHomeFilter = model::homeFilter,
                 onBrowseNavigation = { entry, nested -> model.browse(entry, nested) }, onCollectionBack = model::backCollection,

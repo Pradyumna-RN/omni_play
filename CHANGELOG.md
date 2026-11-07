@@ -2,6 +2,15 @@
 
 All notable changes to Hum. Newest first. Every release adds an entry here and uses the same text as its GitHub release notes.
 
+## 0.4.0-beta.6 (versionCode 50)
+
+### New
+- Import playlists from a folder: Import playlist → Choose a folder of playlists. Every M3U/M3U8, PLS, XSPF, CSV or JSON file in it, subfolders included, becomes a playlist, and local songs are read from the same folder. A folder with songs but no playlist files becomes one playlist per folder of songs, named after the folder.
+- Settings → About shows what’s new in an update (its release notes) before you download or install it.
+
+### Fixed
+- Importing songs from your device showed its progress under Export downloads. Import progress now appears under Import audio, and export progress stays under Export downloads.
+
 ## 0.4.0-beta.5 (versionCode 49)
 
 ### Fixed

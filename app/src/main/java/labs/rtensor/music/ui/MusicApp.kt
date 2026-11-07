@@ -2691,9 +2691,10 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onAccen
                 onConnectTidal, onDisconnectTidal, onCancelTidal, onConnectApple, onNativeApple, onDisconnectApple, onCancelApple)
             CardDivider()
             SettingItem("Import audio", if (state.mastersBusy) state.mastersSummary else "Songs, folders, lossless and Atmos files", Icons.Outlined.Add, onClick = { showImport = true })
+            state.importMessage?.let { Text(it, fontSize = 13.sp, lineHeight = 19.sp, color = scheme.onSurfaceVariant, modifier = Modifier.padding(start = 66.dp, end = 16.dp, bottom = 12.dp)) }
             CardDivider()
             SettingItem("Export downloads", if (state.downloads.isEmpty()) "Download songs first, then copy them to a folder" else "Copy ${state.downloads.size} downloaded ${if (state.downloads.size == 1) "song" else "songs"} to a folder", Icons.Outlined.Add, onClick = onExportDownloads)
-            state.importMessage?.let { Text(it, fontSize = 13.sp, lineHeight = 19.sp, color = scheme.onSurfaceVariant, modifier = Modifier.padding(start = 66.dp, end = 16.dp, bottom = 12.dp)) }
+            state.exportMessage?.let { Text(it, fontSize = 13.sp, lineHeight = 19.sp, color = scheme.onSurfaceVariant, modifier = Modifier.padding(start = 66.dp, end = 16.dp, bottom = 12.dp)) }
         }
 
         }
@@ -2744,6 +2745,15 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onAccen
             SettingItem("Hum ${BuildConfig.VERSION_NAME}", "By RTensorLabs · preview channel on GitHub Releases", Icons.Outlined.Refresh)
             Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (state.update.message.isNotBlank()) Text(state.update.message, fontSize = 13.sp, lineHeight = 19.sp, color = scheme.onSurfaceVariant)
+                // What the new version changes, shown before the download or install so the update is an informed one.
+                state.update.release?.let { found ->
+                    val notes = remember(found) { parseReleaseNotes(found.version, found.notes) }
+                    if (notes != null) Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(scheme.surfaceVariant.copy(alpha = 0.4f)).padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("What’s new in ${found.version}", Modifier.semantics { heading() }, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = scheme.primary)
+                        ReleaseNotes(notes, showTitle = false)
+                    }
+                }
                 if (state.update.downloading) {
                     val progress by animateFloatAsState(state.update.progress / 100f, tween(if (state.reducedMotion) 0 else EnterMs), label = "update progress")
                     LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth(), strokeCap = StrokeCap.Round)

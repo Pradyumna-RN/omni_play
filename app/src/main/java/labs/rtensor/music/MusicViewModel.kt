@@ -70,6 +70,7 @@ object ErrorOrigin { const val PLAYBACK = "playback"; const val SEARCH = "search
 
 data class MusicState(
     val importMessage: String? = null,
+    val exportMessage: String? = null,
     val current: Track? = null,
     val loadingTrack: Track? = null,
     val playing: Boolean = false,
@@ -996,18 +997,18 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     /** Copies every downloaded song into a folder the user picked, named "Artist - Title". */
     fun exportDownloads(tree: Uri) {
         val songs = downloadsHolder.store.all
-        if (songs.isEmpty()) { mutable.update { it.copy(importMessage = "There are no downloads to export yet.") }; return }
+        if (songs.isEmpty()) { mutable.update { it.copy(exportMessage = "There are no downloads to export yet.") }; return }
         viewModelScope.launch {
-            mutable.update { it.copy(importMessage = "Exporting ${songs.size} downloads…") }
+            mutable.update { it.copy(exportMessage = "Exporting ${songs.size} downloads…") }
             try {
                 val result = withContext(Dispatchers.IO) {
                     labs.rtensor.music.data.DownloadExporter.export(getApplication<Application>(), songs, { downloadsHolder.store.file(it.track) }, tree,
-                        isActive = { isActive }) { done, total -> mutable.update { it.copy(importMessage = "Exporting… $done of $total") } }
+                        isActive = { isActive }) { done, total -> mutable.update { it.copy(exportMessage = "Exporting… $done of $total") } }
                 }
-                mutable.update { it.copy(importMessage = "Exported ${result.copied} ${if (result.copied == 1) "song" else "songs"} to the folder you chose." +
+                mutable.update { it.copy(exportMessage = "Exported ${result.copied} ${if (result.copied == 1) "song" else "songs"} to the folder you chose." +
                     if (result.failed > 0) " ${result.failed} could not be copied." else "") }
             } catch (e: CancellationException) { throw e }
-            catch (_: Exception) { mutable.update { it.copy(importMessage = "Could not write to this folder. Choose another one.") } }
+            catch (_: Exception) { mutable.update { it.copy(exportMessage = "Could not write to this folder. Choose another one.") } }
         }
     }
 
@@ -1146,6 +1147,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     fun importPlaylistLink(link: String) = playlistImporter.link(link)
     fun importPlaylistFile(uri: Uri) = playlistImporter.file(uri)
     fun importPlaylistFolder(uri: Uri) = playlistImporter.folder(uri)
+    fun importPlaylistsFolder(uri: Uri) = playlistImporter.playlistsFolder(uri)
     fun confirmPlaylistImport() = playlistImporter.confirm()
 
     fun loadPlaylists(selected: Track? = null) {

@@ -133,6 +133,15 @@ class AccountAndUpdateTest {
         val legacyOnly = GitHubUpdater.selectRelease(JSONArray().put(release("music-release.apk", "SHA256SUMS")), "0.4.0-beta.3")
         assertEquals("music-release.apk", legacyOnly?.apkName)
     }
+    @Test fun theUpdateCarriesItsReleaseNotesAndToleratesAMissingBody() {
+        val tag = "v0.4.0-beta.6"
+        fun asset(name: String) = JSONObject().put("name", name).put("size", 100)
+            .put("browser_download_url", "https://github.com/RTensorLabs/music-app/releases/download/$tag/$name")
+        fun release(body: Any?) = JSONObject().put("tag_name", tag).put("draft", false).put("body", body)
+            .put("assets", JSONArray().put(asset("Hum.apk")).put(asset("SHA256SUMS")))
+        assertEquals("### New\n- Thing", GitHubUpdater.selectRelease(JSONArray().put(release("### New\n- Thing")), "0.4.0-beta.5")?.notes)
+        assertEquals("", GitHubUpdater.selectRelease(JSONArray().put(release(JSONObject.NULL)), "0.4.0-beta.5")?.notes)
+    }
     @Test fun integratedMusicOtaUpdatesStableAndPrivatePreviewInstallations() {
         val tag = "v0.3.41"
         fun asset(name: String) = JSONObject().put("name", name).put("size", 18000000)

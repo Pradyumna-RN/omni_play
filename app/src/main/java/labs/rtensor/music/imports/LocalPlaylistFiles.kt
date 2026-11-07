@@ -8,11 +8,15 @@ import labs.rtensor.music.data.Track
 
 internal object LocalPlaylistFiles {
     private val extensions = setOf("m4a", "mp3", "flac", "ogg", "opus", "wav", "aac", "aiff", "aif", "wma", "eac3", "ec3", "ac3", "mka", "mp4", "alac", "ape")
-    fun index(context: Context, tree: Uri, checkCancelled: () -> Unit = {}): Map<String, Uri> {
+    private val playlistExtensions = setOf("m3u", "m3u8", "pls", "xspf", "csv", "json")
+    /** Audio files and playlist files of a folder tree, each keyed by its path inside the tree (starting with the folder's own name). */
+    class Scan(val audio: Map<String, Uri>, val playlists: Map<String, Uri>)
+    fun index(context: Context, tree: Uri, checkCancelled: () -> Unit = {}): Map<String, Uri> = scan(context, tree, checkCancelled).audio
+    fun scan(context: Context, tree: Uri, checkCancelled: () -> Unit = {}): Scan {
         val root = DocumentsContract.getTreeDocumentId(tree)
         val rootName = context.contentResolver.query(DocumentsContract.buildDocumentUriUsingTree(tree, root), arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME), null, null, null)?.use { if (it.moveToFirst()) it.getString(0) else null }
             ?: root.substringAfterLast(':').substringAfterLast('/')
-        val pending = ArrayDeque(listOf(root to rootName)); val visited = HashSet<String>(); val files = linkedMapOf<String, Uri>()
+        val pending = ArrayDeque(listOf(root to rootName)); val visited = HashSet<String>(); val files = linkedMapOf<String, Uri>(); val lists = linkedMapOf<String, Uri>()
         while (pending.isNotEmpty()) {
             checkCancelled()
             val (id, path) = pending.removeFirst()
@@ -25,11 +29,33 @@ internal object LocalPlaylistFiles {
                     val child = c.getString(0); val name = c.getString(1); val mime = c.getString(2)
                     val relative = if (path.isBlank()) name else "$path/$name"
                     if (mime == DocumentsContract.Document.MIME_TYPE_DIR) pending += child to relative
-                    else if (mime.startsWith("audio/") || name.substringAfterLast('.', "").lowercase() in extensions) files[relative] = DocumentsContract.buildDocumentUriUsingTree(tree, child)
+                    else when (kindOf(name, mime)) {
+                        Kind.Playlist -> lists[relative] = DocumentsContract.buildDocumentUriUsingTree(tree, child)
+                        Kind.Audio -> files[relative] = DocumentsContract.buildDocumentUriUsingTree(tree, child)
+                        Kind.Other -> Unit
+                    }
                 }
             }
         }
-        return files
+        return Scan(files, lists)
+    }
+    enum class Kind { Audio, Playlist, Other }
+    /** Playlist extensions win over the MIME type: providers report .m3u/.m3u8 as audio/x-mpegurl, which must not be read as a song. */
+    fun kindOf(name: String, mime: String?): Kind {
+        val ext = name.substringAfterLast('.', "").lowercase()
+        return when {
+            ext in playlistExtensions -> Kind.Playlist
+            mime?.startsWith("audio/") == true || ext in extensions -> Kind.Audio
+            else -> Kind.Other
+        }
+    }
+    /** Resolves "../Music/a.mp3" written inside a playlist stored at [playlistPath], so the reference can be looked up in the scan. */
+    fun relativeTo(playlistPath: String, reference: String): String {
+        val clean = Uri.decode(reference.removePrefix("file://")).replace('\\', '/').trim()
+        if (clean.startsWith("/") || ".." !in clean.split('/')) return reference
+        val parts = playlistPath.substringBeforeLast('/', "").split('/').filter { it.isNotEmpty() }.toMutableList()
+        for (piece in clean.split('/')) when (piece) { "", "." -> Unit; ".." -> if (parts.isNotEmpty()) parts.removeAt(parts.lastIndex) else return reference; else -> parts += piece }
+        return parts.joinToString("/")
     }
     fun find(reference: String, files: Map<String, Uri>): Uri? {
         val path = Uri.decode(reference.removePrefix("file://")).replace('\\', '/').trim().trimStart('/')

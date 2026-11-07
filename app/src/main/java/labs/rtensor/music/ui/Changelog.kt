@@ -68,6 +68,30 @@ internal fun parseChangelog(text: String): List<ChangelogRelease> {
 internal fun loadChangelog(context: Context): List<ChangelogRelease> =
     try { parseChangelog(context.assets.open("changelog.md").bufferedReader().use { it.readText() }) } catch (_: Exception) { emptyList() }
 
+/** The release notes GitHub holds for a release, as the same groups the in-app changelog shows. A body with no `## ` title gets the version as its title. */
+internal fun parseReleaseNotes(version: String, notes: String): ChangelogRelease? {
+    val text = if (notes.lines().any { it.startsWith("## ") }) notes else "## $version\n$notes"
+    return parseChangelog(text).firstOrNull()?.takeIf { it.sections.isNotEmpty() }
+}
+
+/** One release: its title, then each group with its entries. */
+@Composable
+internal fun ReleaseNotes(release: ChangelogRelease, showTitle: Boolean = true) {
+    val scheme = MaterialTheme.colorScheme
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (showTitle) Text(release.title, Modifier.semantics { heading() }, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = scheme.primary)
+        release.sections.forEach { section ->
+            Text(section.title, Modifier.padding(top = 4.dp).semantics { heading() }, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = scheme.onSurfaceVariant)
+            section.items.forEach { item ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("•", fontSize = 14.sp, lineHeight = 20.sp, color = scheme.onSurfaceVariant)
+                    Text(item, fontSize = 14.sp, lineHeight = 20.sp, color = scheme.onSurface)
+                }
+            }
+        }
+    }
+}
+
 /** What changed in each release, newest first, readable offline. */
 @Composable
 internal fun ChangelogDialog(onDismiss: () -> Unit) {
@@ -80,20 +104,7 @@ internal fun ChangelogDialog(onDismiss: () -> Unit) {
         text = {
             Column(Modifier.heightIn(max = 440.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(18.dp)) {
                 if (releases.isEmpty()) Text("The changelog isn’t available in this build.", fontSize = 14.sp, color = scheme.onSurfaceVariant)
-                releases.forEach { release ->
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(release.title, Modifier.semantics { heading() }, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = scheme.primary)
-                        release.sections.forEach { section ->
-                            Text(section.title, Modifier.padding(top = 4.dp).semantics { heading() }, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = scheme.onSurfaceVariant)
-                            section.items.forEach { item ->
-                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Text("•", fontSize = 14.sp, lineHeight = 20.sp, color = scheme.onSurfaceVariant)
-                                    Text(item, fontSize = 14.sp, lineHeight = 20.sp, color = scheme.onSurface)
-                                }
-                            }
-                        }
-                    }
-                }
+                releases.forEach { release -> ReleaseNotes(release) }
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },

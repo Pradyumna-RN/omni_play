@@ -135,8 +135,36 @@ internal class PlaylistImportController(private val context: Context, private va
         check(LocalMasters.hasReadGrant(context, uri.toString())) { "This provider did not grant lasting access. Choose the audio folder using Android's document picker." }
         resolveDocuments(uri)
     }
-    private suspend fun resolveDocuments(folder: Uri?) {
-        val files = if (folder == null) emptyMap() else withContext(Dispatchers.IO) { val caller = currentCoroutineContext(); LocalPlaylistFiles.index(context, folder) { caller.ensureActive() } }
+    /** A folder of playlists: every M3U/M3U8, PLS, XSPF, CSV or JSON file inside it (subfolders too) becomes a playlist, with local audio read from the same folder.
+     *  A folder that holds songs but no playlist file becomes one playlist per folder of songs, named after the folder. */
+    fun playlistsFolder(uri: Uri) = work {
+        check(LocalMasters.hasReadGrant(context, uri.toString())) { "This provider did not grant lasting access. Choose the folder using Android's document picker." }
+        update(state.copy(message = "Looking for playlists in the folder…"))
+        val scan = withContext(Dispatchers.IO) { val caller = currentCoroutineContext(); LocalPlaylistFiles.scan(context, uri) { caller.ensureActive() } }
+        val found = mutableListOf<ImportDocument>()
+        for ((path, file) in scan.playlists.entries.take(MAX_PLAYLIST_FILES)) {
+            currentCoroutineContext().ensureActive()
+            val parsed = withContext(Dispatchers.IO) {
+                try {
+                    val bytes = context.contentResolver.openInputStream(file)?.use { input -> val output = java.io.ByteArrayOutputStream(); val buffer = ByteArray(8192)
+                        while (output.size() <= PlaylistDocuments.MAX_BYTES) { val read = input.read(buffer); if (read < 0) break; output.write(buffer, 0, read) }; output.toByteArray() }
+                    if (bytes == null || bytes.size > PlaylistDocuments.MAX_BYTES) emptyList() else PlaylistDocuments.parse(bytes.toString(Charsets.UTF_8), path.substringAfterLast('/'))
+                } catch (e: CancellationException) { throw e } catch (_: Exception) { emptyList() }
+            }
+            found += parsed.map { document -> document.copy(songs = document.songs.map { song ->
+                if (localReference(song) && !song.location.startsWith("content://", true)) song.copy(location = LocalPlaylistFiles.relativeTo(path, song.location)) else song }) }
+        }
+        found.removeAll { it.songs.isEmpty() }
+        if (found.isEmpty()) {
+            val byFolder = scan.audio.keys.groupBy { it.substringBeforeLast('/', "") }.filterKeys { it.isNotEmpty() }
+            for ((folder, paths) in byFolder.entries.take(MAX_PLAYLIST_FILES)) found += ImportDocument(folder.substringAfterLast('/'), paths.sorted().map { ImportSong(location = it) })
+        }
+        check(found.isNotEmpty()) { "No playlist files or songs were found in this folder." }
+        documents = found; origin = "Playlist folder"
+        resolveDocuments(uri, scan.audio)
+    }
+    private suspend fun resolveDocuments(folder: Uri?, scanned: Map<String, Uri>? = null) {
+        val files = scanned ?: if (folder == null) emptyMap() else withContext(Dispatchers.IO) { val caller = currentCoroutineContext(); LocalPlaylistFiles.index(context, folder) { caller.ensureActive() } }
         var unavailable = 0; val ready = mutableListOf<PlaylistImportPreview>()
         for (document in documents) {
             val tracks = mutableListOf<Track>()
@@ -205,6 +233,7 @@ internal class PlaylistImportController(private val context: Context, private va
         }
     }
     companion object {
+        private const val MAX_PLAYLIST_FILES = 200
         private fun text(value: String) = Normalizer.normalize(value, Normalizer.Form.NFKC).lowercase().replace(Regex("(?i)\\b(official|audio|video|lyrics?|visualizer)\\b"), "").replace(Regex("[^\\p{L}\\p{N}]+"), " ").trim().replace(Regex("\\s+"), " ")
         internal fun localReference(song: ImportSong): Boolean = song.location.isNotBlank() &&
             (song.location.startsWith("content://", true) || song.location.startsWith("file://", true) || !song.location.contains(":") || Regex("^[A-Za-z]:[\\\\/]").containsMatchIn(song.location))

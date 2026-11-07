@@ -66,7 +66,8 @@ internal fun PlaylistImportSheet(state: PlaylistImportState, actions: SongAction
                         TextButton(onClick = { actions.importPlaylistLink(link) }, enabled = !state.busy && link.isNotBlank()) { Text("Read playlist link") }
                     }
                     item { OutlinedButton(onClick = actions.choosePlaylistFile, enabled = !state.busy, modifier = Modifier.fillMaxWidth()) { Text("Choose playlist file") } }
-                    item { Text("From other apps: choose an M3U/M3U8, PLS, XSPF, CSV or JSON export. Local audio stays on your device; missing or ambiguous online recordings are reported in the preview.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    item { OutlinedButton(onClick = actions.choosePlaylistsFolder, enabled = !state.busy, modifier = Modifier.fillMaxWidth()) { Text("Choose a folder of playlists") } }
+                    item { Text("From other apps: choose an M3U/M3U8, PLS, XSPF, CSV or JSON export, or a whole folder of them (subfolders included; a folder of songs becomes a playlist). Local audio stays on your device; missing or ambiguous online recordings are reported in the preview.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 }
             }
         }

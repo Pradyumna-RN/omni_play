@@ -14,7 +14,7 @@ import java.io.File
 import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 
-data class AppRelease(val version: String, val apkUrl: String, val checksumUrl: String, val apkName: String, val bytes: Long)
+data class AppRelease(val version: String, val apkUrl: String, val checksumUrl: String, val apkName: String, val bytes: Long, val notes: String = "")
 data class UpdateState(val checking: Boolean = false, val downloading: Boolean = false,
     val progress: Int = 0, val release: AppRelease? = null, val apkPath: String? = null, val message: String = "")
 /** A completed check. A verified download of the same release stays installable instead of being downloaded again. */
@@ -122,7 +122,8 @@ class GitHubUpdater(private val context: Context) {
                 val apk = APK_NAMES.firstNotNullOfOrNull { wanted -> files.firstOrNull { it.optString("name") == wanted } } ?: return@mapNotNull null
                 val sums = files.firstOrNull { it.optString("name") == "SHA256SUMS" } ?: return@mapNotNull null
                 if (!isReleaseAsset(apk.optString("browser_download_url")) || !isReleaseAsset(sums.optString("browser_download_url"))) return@mapNotNull null
-                version to AppRelease(tag.removePrefix("v"), apk.getString("browser_download_url"), sums.getString("browser_download_url"), apk.getString("name"), apk.getLong("size"))
+                version to AppRelease(tag.removePrefix("v"), apk.getString("browser_download_url"), sums.getString("browser_download_url"), apk.getString("name"), apk.getLong("size"),
+                    if (r.isNull("body")) "" else r.optString("body").take(8000))
             }.maxByOrNull { it.first }?.second
         }
         fun verifyIdentity(installed: AppIdentity, candidate: AppIdentity) {

@@ -32,6 +32,19 @@ class ChangelogTest {
         assertEquals(listOf("Old bug"), releases[1].sections.single().items)
     }
 
+    @Test fun releaseNotesWithoutATitleUseTheVersion() {
+        val notes = labs.rtensor.music.ui.parseReleaseNotes("1.2.3", "### New\n- Thing\n\n### Fixed\n- Bug")
+        assertEquals("1.2.3", notes?.title)
+        assertEquals(listOf("New", "Fixed"), notes?.sections?.map { it.title })
+        assertEquals(null, labs.rtensor.music.ui.parseReleaseNotes("1.2.3", ""))
+        assertEquals(null, labs.rtensor.music.ui.parseReleaseNotes("1.2.3", "Just some words."))
+    }
+
+    @Test fun releaseNotesKeepTheirOwnTitle() {
+        val notes = labs.rtensor.music.ui.parseReleaseNotes("1.2.3", "## Hum 1.2.3\n### New\n- Thing")
+        assertEquals("Hum 1.2.3", notes?.title)
+    }
+
     @Test fun repositoryChangelogHasTheCurrentReleaseFirst() {
         val file = generateSequence(File("").absoluteFile) { it.parentFile }.map { File(it, "CHANGELOG.md") }.first { it.exists() }
         val releases = parseChangelog(file.readText())
